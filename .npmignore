@@ -1,0 +1,13 @@
+src/
+tests/
+.omc/
+.codesight/
+.map/
+.claude/
+*.tsbuildinfo
+coverage/
+vitest.config.ts
+tsup.config.ts
+tsconfig.json
+.gitignore
+pipeline.yaml.example

@@ -1,0 +1,18 @@
+# MAP Pipeline Configuration
+# Copy this to pipeline.yaml in your project root or ~/.map/pipeline.yaml
+
+agents:
+  spec:
+    adapter: claude          # claude | codex | ollama
+    # model: deepseek-coder  # required for ollama, ignored for others
+  review:
+    adapter: codex
+  execute:
+    adapter: claude
+    # model: codellama:13b   # use a specific ollama model for execution
+
+# Output directory for generated projects
+outputDir: ./output
+
+# Auto-commit at stage boundaries for cancel/resume
+gitCheckpoints: true
