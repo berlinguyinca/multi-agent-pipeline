@@ -179,6 +179,12 @@ agents:
 
 Agent definitions (prompts, stages, capabilities) live in git under `agents/`. Deployment config (model overrides, tool connection strings, enabled/disabled) lives in `pipeline.yaml`. Community maintains agent logic; each user configures their environment.
 
+### Override Semantics
+
+- **Scalar fields** (`model`, `adapter`, `enabled`): deployment value replaces agent.yaml value
+- **Tools list**: deployment tools **extend** the agent.yaml tools. If a tool with the same `name` appears in both, the deployment config wins (merge by name).
+- **`enabled: false`**: the agent is excluded from the router's available agents list. If the router still references a disabled agent (stale plan), the orchestrator fails that step with a clear error.
+
 ### Backwards Compatibility
 
 The existing v0.1 `spec/review/qa/execute/docs` stage assignments become the `coder` agent. The current `pipeline.yaml` agent config shape remains valid as a shorthand when only one agent is needed and no routing is desired.
