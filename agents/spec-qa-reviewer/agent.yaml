@@ -1,0 +1,12 @@
+name: spec-qa-reviewer
+description: "Reviews software specifications for ambiguity, test gaps, and implementation risk"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: review-spec
+  - name: produce-reviewed-spec
+handles: "spec review, ambiguity detection, missing acceptance criteria, QA review, edge cases, implementation risk, test strategy review"
+output:
+  type: answer
+tools: []

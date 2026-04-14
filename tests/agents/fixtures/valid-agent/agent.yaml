@@ -1,0 +1,17 @@
+name: test-agent
+description: "A test agent for validation"
+adapter: claude
+model: sonnet
+prompt: prompt.md
+pipeline:
+  - name: analyze
+    prompt: stages/analyze.md
+  - name: summarize
+handles: "test tasks"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell
+    config:
+      allowedCommands: ["ls"]

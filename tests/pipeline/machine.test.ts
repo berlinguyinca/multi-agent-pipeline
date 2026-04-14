@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createActor } from 'xstate';
 import { pipelineMachine } from '../../src/pipeline/machine.js';
-import type { Spec, ReviewedSpec, RefinementScore, ExecutionResult } from '../../src/types/spec.js';
+import type {
+  Spec,
+  ReviewedSpec,
+  RefinementScore,
+  ExecutionResult,
+  QaAssessment,
+  DocumentationResult,
+} from '../../src/types/spec.js';
 import type { PipelineContext } from '../../src/types/pipeline.js';
 
 function makeContext(): PipelineContext {
@@ -11,10 +18,15 @@ function makeContext(): PipelineContext {
     reviewedSpec: null,
     iteration: 1,
     refinementScores: [],
+    qaAssessments: [],
+    specQaIterations: 0,
+    codeQaIterations: 0,
     agents: {
       spec: { type: 'claude' },
       review: { type: 'codex' },
+      qa: { type: 'codex' },
       execute: { type: 'claude' },
+      docs: { type: 'claude' },
     },
     outputDir: './output',
     feedbackHistory: [],
@@ -56,6 +68,43 @@ const mockResult: ExecutionResult = {
   duration: 4500,
 };
 
+const mockDocsResult: DocumentationResult = {
+  filesUpdated: ['README.md'],
+  outputDir: './output',
+  duration: 500,
+  rawOutput: 'Documentation updated',
+};
+
+const passingSpecQa: QaAssessment = {
+  passed: true,
+  target: 'spec',
+  summary: 'Spec is ready',
+  findings: [],
+  requiredChanges: [],
+  rawOutput: 'QA_RESULT: pass',
+  duration: 100,
+};
+
+const passingCodeQa: QaAssessment = {
+  passed: true,
+  target: 'code',
+  summary: 'Code is ready',
+  findings: [],
+  requiredChanges: [],
+  rawOutput: 'QA_RESULT: pass',
+  duration: 100,
+};
+
+const failingSpecQa: QaAssessment = {
+  passed: false,
+  target: 'spec',
+  summary: 'Spec needs work',
+  findings: ['Missing edge cases'],
+  requiredChanges: ['Add edge cases'],
+  rawOutput: 'QA_RESULT: fail',
+  duration: 100,
+};
+
 function createTestActor() {
   const context = makeContext();
   return createActor(pipelineMachine, {
@@ -67,7 +116,7 @@ function createTestActor() {
 }
 
 describe('Pipeline State Machine', () => {
-  describe('happy path: idle → specifying → reviewing → feedback → executing → complete', () => {
+  describe('happy path: idle → specifying → reviewing → specAssessing → feedback → executing → codeAssessing → documenting → complete', () => {
     it('transitions through all stages', () => {
       const actor = createTestActor();
       actor.start();
@@ -83,16 +132,27 @@ describe('Pipeline State Machine', () => {
       expect(actor.getSnapshot().context.spec).toEqual(mockSpec);
 
       actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      expect(actor.getSnapshot().value).toBe('specAssessing');
+
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
       expect(actor.getSnapshot().value).toBe('feedback');
       expect(actor.getSnapshot().context.reviewedSpec).toEqual(mockReviewedSpec);
       expect(actor.getSnapshot().context.refinementScores).toHaveLength(1);
+      expect(actor.getSnapshot().context.qaAssessments).toHaveLength(1);
 
       actor.send({ type: 'APPROVE' });
       expect(actor.getSnapshot().value).toBe('executing');
 
       actor.send({ type: 'EXECUTE_COMPLETE', result: mockResult });
+      expect(actor.getSnapshot().value).toBe('codeAssessing');
+
+      actor.send({ type: 'CODE_QA_COMPLETE', assessment: passingCodeQa, maxReached: false });
+      expect(actor.getSnapshot().value).toBe('documenting');
+
+      actor.send({ type: 'DOCS_COMPLETE', result: mockDocsResult });
       expect(actor.getSnapshot().value).toBe('complete');
       expect(actor.getSnapshot().context.executionResult).toEqual(mockResult);
+      expect(actor.getSnapshot().context.documentationResult).toEqual(mockDocsResult);
 
       actor.stop();
     });
@@ -106,6 +166,7 @@ describe('Pipeline State Machine', () => {
       actor.send({ type: 'START', prompt: 'Build something' });
       actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
       actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
 
       expect(actor.getSnapshot().value).toBe('feedback');
       expect(actor.getSnapshot().context.iteration).toBe(1);
@@ -126,10 +187,30 @@ describe('Pipeline State Machine', () => {
         reviewedSpec: { ...mockReviewedSpec, version: 2 },
         score: { ...mockScore, iteration: 2, score: 85 },
       });
+      actor.send({
+        type: 'SPEC_QA_COMPLETE',
+        assessment: { ...passingSpecQa, duration: 120 },
+        maxReached: false,
+      });
 
       expect(actor.getSnapshot().value).toBe('feedback');
       expect(actor.getSnapshot().context.refinementScores).toHaveLength(2);
 
+      actor.stop();
+    });
+
+    it('loops back to specifying when spec QA fails below max attempts', () => {
+      const actor = createTestActor();
+      actor.start();
+
+      actor.send({ type: 'START', prompt: 'test' });
+      actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
+      actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: failingSpecQa, maxReached: false });
+
+      expect(actor.getSnapshot().value).toBe('specifying');
+      expect(actor.getSnapshot().context.iteration).toBe(2);
+      expect(actor.getSnapshot().context.feedbackHistory).toEqual(['Add edge cases']);
       actor.stop();
     });
   });
@@ -160,6 +241,7 @@ describe('Pipeline State Machine', () => {
       actor.send({ type: 'START', prompt: 'test' });
       actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
       actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
       actor.send({ type: 'CANCEL' });
       expect(actor.getSnapshot().value).toBe('cancelled');
       actor.stop();
@@ -171,7 +253,23 @@ describe('Pipeline State Machine', () => {
       actor.send({ type: 'START', prompt: 'test' });
       actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
       actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
       actor.send({ type: 'APPROVE' });
+      actor.send({ type: 'CANCEL' });
+      expect(actor.getSnapshot().value).toBe('cancelled');
+      actor.stop();
+    });
+
+    it('cancels from documenting', () => {
+      const actor = createTestActor();
+      actor.start();
+      actor.send({ type: 'START', prompt: 'test' });
+      actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
+      actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
+      actor.send({ type: 'APPROVE' });
+      actor.send({ type: 'EXECUTE_COMPLETE', result: mockResult });
+      actor.send({ type: 'CODE_QA_COMPLETE', assessment: passingCodeQa, maxReached: false });
       actor.send({ type: 'CANCEL' });
       expect(actor.getSnapshot().value).toBe('cancelled');
       actor.stop();
@@ -205,9 +303,26 @@ describe('Pipeline State Machine', () => {
       actor.send({ type: 'START', prompt: 'test' });
       actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
       actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
       actor.send({ type: 'APPROVE' });
       actor.send({ type: 'ERROR', error: 'Tests failed' });
       expect(actor.getSnapshot().value).toBe('failed');
+      actor.stop();
+    });
+
+    it('transitions to failed on ERROR from documenting', () => {
+      const actor = createTestActor();
+      actor.start();
+      actor.send({ type: 'START', prompt: 'test' });
+      actor.send({ type: 'SPEC_COMPLETE', spec: mockSpec });
+      actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+      actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
+      actor.send({ type: 'APPROVE' });
+      actor.send({ type: 'EXECUTE_COMPLETE', result: mockResult });
+      actor.send({ type: 'CODE_QA_COMPLETE', assessment: passingCodeQa, maxReached: false });
+      actor.send({ type: 'ERROR', error: 'Docs changed source files' });
+      expect(actor.getSnapshot().value).toBe('failed');
+      expect(actor.getSnapshot().context.error).toBe('Docs changed source files');
       actor.stop();
     });
 

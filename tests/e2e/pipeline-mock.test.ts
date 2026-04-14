@@ -2,7 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { createActor } from 'xstate';
 import { pipelineMachine } from '../../src/pipeline/machine.js';
 import { createPipelineContext } from '../../src/pipeline/context.js';
-import type { Spec, ReviewedSpec, RefinementScore, ExecutionResult } from '../../src/types/spec.js';
+import type { Spec, ReviewedSpec, RefinementScore, ExecutionResult, QaAssessment } from '../../src/types/spec.js';
+
+const passingSpecQa: QaAssessment = {
+  passed: true,
+  target: 'spec',
+  summary: 'Spec passed',
+  findings: [],
+  requiredChanges: [],
+  rawOutput: 'QA_RESULT: pass',
+  duration: 50,
+};
+
+const passingCodeQa: QaAssessment = {
+  passed: true,
+  target: 'code',
+  summary: 'Code passed',
+  findings: [],
+  requiredChanges: [],
+  rawOutput: 'QA_RESULT: pass',
+  duration: 50,
+};
 
 describe('E2E: Full Pipeline Flow with Mock Data', () => {
   it('completes a full pipeline: spec → review → approve → execute → complete', () => {
@@ -11,7 +31,9 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     });
 
@@ -54,6 +76,8 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       timestamp: new Date(),
     };
     actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec, score });
+    expect(actor.getSnapshot().value).toBe('specAssessing');
+    actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
     expect(actor.getSnapshot().value).toBe('feedback');
     expect(actor.getSnapshot().context.refinementScores).toHaveLength(1);
     expect(actor.getSnapshot().context.refinementScores[0].score).toBe(85);
@@ -73,6 +97,13 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       duration: 3200,
     };
     actor.send({ type: 'EXECUTE_COMPLETE', result });
+    expect(actor.getSnapshot().value).toBe('codeAssessing');
+    actor.send({ type: 'CODE_QA_COMPLETE', assessment: passingCodeQa, maxReached: false });
+    expect(actor.getSnapshot().value).toBe('documenting');
+    actor.send({
+      type: 'DOCS_COMPLETE',
+      result: { filesUpdated: ['README.md'], outputDir: './output/hello-cli', duration: 400, rawOutput: 'done' },
+    });
     expect(actor.getSnapshot().value).toBe('complete');
     expect(actor.getSnapshot().context.executionResult?.success).toBe(true);
     expect(actor.getSnapshot().context.executionResult?.testsPassing).toBe(2);
@@ -86,7 +117,9 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'ollama', model: 'codellama' },
+        docs: { type: 'claude' },
       },
     });
 
@@ -106,6 +139,7 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       reviewedSpec: { content: 'v1 reviewed', version: 1, annotations: [], originalSpecVersion: 1 },
       score: { iteration: 1, score: 60, completeness: 0.6, testability: 0.5, specificity: 0.7, timestamp: new Date() },
     });
+    actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
 
     expect(actor.getSnapshot().value).toBe('feedback');
     expect(actor.getSnapshot().context.iteration).toBe(1);
@@ -126,6 +160,7 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       reviewedSpec: { content: 'v2 reviewed', version: 2, annotations: [], originalSpecVersion: 2 },
       score: { iteration: 2, score: 90, completeness: 0.95, testability: 0.9, specificity: 0.85, timestamp: new Date() },
     });
+    actor.send({ type: 'SPEC_QA_COMPLETE', assessment: passingSpecQa, maxReached: false });
 
     expect(actor.getSnapshot().context.refinementScores).toHaveLength(2);
     expect(actor.getSnapshot().context.refinementScores[1].score).toBe(90);
@@ -135,6 +170,11 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
     actor.send({
       type: 'EXECUTE_COMPLETE',
       result: { success: true, testsTotal: 6, testsPassing: 6, testsFailing: 0, filesCreated: [], outputDir: './output', duration: 5000 },
+    });
+    actor.send({ type: 'CODE_QA_COMPLETE', assessment: passingCodeQa, maxReached: false });
+    actor.send({
+      type: 'DOCS_COMPLETE',
+      result: { filesUpdated: ['README.md'], outputDir: './output', duration: 300, rawOutput: 'done' },
     });
 
     expect(actor.getSnapshot().value).toBe('complete');
@@ -149,7 +189,9 @@ describe('E2E: Full Pipeline Flow with Mock Data', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     });
 

@@ -42,5 +42,7 @@ function installHint(type: AdapterType): string {
       return 'Install: npm install -g @openai/codex';
     case 'ollama':
       return 'Install: https://ollama.com/download';
+    case 'hermes':
+      return 'Install Hermes CLI and ensure the hermes binary is on PATH';
   }
 }

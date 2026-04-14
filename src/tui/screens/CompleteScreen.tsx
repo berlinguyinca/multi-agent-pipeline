@@ -1,6 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import chalk from 'chalk';
+import type { DocumentationResult, QaAssessment } from '../../types/spec.js';
+import type { GitHubReportResult } from '../../types/github.js';
 
 interface CompleteScreenProps {
   iterations: number;
@@ -9,6 +11,9 @@ interface CompleteScreenProps {
   filesCreated: string[];
   duration: number;
   outputDir: string;
+  qaAssessments?: QaAssessment[];
+  documentationResult?: DocumentationResult;
+  githubReport?: GitHubReportResult;
   onNewPipeline: () => void;
 }
 
@@ -19,9 +24,13 @@ export default function CompleteScreen({
   filesCreated,
   duration,
   outputDir,
+  qaAssessments = [],
+  documentationResult,
+  githubReport,
   onNewPipeline,
 }: CompleteScreenProps) {
   const durationSecs = (duration / 1000).toFixed(1);
+  const finalCodeQa = [...qaAssessments].reverse().find((qa) => qa.target === 'code');
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -40,6 +49,32 @@ export default function CompleteScreen({
         <Text>
           {chalk.dim('Output:')} {outputDir}
         </Text>
+        {finalCodeQa && (
+          <Text>
+            {chalk.dim('QA:')} {finalCodeQa.passed ? chalk.green('passed') : chalk.red('failed')}
+            {finalCodeQa.summary ? ` — ${finalCodeQa.summary}` : ''}
+          </Text>
+        )}
+        {githubReport && (
+          <Text>
+            {chalk.dim('GitHub:')}{' '}
+            {githubReport.posted
+              ? chalk.green(`posted${githubReport.commentUrl ? ` (${githubReport.commentUrl})` : ''}`)
+              : chalk.red(`not posted: ${githubReport.error ?? 'unknown error'}`)}
+          </Text>
+        )}
+        {documentationResult && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text>{chalk.dim('Documentation updated:')}</Text>
+            {documentationResult.filesUpdated.length > 0 ? (
+              documentationResult.filesUpdated.map((f) => (
+                <Text key={f}>{chalk.dim('  •')} {f}</Text>
+              ))
+            ) : (
+              <Text>{chalk.dim('  •')} No Markdown files changed</Text>
+            )}
+          </Box>
+        )}
         {filesCreated.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
             <Text>{chalk.dim('Files created:')}</Text>

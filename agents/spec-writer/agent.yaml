@@ -1,0 +1,12 @@
+name: spec-writer
+description: "Creates implementation-ready specifications from rough software requests"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: draft-spec
+  - name: normalize-acceptance-criteria
+handles: "requirements decomposition, product intent, acceptance criteria, interface definition, constraints, implementation-ready specifications"
+output:
+  type: answer
+tools: []

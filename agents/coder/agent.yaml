@@ -1,0 +1,17 @@
+name: coder
+description: "Full spec-to-code lifecycle with TDD and documentation"
+adapter: claude
+prompt: prompt.md
+pipeline:
+  - name: spec
+  - name: review
+  - name: qa
+  - name: execute
+  - name: code-qa
+  - name: docs
+handles: "code implementation, new features, bug fixes, refactoring, software projects"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

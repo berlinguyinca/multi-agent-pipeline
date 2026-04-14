@@ -1,0 +1,14 @@
+name: release-readiness-reviewer
+description: "Assesses final readiness, verification evidence, known risks, and follow-up work"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: collect-evidence
+  - name: assess-readiness
+handles: "release readiness, final QA, verification summary, residual risk, deployment confidence, acceptance evidence"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell

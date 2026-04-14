@@ -1,0 +1,18 @@
+name: software-delivery
+description: "Full software delivery lifecycle from implementation-ready spec through code QA"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: spec-generation
+  - name: spec-qa-review
+  - name: tdd-planning
+  - name: test-authoring
+  - name: implementation
+  - name: code-qa-analysis
+handles: "end-to-end feature delivery, implementation-ready specs, QA-reviewed requirements, test-driven development, code implementation, code quality analysis"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

@@ -12,7 +12,9 @@ const detection = {
 const agents = {
   spec: { adapter: 'claude' as const },
   review: { adapter: 'codex' as const },
+  qa: { adapter: 'ollama' as const, model: 'qwen' },
   execute: { adapter: 'ollama' as const },
+  docs: { adapter: 'claude' as const },
 };
 
 describe('WelcomeScreen', () => {
@@ -41,6 +43,8 @@ describe('WelcomeScreen', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('spec');
+    expect(frame).toContain('qa');
+    expect(frame).toContain('docs');
   });
 
   it('shows agent assignment section', () => {

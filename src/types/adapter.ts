@@ -1,8 +1,9 @@
-export type AdapterType = 'claude' | 'codex' | 'ollama';
+export type AdapterType = 'claude' | 'codex' | 'ollama' | 'hermes';
 
 export interface AdapterConfig {
   type: AdapterType;
   model?: string;
+  host?: string;
   apiKey?: string;
   binaryPath?: string;
 }
@@ -21,12 +22,14 @@ export interface DetectionResult {
   claude: DetectInfo;
   codex: DetectInfo;
   ollama: OllamaDetectInfo;
+  hermes: DetectInfo;
 }
 
 export interface RunOptions {
   signal?: AbortSignal;
   cwd?: string;
   systemPrompt?: string;
+  allowTools?: boolean;
 }
 
 export interface AgentAdapter {

@@ -84,6 +84,29 @@ describe('CompleteScreen', () => {
     expect(frame).toContain('src/feature.ts');
   });
 
+  it('shows documentation updates', () => {
+    const { lastFrame } = render(
+      <CompleteScreen
+        iterations={1}
+        testsTotal={5}
+        testsPassing={5}
+        filesCreated={[]}
+        duration={1000}
+        outputDir="./output"
+        documentationResult={{
+          filesUpdated: ['README.md', 'docs/usage.md'],
+          outputDir: './output',
+          duration: 300,
+          rawOutput: 'updated docs',
+        }}
+        onNewPipeline={vi.fn()}
+      />
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Documentation updated');
+    expect(frame).toContain('README.md');
+  });
+
   it('renders with zero tests', () => {
     const { lastFrame } = render(
       <CompleteScreen

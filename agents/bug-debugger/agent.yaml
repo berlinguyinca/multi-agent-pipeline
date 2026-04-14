@@ -1,0 +1,15 @@
+name: bug-debugger
+description: "Investigates defects, isolates root cause, and proposes minimal regression-safe fixes"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: reproduce
+  - name: isolate-root-cause
+  - name: propose-fix
+handles: "bug reports, failing behavior, regressions, stack traces, error logs, root-cause analysis, reproduction steps"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell

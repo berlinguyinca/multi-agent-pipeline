@@ -15,6 +15,13 @@ describe('isActiveStage', () => {
     expect(isActiveStage('executing')).toBe(true);
   });
 
+  it('returns true for QA and fixing stages', () => {
+    expect(isActiveStage('specAssessing')).toBe(true);
+    expect(isActiveStage('codeAssessing')).toBe(true);
+    expect(isActiveStage('fixing')).toBe(true);
+    expect(isActiveStage('documenting')).toBe(true);
+  });
+
   it('returns false for idle', () => {
     expect(isActiveStage('idle')).toBe(false);
   });
@@ -56,15 +63,19 @@ describe('isTerminalStage', () => {
 });
 
 describe('ACTIVE_STAGES', () => {
-  it('contains exactly 3 stages', () => {
-    expect(ACTIVE_STAGES).toHaveLength(3);
+  it('contains exactly 7 stages', () => {
+    expect(ACTIVE_STAGES).toHaveLength(7);
   });
 
   it('is a readonly tuple (as const)', () => {
     // as const is compile-time; verify the values are correct at runtime
     expect(ACTIVE_STAGES[0]).toBe('specifying');
     expect(ACTIVE_STAGES[1]).toBe('reviewing');
-    expect(ACTIVE_STAGES[2]).toBe('executing');
+    expect(ACTIVE_STAGES[2]).toBe('specAssessing');
+    expect(ACTIVE_STAGES[3]).toBe('executing');
+    expect(ACTIVE_STAGES[4]).toBe('codeAssessing');
+    expect(ACTIVE_STAGES[5]).toBe('fixing');
+    expect(ACTIVE_STAGES[6]).toBe('documenting');
   });
 });
 
@@ -74,13 +85,17 @@ describe('PipelineStage type coverage', () => {
       'idle',
       'specifying',
       'reviewing',
+      'specAssessing',
       'feedback',
       'executing',
+      'codeAssessing',
+      'fixing',
+      'documenting',
       'complete',
       'failed',
       'cancelled',
     ];
-    expect(allStages).toHaveLength(8);
+    expect(allStages).toHaveLength(12);
     for (const stage of allStages) {
       expect(typeof isActiveStage(stage)).toBe('boolean');
       expect(typeof isTerminalStage(stage)).toBe('boolean');

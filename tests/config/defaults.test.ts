@@ -10,8 +10,16 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.agents.review.adapter).toBe('codex');
   });
 
+  it('assigns codex adapter to QA stage', () => {
+    expect(DEFAULT_CONFIG.agents.qa.adapter).toBe('codex');
+  });
+
   it('assigns claude adapter to execute stage', () => {
     expect(DEFAULT_CONFIG.agents.execute.adapter).toBe('claude');
+  });
+
+  it('assigns claude adapter to docs stage', () => {
+    expect(DEFAULT_CONFIG.agents.docs.adapter).toBe('claude');
   });
 
   it('defaults outputDir to ./output', () => {
@@ -20,5 +28,14 @@ describe('DEFAULT_CONFIG', () => {
 
   it('defaults gitCheckpoints to true', () => {
     expect(DEFAULT_CONFIG.gitCheckpoints).toBe(true);
+  });
+
+  it('defaults Ollama host to localhost', () => {
+    expect(DEFAULT_CONFIG.ollama.host).toBe('http://localhost:11434');
+  });
+
+  it('defaults QA loop limits', () => {
+    expect(DEFAULT_CONFIG.quality.maxSpecQaIterations).toBe(3);
+    expect(DEFAULT_CONFIG.quality.maxCodeQaIterations).toBe(3);
   });
 });

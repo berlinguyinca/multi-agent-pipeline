@@ -13,6 +13,11 @@ describe('OllamaAdapter', () => {
     expect(adapter.model).toBe('deepseek-coder:latest');
   });
 
+  it('stores configured host', () => {
+    const adapter = new OllamaAdapter('qwen', 'http://127.0.0.1:11435');
+    expect(adapter.host).toBe('http://127.0.0.1:11435');
+  });
+
   it('throws AdapterError when model is not set', async () => {
     const adapter = new OllamaAdapter();
     const gen = adapter.run('test');

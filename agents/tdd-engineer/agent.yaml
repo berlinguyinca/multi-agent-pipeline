@@ -1,0 +1,14 @@
+name: tdd-engineer
+description: "Derives test-first plans and writes failing tests from acceptance criteria"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: derive-test-plan
+  - name: write-failing-tests
+handles: "test-driven development, failing tests, acceptance test mapping, regression tests, unit tests, integration tests, test plans"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

@@ -7,9 +7,21 @@ agents:
     # model: deepseek-coder  # required for ollama, ignored for others
   review:
     adapter: codex
+  qa:
+    adapter: ollama
+    model: qwen              # used for spec QA and code QA
   execute:
-    adapter: claude
-    # model: codellama:13b   # use a specific ollama model for execution
+    adapter: ollama
+    model: gemma4            # implementation and QA-driven fixes
+  docs:
+    adapter: claude          # final Markdown documentation update
+
+ollama:
+  host: http://localhost:11434
+
+quality:
+  maxSpecQaIterations: 3
+  maxCodeQaIterations: 3
 
 # Output directory for generated projects
 outputDir: ./output

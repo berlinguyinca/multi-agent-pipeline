@@ -39,4 +39,12 @@ describe('RefinementScore', () => {
     // Should contain some block or bar character representation
     expect(frame.length).toBeGreaterThan(0);
   });
+
+  it('accepts percentage-style scores from pipeline state', () => {
+    const { lastFrame } = render(
+      <RefinementScore scores={[{ iteration: 1, score: 72 }]} />
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('72%');
+  });
 });

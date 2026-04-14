@@ -1,0 +1,14 @@
+name: docs-maintainer
+description: "Updates Markdown documentation after implementation and QA"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-changes
+  - name: update-markdown-docs
+handles: "README updates, markdown documentation, usage docs, changelog notes, implementation summaries, user-facing docs"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
