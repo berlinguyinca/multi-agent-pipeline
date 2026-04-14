@@ -5,7 +5,7 @@ import App from './tui/App.js';
 import { loadConfig } from './config/loader.js';
 import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
-import { extractFlag, extractPrompt, extractSubcommand } from './cli-args.js';
+import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -36,9 +36,10 @@ Options:
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
-  --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
-  --review-pr <url>      Review a GitHub PR and post review comment (requires GITHUB_TOKEN)
+  --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
+  --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
+  --verbose, -V          Show detailed progress and stage output on stderr
   --v2                   Use v2 routing mode (DAG-based agent routing)
 
 Commands:
@@ -78,6 +79,7 @@ Commands:
 
   if (args.includes('--headless')) {
     const useV2 = args.includes('--v2');
+    const verbose = hasFlag(args, '--verbose') || hasFlag(args, '-V');
     const prompt = extractPrompt(args);
     const outputDir = extractFlag(args, '--output-dir');
     const configPath = extractFlag(args, '--config');
@@ -94,6 +96,7 @@ Commands:
         outputDir,
         configPath,
         personality,
+        verbose,
       });
       process.stdout.write(JSON.stringify(result) + '\n');
       process.exit(result.success ? 0 : 1);
@@ -105,6 +108,7 @@ Commands:
       outputDir,
       configPath,
       personality,
+      verbose,
       totalTimeoutMs:
         totalTimeout !== undefined
           ? parseDuration(totalTimeout, '--total-timeout')

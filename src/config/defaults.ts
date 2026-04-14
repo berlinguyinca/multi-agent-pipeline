@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     execute: { adapter: 'claude' },
     docs: { adapter: 'claude' },
   },
+  github: {},
   ollama: {
     host: 'http://localhost:11434',
   },

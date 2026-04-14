@@ -1,6 +1,7 @@
 import type {
   PipelineConfig,
   AgentAssignment,
+  GitHubConfig,
   HeadlessRuntimeConfig,
   OllamaConfig,
   QualityConfig,
@@ -135,6 +136,24 @@ function validateHeadlessConfig(value: unknown): Partial<HeadlessRuntimeConfig> 
   }
 
   return headless;
+}
+
+function validateGitHubConfig(value: unknown): Partial<GitHubConfig> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('github must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const github: Partial<GitHubConfig> = {};
+
+  if (obj['token'] !== undefined) {
+    if (typeof obj['token'] !== 'string' || obj['token'].trim() === '') {
+      throw new Error('github.token must be a non-empty string');
+    }
+    github.token = obj['token'].trim();
+  }
+
+  return github;
 }
 
 function validateOllamaConfig(value: unknown): Partial<OllamaConfig> {
@@ -347,6 +366,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     headless = validateHeadlessConfig(obj['headless']);
   }
 
+  let github: Partial<GitHubConfig> | undefined;
+  if (obj['github'] !== undefined) {
+    github = validateGitHubConfig(obj['github']);
+  }
+
   let ollama: Partial<OllamaConfig> | undefined;
   if (obj['ollama'] !== undefined) {
     ollama = validateOllamaConfig(obj['ollama']);
@@ -374,6 +398,7 @@ export function validateConfig(config: unknown): PipelineConfig {
 
   return {
     ...(agents !== undefined ? { agents } : {}),
+    ...(github !== undefined ? { github } : {}),
     ...(ollama !== undefined ? { ollama } : {}),
     ...(quality !== undefined ? { quality } : {}),
     ...(typeof obj['outputDir'] === 'string' ? { outputDir: obj['outputDir'] } : {}),

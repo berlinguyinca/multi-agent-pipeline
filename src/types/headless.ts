@@ -11,6 +11,7 @@ export interface HeadlessOptions {
   inactivityTimeoutMs?: number;
   pollIntervalMs?: number;
   personality?: string;
+  verbose?: boolean;
 }
 
 export interface HeadlessResult {

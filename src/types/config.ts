@@ -17,6 +17,10 @@ export interface HeadlessRuntimeConfig {
   pollIntervalMs: number;
 }
 
+export interface GitHubConfig {
+  token?: string;
+}
+
 export interface OllamaConfig {
   host: string;
 }
@@ -46,6 +50,7 @@ export interface PipelineConfig {
     execute: AgentAssignment;
     docs: AgentAssignment;
   };
+  github: GitHubConfig;
   ollama: OllamaConfig;
   quality: QualityConfig;
   outputDir: string;
