@@ -1,0 +1,14 @@
+name: code-qa-analyst
+description: "Reviews implemented code for correctness, maintainability, test adequacy, and spec conformance"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: analyze-code
+  - name: report-findings
+handles: "code QA, code review, test adequacy, spec conformance, maintainability review, regression risk, implementation quality"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell

@@ -1,0 +1,15 @@
+name: implementation-coder
+description: "Implements the smallest code change needed to satisfy failing tests and reviewed specs"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-tests
+  - name: write-code
+  - name: refactor
+handles: "code implementation, feature work, bug fixes, test fixes, minimal diffs, behavior-preserving refactors after green tests"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

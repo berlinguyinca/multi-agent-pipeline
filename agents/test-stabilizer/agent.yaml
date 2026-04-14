@@ -1,0 +1,15 @@
+name: test-stabilizer
+description: "Improves flaky, brittle, missing, or low-signal tests without changing product behavior"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-tests
+  - name: stabilize-tests
+  - name: verify-tests
+handles: "flaky tests, brittle tests, missing regression coverage, low-signal tests, test reliability, test cleanup"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

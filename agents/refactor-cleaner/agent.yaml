@@ -1,0 +1,15 @@
+name: refactor-cleaner
+description: "Performs behavior-preserving cleanup using existing project patterns"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: map-current-behavior
+  - name: simplify-code
+  - name: verify-behavior
+handles: "refactoring, cleanup, simplification, duplicate removal, behavior-preserving changes, maintainability improvements"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell

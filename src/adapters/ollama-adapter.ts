@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AdapterType, RunOptions, OllamaDetectInfo } from '../types/adapter.js';
 import { BaseAdapter, AdapterError } from './base-adapter.js';
+import { ensureOllamaReadyForConfigs } from './ollama-runtime.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,6 +41,10 @@ export class OllamaAdapter extends BaseAdapter {
     if (!this.model) {
       throw new AdapterError('Ollama adapter requires a model name', this.type);
     }
+
+    await ensureOllamaReadyForConfigs([
+      { type: this.type, model: this.model, host: this.host },
+    ]);
 
     yield* this.streamProcess('ollama', ['run', this.model, prompt], {
       signal: options?.signal,

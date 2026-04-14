@@ -1,0 +1,15 @@
+name: build-fixer
+description: "Fixes TypeScript, build, lint, and toolchain failures with minimal diffs"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-failure
+  - name: fix-build
+  - name: verify-build
+handles: "build failures, type errors, lint errors, toolchain errors, failing npm scripts, compilation failures"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
