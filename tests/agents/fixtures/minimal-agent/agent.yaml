@@ -1,0 +1,11 @@
+name: minimal
+description: "Minimal agent"
+adapter: ollama
+model: gemma4
+prompt: prompt.md
+pipeline:
+  - name: run
+handles: "anything"
+output:
+  type: answer
+tools: []
