@@ -99,8 +99,14 @@ describe('DAG types', () => {
       expect(ready.map((s) => s.id)).toEqual(['step-3']);
     });
 
-    it('returns empty when nothing is ready', () => {
+    it('returns independent step even when a peer is already completed', () => {
       const completed = new Set(['step-1']);
+      const ready = getReadySteps(parallelPlan, completed);
+      expect(ready.map((s) => s.id)).toEqual(['step-2']);
+    });
+
+    it('returns empty when all steps are completed', () => {
+      const completed = new Set(['step-1', 'step-2', 'step-3']);
       const ready = getReadySteps(parallelPlan, completed);
       expect(ready).toEqual([]);
     });

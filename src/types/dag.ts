@@ -139,57 +139,11 @@ export function topologicalSort(plan: DAGPlan): DAGStep[] {
 }
 
 export function getReadySteps(plan: DAGPlan, completed: Set<string>): DAGStep[] {
-  // Compute the topological depth of each step (0 = no deps).
-  const depth = new Map<string, number>();
-  const stepMap = new Map<string, DAGStep>();
-  for (const step of plan.plan) {
-    stepMap.set(step.id, step);
-  }
-
-  function getDepth(id: string): number {
-    if (depth.has(id)) return depth.get(id)!;
-    const step = stepMap.get(id)!;
-    if (step.dependsOn.length === 0) {
-      depth.set(id, 0);
-      return 0;
-    }
-    const d = 1 + Math.max(...step.dependsOn.map(getDepth));
-    depth.set(id, d);
-    return d;
-  }
-  for (const step of plan.plan) getDepth(step.id);
-
-  // Find the lowest depth that still has incomplete steps.
-  const incompleteDepths = plan.plan
-    .filter((s) => !completed.has(s.id))
-    .map((s) => depth.get(s.id)!);
-
-  if (incompleteDepths.length === 0) return [];
-
-  const targetDepth = Math.min(...incompleteDepths);
-
-  // All steps at targetDepth must have their deps satisfied (they will
-  // by definition since all lower depths are complete).
-  // Ensure ALL steps at targetDepth - 1 are completed (wave boundary).
-  if (targetDepth > 0) {
-    const prevWave = plan.plan.filter((s) => depth.get(s.id) === targetDepth - 1);
-    if (prevWave.some((s) => !completed.has(s.id))) return [];
-  }
-
-  // Check that the ENTIRE current wave (targetDepth) hasn't been partially started.
-  // If some steps at targetDepth are already completed but others aren't, we are
-  // mid-wave: return only those not yet completed.
-  // However, if the current wave is mixed (some done, some not), that means we
-  // advanced into this wave but not all peers finished — return nothing (mid-wave).
-  const currentWave = plan.plan.filter((s) => depth.get(s.id) === targetDepth);
-  const currentWaveDone = currentWave.filter((s) => completed.has(s.id));
-  const currentWaveNotDone = currentWave.filter((s) => !completed.has(s.id));
-
-  // If some in this wave are done and some are not, we're mid-wave → nothing ready.
-  if (currentWaveDone.length > 0 && currentWaveNotDone.length > 0) return [];
-
-  // All in this wave are not done (fresh wave) → return all.
-  return currentWaveNotDone;
+  return plan.plan.filter(
+    (step) =>
+      !completed.has(step.id) &&
+      step.dependsOn.every((dep) => completed.has(dep)),
+  );
 }
 
 export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult {
