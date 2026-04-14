@@ -37,6 +37,7 @@ Options:
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
   --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
   --personality <text>   Personality/tone injected into all AI prompts
+  --v2                   Use v2 routing mode (DAG-based agent routing)
 `);
     process.exit(0);
   }
@@ -47,6 +48,7 @@ Options:
   }
 
   if (args.includes('--headless')) {
+    const useV2 = args.includes('--v2');
     const prompt = extractPrompt(args);
     const outputDir = extractFlag(args, '--output-dir');
     const configPath = extractFlag(args, '--config');
@@ -55,6 +57,18 @@ Options:
     const pollInterval = extractFlag(args, '--poll-interval');
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
+
+    if (useV2) {
+      const { runHeadlessV2 } = await import('./headless/runner.js');
+      const result = await runHeadlessV2({
+        prompt,
+        outputDir,
+        configPath,
+        personality,
+      });
+      process.stdout.write(JSON.stringify(result) + '\n');
+      process.exit(result.success ? 0 : 1);
+    }
 
     const result = await runHeadless({
       prompt,

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { loadConfig } from '../config/loader.js';
 import { detectAllAdapters } from '../adapters/detect.js';
 import { createAdapter } from '../adapters/adapter-factory.js';
@@ -5,6 +6,11 @@ import { createPipelineActor } from '../pipeline/machine.js';
 import { createPipelineContext } from '../pipeline/context.js';
 import type { PipelineContext } from '../types/pipeline.js';
 import type { HeadlessOptions, HeadlessResult } from '../types/headless.js';
+import { loadAgentRegistry, getEnabledAgents, mergeWithOverrides } from '../agents/registry.js';
+import { routeTask } from '../router/router.js';
+import { executeDAG } from '../orchestrator/orchestrator.js';
+import { buildHeadlessResultV2 } from './result-builder.js';
+import type { HeadlessResultV2 } from '../types/headless.js';
 import type {
   DocumentationResult,
   ExecutionResult,
@@ -865,4 +871,44 @@ function markActivity(runtimeState: RuntimeState): void {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function runHeadlessV2(
+  options: HeadlessOptions,
+  dependencies: HeadlessDependencies = defaultDependencies,
+): Promise<HeadlessResultV2> {
+  const startTime = Date.now();
+
+  try {
+    const config = await dependencies.loadConfigFn(options.configPath);
+
+    const agentsDir = path.join(process.cwd(), 'agents');
+    const rawAgents = await loadAgentRegistry(agentsDir);
+
+    for (const [name, overrides] of Object.entries(config.agentOverrides)) {
+      const base = rawAgents.get(name);
+      if (base) {
+        rawAgents.set(name, mergeWithOverrides(base, overrides));
+      }
+    }
+
+    const agents = getEnabledAgents(rawAgents);
+
+    if (agents.size === 0) {
+      return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, 'No agents available');
+    }
+
+    const routerAdapter = dependencies.createAdapterFn({
+      type: config.router.adapter,
+      model: config.router.model,
+    });
+    const plan = await routeTask(options.prompt, agents, routerAdapter, config.router);
+
+    const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn);
+
+    return buildHeadlessResultV2(plan, dagResult.steps, Date.now() - startTime);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message);
+  }
 }
