@@ -3,6 +3,25 @@ import { runPRReview } from '../../src/headless/pr-review.js';
 import type { PipelineConfig } from '../../src/types/config.js';
 import type { AgentAdapter } from '../../src/types/adapter.js';
 
+// Mock gh CLI so resolveGitHubToken doesn't try to exec a real binary
+vi.mock('../../src/github/token.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/github/token.js')>();
+  return {
+    ...actual,
+    resolveGitHubToken: async (
+      config?: unknown,
+      env: NodeJS.ProcessEnv = process.env,
+    ) => {
+      const token = (env['GITHUB_TOKEN'] as string | undefined)?.trim();
+      if (token && token !== '') return token;
+      const cfg = config as { github?: { token?: string } } | undefined;
+      const cfgToken = cfg?.github?.token;
+      if (cfgToken && cfgToken.trim() !== '') return cfgToken.trim();
+      return undefined;
+    },
+  };
+});
+
 function makeConfig(): PipelineConfig {
   return {
     agents: {
@@ -12,6 +31,7 @@ function makeConfig(): PipelineConfig {
       execute: { adapter: 'claude' },
       docs: { adapter: 'claude' },
     },
+    github: {},
     ollama: { host: 'http://localhost:11434' },
     quality: { maxSpecQaIterations: 3, maxCodeQaIterations: 3 },
     outputDir: './output',

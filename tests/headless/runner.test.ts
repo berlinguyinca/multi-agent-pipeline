@@ -26,6 +26,25 @@ vi.mock('../../src/config/loader.js', () => ({
   loadConfig: vi.fn(),
 }));
 
+// Mock gh CLI so resolveGitHubToken doesn't try to exec a real binary
+vi.mock('../../src/github/token.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/github/token.js')>();
+  return {
+    ...actual,
+    resolveGitHubToken: async (
+      config?: unknown,
+      env: NodeJS.ProcessEnv = process.env,
+    ) => {
+      const token = (env['GITHUB_TOKEN'] as string | undefined)?.trim();
+      if (token && token !== '') return token;
+      const cfg = config as { github?: { token?: string } } | undefined;
+      const cfgToken = cfg?.github?.token;
+      if (cfgToken && cfgToken.trim() !== '') return cfgToken.trim();
+      return undefined; // Skip gh CLI in tests
+    },
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -71,6 +90,7 @@ const defaultConfigMock = {
     execute: { adapter: 'claude' as const },
     docs: { adapter: 'claude' as const },
   },
+  github: {},
   ollama: {
     host: 'http://localhost:11434',
   },
@@ -826,7 +846,9 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe('GITHUB_TOKEN is required when --github-issue is provided');
+    expect(result.error).toBe(
+      'GitHub token not found. Set GITHUB_TOKEN, add github.token to pipeline.yaml, or run "gh auth login"',
+    );
     expect(adapterCreated).toBe(false);
   });
 

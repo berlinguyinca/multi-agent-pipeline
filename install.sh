@@ -167,6 +167,19 @@ print_backend_summary() {
     log "No AI backend was detected. The generated config will default to Ollama."
     log "Install Ollama, Claude CLI, Codex CLI, or Hermes before running MAP examples."
   fi
+
+  log ""
+  log "GitHub integration:"
+  if have gh; then
+    log "  gh CLI: installed"
+    if gh auth status >/dev/null 2>&1; then
+      log "  gh auth: authenticated"
+    else
+      log "  gh auth: not logged in (run 'gh auth login' for GitHub features)"
+    fi
+  else
+    log "  gh CLI: not found (install from https://cli.github.com for GitHub features)"
+  fi
 }
 
 prompt_adapter() {
@@ -469,6 +482,19 @@ configure_pipeline() {
     printf 'gitCheckpoints: true\n'
   } >>"$config_path"
 
+  # Capture GitHub token from gh CLI if available
+  if have gh && gh auth status >/dev/null 2>&1; then
+    local gh_token
+    gh_token="$(gh auth token 2>/dev/null)" || true
+    if [[ -n "$gh_token" ]]; then
+      {
+        printf '\ngithub:\n'
+        printf '  token: %s\n' "$gh_token"
+      } >>"$config_path"
+      log "GitHub token captured from gh CLI"
+    fi
+  fi
+
   log "Wrote config: $config_path"
 
   if [[ ! -x "$install_dir/dist/cli.js" ]]; then
@@ -515,6 +541,11 @@ Rebuild after source changes:
 
 Rerun onboarding:
   cd "$install_dir" && scripts/configure-map.sh
+
+GitHub integration:
+  gh auth login                              # Authenticate with GitHub
+  map --review-pr https://github.com/owner/repo/pull/123
+  map --github-issue https://github.com/owner/repo/issues/1
 
 Uninstall global link:
   cd "$install_dir" && scripts/unlink-map.sh

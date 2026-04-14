@@ -7,7 +7,7 @@ import {
   buildPRReviewPrompt,
   postGitHubPRReview,
 } from '../github/pull-requests.js';
-import { getGitHubToken } from '../github/issues.js';
+import { resolveGitHubToken } from '../github/token.js';
 import { buildPRReviewSystemPrompt } from '../prompts/pr-review-system.js';
 import type { AdapterConfig, AgentAdapter } from '../types/adapter.js';
 import type { GitHubPRContext, PRReviewResult } from '../types/github.js';
@@ -49,15 +49,17 @@ export async function runPRReview(
   const startTime = Date.now();
 
   try {
-    const token = getGitHubToken(dependencies.env);
+    const config = await dependencies.loadConfigFn(options.configPath);
+
+    const token = await resolveGitHubToken(config, dependencies.env);
     if (!token) {
-      throw new Error('GITHUB_TOKEN is required for --review-pr');
+      throw new Error(
+        'GitHub token not found. Set GITHUB_TOKEN, add github.token to pipeline.yaml, or run "gh auth login"',
+      );
     }
 
     const ref = parseGitHubPRUrl(options.prUrl);
     const prContext = await fetchGitHubPRContext(ref, token, dependencies.fetchFn);
-
-    const config = await dependencies.loadConfigFn(options.configPath);
     const adapterConfig = assignmentToAdapterConfig(
       config.agents.review,
       config.ollama.host,

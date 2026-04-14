@@ -39,10 +39,10 @@ import {
   buildGitHubIssuePrompt,
   buildGitHubReport,
   fetchGitHubIssueContext,
-  getGitHubToken,
   parseGitHubIssueUrl,
   postGitHubIssueComment,
 } from '../github/issues.js';
+import { resolveGitHubToken } from '../github/token.js';
 
 interface AppProps {
   initialPrompt?: string;
@@ -115,9 +115,11 @@ function AppRouter({ initialPrompt, initialGithubIssueUrl, config, detection }: 
         return;
       }
 
-      const token = getGitHubToken();
+      const token = await resolveGitHubToken(config);
       if (!token) {
-        setGithubIssueError('GITHUB_TOKEN is required when using a GitHub issue URL.');
+        setGithubIssueError(
+          'GitHub token not found. Set GITHUB_TOKEN, add github.token to pipeline.yaml, or run "gh auth login".',
+        );
         return;
       }
 
