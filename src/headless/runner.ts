@@ -51,6 +51,7 @@ import {
   parseGitHubIssueUrl,
   postGitHubIssueComment,
 } from '../github/issues.js';
+import { buildAdapterChain, runWithFailover } from '../adapters/failover-runner.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -301,6 +302,7 @@ async function runHeadlessLive(
       dependencies,
       runtimeConfig,
       runtimeState,
+      config,
       reviewedSpecText,
     );
 
@@ -326,6 +328,7 @@ async function runHeadlessLive(
         dependencies,
         runtimeConfig,
         runtimeState,
+        config,
         reviewedSpecText,
         executionResult,
       );
@@ -337,6 +340,7 @@ async function runHeadlessLive(
           dependencies,
           runtimeConfig,
           runtimeState,
+          config,
           reviewedSpecText,
           executionResult,
           qaAssessments,
@@ -378,6 +382,7 @@ async function runHeadlessLive(
         dependencies,
         runtimeConfig,
         runtimeState,
+        config,
         reviewedSpecText,
         assessment,
         executionResult.outputDir,
@@ -491,10 +496,11 @@ async function runSpecStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   latestSpecContent = '',
   latestReviewedSpecContent = '',
 ): Promise<string> {
-  const adapter = dependencies.createAdapterFn(context.agents.spec);
+  const chain = buildAdapterChain(config.agents.spec, config.ollama.host);
   const prompt = buildStagePrompt({
     stage: 'spec',
     context,
@@ -505,13 +511,15 @@ async function runSpecStage(
 
   const workspace = await prepareStageWorkspace(context.pipelineId, 'spec', context.iteration);
   return (
-    await collectAdapterOutput(adapter, prompt, {
-      cwd: workspace,
-      allowTools: false,
-      stage: 'spec',
-      runtimeConfig,
-      runtimeState,
-    })
+    await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+      collectAdapterOutput(adapter, prompt, {
+        cwd: workspace,
+        allowTools: false,
+        stage: 'spec',
+        runtimeConfig,
+        runtimeState,
+      }),
+    )
   ).trim();
 }
 
@@ -520,9 +528,10 @@ async function runReviewStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   specText: string,
 ): Promise<{ reviewedSpec: ReviewedSpec; score: RefinementScore }> {
-  const adapter = dependencies.createAdapterFn(context.agents.review);
+  const chain = buildAdapterChain(config.agents.review, config.ollama.host);
   const prompt = buildStagePrompt({
     stage: 'review',
     context,
@@ -532,13 +541,15 @@ async function runReviewStage(
   });
 
   const workspace = await prepareStageWorkspace(context.pipelineId, 'review', context.iteration);
-  const output = await collectAdapterOutput(adapter, prompt, {
-    cwd: workspace,
-    allowTools: false,
-    stage: 'review',
-    runtimeConfig,
-    runtimeState,
-  });
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(adapter, prompt, {
+      cwd: workspace,
+      allowTools: false,
+      stage: 'review',
+      runtimeConfig,
+      runtimeState,
+    }),
+  );
   return parseReviewOutput(output, context.iteration, context.spec?.version ?? 1);
 }
 
@@ -560,6 +571,7 @@ async function runSpecReviewQaLoop(
       dependencies,
       runtimeConfig,
       runtimeState,
+      config,
       latestSpecText,
       latestReviewedSpecText,
     );
@@ -572,6 +584,7 @@ async function runSpecReviewQaLoop(
       dependencies,
       runtimeConfig,
       runtimeState,
+      config,
       specText,
     );
     markActivity(runtimeState);
@@ -584,6 +597,7 @@ async function runSpecReviewQaLoop(
       dependencies,
       runtimeConfig,
       runtimeState,
+      config,
       review.reviewedSpec.content,
     );
     qaAssessments.push(assessment);
@@ -610,22 +624,25 @@ async function runSpecQaStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   reviewedSpecText: string,
 ): Promise<QaAssessment> {
-  const adapter = dependencies.createAdapterFn(context.agents.qa);
+  const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
   const basePrompt = buildSpecQaPrompt(context.prompt, reviewedSpecText);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
     : basePrompt;
   const workspace = await prepareStageWorkspace(context.pipelineId, 'qa', context.iteration);
   const startedAt = Date.now();
-  const output = await collectAdapterOutput(adapter, prompt, {
-    cwd: workspace,
-    allowTools: false,
-    stage: 'qa',
-    runtimeConfig,
-    runtimeState,
-  });
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(adapter, prompt, {
+      cwd: workspace,
+      allowTools: false,
+      stage: 'qa',
+      runtimeConfig,
+      runtimeState,
+    }),
+  );
 
   return parseQaOutput(output, 'spec', Date.now() - startedAt);
 }
@@ -635,13 +652,14 @@ async function runExecuteStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   reviewedSpecText: string,
   executionOutputDir?: string,
 ): Promise<ExecutionResult> {
   const outputDir =
     executionOutputDir ??
     (await prepareExecutionOutputDir(context.outputDir, context.prompt, context.pipelineId));
-  const adapter = dependencies.createAdapterFn(context.agents.execute);
+  const chain = buildAdapterChain(config.agents.execute, config.ollama.host);
   const prompt = buildStagePrompt({
     stage: 'execute',
     context,
@@ -650,13 +668,15 @@ async function runExecuteStage(
     personality: context.personality,
   });
   const startedAt = Date.now();
-  const output = await collectAdapterOutput(adapter, prompt, {
-    cwd: outputDir,
-    allowTools: true,
-    stage: 'execute',
-    runtimeConfig,
-    runtimeState,
-  });
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(adapter, prompt, {
+      cwd: outputDir,
+      allowTools: true,
+      stage: 'execute',
+      runtimeConfig,
+      runtimeState,
+    }),
+  );
 
   return finalizeExecutionResult(outputDir, output, Date.now() - startedAt);
 }
@@ -666,23 +686,26 @@ async function runCodeQaStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   reviewedSpecText: string,
   executionResult: ExecutionResult,
 ): Promise<QaAssessment> {
-  const adapter = dependencies.createAdapterFn(context.agents.qa);
+  const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
   const basePrompt = buildCodeQaPrompt(reviewedSpecText, executionResult, snapshot);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
     : basePrompt;
   const startedAt = Date.now();
-  const output = await collectAdapterOutput(adapter, prompt, {
-    cwd: executionResult.outputDir,
-    allowTools: false,
-    stage: 'qa',
-    runtimeConfig,
-    runtimeState,
-  });
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(adapter, prompt, {
+      cwd: executionResult.outputDir,
+      allowTools: false,
+      stage: 'qa',
+      runtimeConfig,
+      runtimeState,
+    }),
+  );
 
   return parseQaOutput(output, 'code', Date.now() - startedAt);
 }
@@ -692,11 +715,12 @@ async function runDocsStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   reviewedSpecText: string,
   executionResult: ExecutionResult,
   qaAssessments: QaAssessment[],
 ): Promise<DocumentationResult> {
-  const adapter = dependencies.createAdapterFn(context.agents.docs);
+  const chain = buildAdapterChain(config.agents.docs, config.ollama.host);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
   const basePrompt = buildDocsPrompt({
     reviewedSpecContent: reviewedSpecText,
@@ -709,13 +733,15 @@ async function runDocsStage(
     : basePrompt;
   const baseline = await captureDocumentationBaseline(executionResult.outputDir);
   const startedAt = Date.now();
-  const output = await collectAdapterOutput(adapter, prompt, {
-    cwd: executionResult.outputDir,
-    allowTools: true,
-    stage: 'docs',
-    runtimeConfig,
-    runtimeState,
-  });
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(adapter, prompt, {
+      cwd: executionResult.outputDir,
+      allowTools: true,
+      stage: 'docs',
+      runtimeConfig,
+      runtimeState,
+    }),
+  );
 
   return finalizeDocumentationResult(
     executionResult.outputDir,
@@ -730,26 +756,29 @@ async function runCodeFixStage(
   dependencies: HeadlessDependencies,
   runtimeConfig: HeadlessRuntimeConfig,
   runtimeState: RuntimeState,
+  config: PipelineConfig,
   reviewedSpecText: string,
   assessment: QaAssessment,
   outputDir: string,
 ): Promise<ExecutionResult> {
-  const adapter = dependencies.createAdapterFn(context.agents.execute);
+  const chain = buildAdapterChain(config.agents.execute, config.ollama.host);
   const basePrompt = buildCodeFixPrompt(reviewedSpecText, qaFeedbackText(assessment), outputDir);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
     : basePrompt;
   const startedAt = Date.now();
-  const output = await collectAdapterOutput(
-    adapter,
-    prompt,
-    {
-      cwd: outputDir,
-      allowTools: true,
-      stage: 'execute',
-      runtimeConfig,
-      runtimeState,
-    },
+  const output = await runWithFailover(chain, dependencies.createAdapterFn, (adapter) =>
+    collectAdapterOutput(
+      adapter,
+      prompt,
+      {
+        cwd: outputDir,
+        allowTools: true,
+        stage: 'execute',
+        runtimeConfig,
+        runtimeState,
+      },
+    ),
   );
 
   return finalizeExecutionResult(outputDir, output, Date.now() - startedAt);

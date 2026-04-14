@@ -2,6 +2,34 @@
 
 This repository supports agent definitions under `agents/<name>/` and router-produced DAG plans. The agents in this bundle are intended to be composed for common software delivery work.
 
+All software-delivery agents added in PR #1 use `adapter: ollama` and `model: gemma4:26b` by default. When one of these agents runs, MAP prepares Ollama at runtime: it starts `ollama serve` if needed and runs `ollama pull gemma4:26b` to install or refresh the local tag.
+
+## Agent Bundle
+
+| Agent | Output | Primary use |
+| --- | --- | --- |
+| `software-delivery` | `files` | Complete spec -> QA -> TDD -> implementation -> code QA lifecycle. |
+| `spec-writer` | `answer` | Convert rough requests into implementation-ready specs. |
+| `spec-qa-reviewer` | `answer` | Review specs for ambiguity, test gaps, and implementation risk. |
+| `tdd-engineer` | `files` | Create test-first plans and failing tests. |
+| `implementation-coder` | `files` | Implement minimal code changes that satisfy tests. |
+| `code-qa-analyst` | `answer` | Review code against specs, tests, and maintainability expectations. |
+| `bug-debugger` | `answer` | Reproduce defects and isolate root cause. |
+| `build-fixer` | `files` | Fix build, typecheck, lint, and toolchain failures. |
+| `test-stabilizer` | `files` | Improve flaky, brittle, or missing tests. |
+| `refactor-cleaner` | `files` | Simplify code without behavior changes. |
+| `docs-maintainer` | `files` | Update Markdown documentation after implementation. |
+| `release-readiness-reviewer` | `answer` | Assess final readiness and residual risk. |
+
+## Router Selection Notes
+
+The router sees each agent's `description`, `handles`, and output type. Keep step tasks specific and dependency edges explicit:
+
+- Use `answer` agents for analysis, review, and decision points.
+- Use `files` agents when the step is expected to create or modify files.
+- Put QA/review agents after implementation or docs steps when their output should gate downstream work.
+- Use `software-delivery` as a single-agent fallback for tasks that do not need explicit DAG decomposition.
+
 ## Feature Delivery
 
 Use this when a request needs a new feature or meaningful behavior change.

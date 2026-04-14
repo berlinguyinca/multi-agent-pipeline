@@ -16,6 +16,7 @@ const flagsWithValues = new Set([
   '--poll-interval',
   '--github-issue',
   '--personality',
+  '--review-pr',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {

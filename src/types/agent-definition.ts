@@ -25,6 +25,11 @@ export interface AgentStageConfig {
   prompt?: string;
 }
 
+export interface AdapterFallback {
+  adapter: AdapterType;
+  model?: string;
+}
+
 export interface AgentDefinition {
   name: string;
   description: string;
@@ -36,6 +41,7 @@ export interface AgentDefinition {
   output: AgentOutputConfig;
   tools: AgentToolConfig[];
   enabled?: boolean;
+  fallbacks?: AdapterFallback[];
 }
 
 const VALID_OUTPUT_TYPES: readonly OutputType[] = ['answer', 'data', 'files'];

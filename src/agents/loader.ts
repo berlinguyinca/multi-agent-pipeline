@@ -16,6 +16,7 @@ interface RawAgentYaml {
   output: { type: string };
   tools: Array<Record<string, unknown>>;
   enabled?: boolean;
+  fallbacks?: Array<{ adapter: string; model?: string }>;
 }
 
 export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDefinition> {
@@ -49,6 +50,11 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
     };
   });
 
+  const fallbacks = raw.fallbacks?.map((fb) => ({
+    adapter: fb.adapter as AgentDefinition['adapter'],
+    model: fb.model,
+  }));
+
   const agent: AgentDefinition = {
     name: raw.name,
     description: raw.description,
@@ -60,6 +66,7 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
     output: { type: raw.output.type as AgentDefinition['output']['type'] },
     tools,
     enabled: raw.enabled,
+    ...(fallbacks && fallbacks.length > 0 ? { fallbacks } : {}),
   };
 
   if (!isValidAgentDefinition(agent)) {

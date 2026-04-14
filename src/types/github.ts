@@ -26,3 +26,36 @@ export interface GitHubReportResult {
   commentUrl?: string;
   error?: string;
 }
+
+export interface GitHubPRRef {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  url: string;
+}
+
+export interface GitHubPRFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
+export interface GitHubPRContext {
+  ref: GitHubPRRef;
+  title: string;
+  body: string;
+  url: string;
+  baseBranch: string;
+  headBranch: string;
+  files: GitHubPRFile[];
+  comments: GitHubIssueComment[];
+}
+
+export interface PRReviewResult {
+  prUrl: string;
+  posted: boolean;
+  commentUrl?: string;
+  error?: string;
+}
