@@ -1,12 +1,22 @@
 import * as path from 'path';
+import * as fs from 'fs/promises';
+import * as readline from 'readline/promises';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import { loadAgentRegistry } from '../agents/registry.js';
+import { createAdapter } from '../adapters/adapter-factory.js';
+import { loadConfig } from '../config/loader.js';
+import { buildCreationPrompt, generateAgentFiles } from './agent-create-dialog.js';
 
 export async function handleAgentCommand(args: string[]): Promise<void> {
   const action = args[0];
   switch (action) {
     case 'list': await handleList(); break;
-    case 'create': console.log('Agent creation coming soon. Use --adapter and --model flags.'); break;
+    case 'create': {
+      const adapterFlag = extractFlagValue(args, '--adapter') ?? undefined;
+      const modelFlag = extractFlagValue(args, '--model') ?? undefined;
+      await handleCreate(adapterFlag, modelFlag);
+      break;
+    }
     case 'test': {
       const name = args[1];
       if (!name) { console.error('Usage: map agent test <name>'); process.exit(1); }
@@ -14,6 +24,52 @@ export async function handleAgentCommand(args: string[]): Promise<void> {
       break;
     }
     default: console.log(`Unknown agent command: ${action ?? '(none)'}\n\nUsage:\n  map agent list\n  map agent create\n  map agent test <name>`); break;
+  }
+}
+
+function extractFlagValue(args: string[], flag: string): string | null {
+  const idx = args.indexOf(flag);
+  if (idx === -1 || idx + 1 >= args.length) return null;
+  return args[idx + 1];
+}
+
+async function handleCreate(adapterOverride?: string, modelOverride?: string): Promise<void> {
+  const config = await loadConfig();
+  const adapter = adapterOverride ?? config.agentCreation.adapter;
+  const model = modelOverride ?? config.agentCreation.model;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  try {
+    const description = await rl.question('What should this agent do?\n> ');
+    if (!description.trim()) {
+      console.error('Description cannot be empty.');
+      return;
+    }
+
+    console.log(`\nGenerating agent definition using ${adapter}/${model}...`);
+
+    const creationAdapter = createAdapter({ type: adapter as any, model });
+    const prompt = buildCreationPrompt(description);
+
+    let output = '';
+    for await (const chunk of creationAdapter.run(prompt)) {
+      output += chunk;
+    }
+
+    const files = generateAgentFiles(output);
+    const agentDir = path.join(process.cwd(), 'agents', files.name);
+
+    await fs.mkdir(agentDir, { recursive: true });
+    await fs.writeFile(path.join(agentDir, 'agent.yaml'), files.agentYaml + '\n');
+    await fs.writeFile(path.join(agentDir, 'prompt.md'), files.promptMd + '\n');
+
+    console.log(`\nAgent "${files.name}" created at agents/${files.name}/`);
+    console.log(`  agent.yaml - configuration`);
+    console.log(`  prompt.md  - system prompt`);
+    console.log(`\nReview the files, then commit to make it available.`);
+  } finally {
+    rl.close();
   }
 }
 
