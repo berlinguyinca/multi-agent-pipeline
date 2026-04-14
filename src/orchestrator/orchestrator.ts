@@ -6,6 +6,7 @@ import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
 import { runWithFailover } from '../adapters/failover-runner.js';
+import type { VerboseReporter } from '../utils/verbose-reporter.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -18,6 +19,7 @@ export async function executeDAG(
   plan: DAGPlan,
   agents: Map<string, AgentDefinition>,
   createAdapter: AdapterFactory,
+  reporter?: VerboseReporter,
 ): Promise<DAGExecutionResult> {
   const results = new Map<string, StepResult>();
   const completed = new Set<string>();
@@ -32,14 +34,16 @@ export async function executeDAG(
       const depFailed = step.dependsOn.some((dep) => failed.has(dep));
       if (depFailed) {
         const failedDeps = step.dependsOn.filter((dep) => failed.has(dep));
+        const reason = `Dependency failed: ${failedDeps.join(', ')}`;
         results.set(step.id, {
           id: step.id,
           agent: step.agent,
           task: step.task,
           status: 'skipped',
-          reason: `Dependency failed: ${failedDeps.join(', ')}`,
+          reason,
         });
         failed.add(step.id);
+        reporter?.dagStepSkipped(step.id, reason);
       }
     }
 
@@ -53,6 +57,7 @@ export async function executeDAG(
       running.add(step.id);
       const agent = agents.get(step.agent)!;
       const startedAt = Date.now();
+      reporter?.dagStepStart(step.id, step.agent, step.task);
 
       try {
         const tools = createToolRegistry(agent, process.cwd());
@@ -71,10 +76,12 @@ export async function executeDAG(
           let out = '';
           for await (const chunk of adapter.run(context)) {
             out += chunk;
+            reporter?.onChunk(chunk.length);
           }
           return out.trim();
         });
 
+        const duration = Date.now() - startedAt;
         const result: StepResult = {
           id: step.id,
           agent: step.agent,
@@ -82,21 +89,24 @@ export async function executeDAG(
           status: 'completed',
           outputType: agent.output.type,
           output,
-          duration: Date.now() - startedAt,
+          duration,
         };
         results.set(step.id, result);
         completed.add(step.id);
+        reporter?.dagStepComplete(step.id, step.agent, duration);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
+        const duration = Date.now() - startedAt;
         results.set(step.id, {
           id: step.id,
           agent: step.agent,
           task: step.task,
           status: 'failed',
           error: message,
-          duration: Date.now() - startedAt,
+          duration,
         });
         failed.add(step.id);
+        reporter?.dagStepFailed(step.id, step.agent, message);
       } finally {
         running.delete(step.id);
       }

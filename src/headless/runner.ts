@@ -47,11 +47,12 @@ import {
   buildGitHubIssuePrompt,
   buildGitHubReport,
   fetchGitHubIssueContext,
-  getGitHubToken,
   parseGitHubIssueUrl,
   postGitHubIssueComment,
 } from '../github/issues.js';
+import { resolveGitHubToken } from '../github/token.js';
 import { buildAdapterChain, runWithFailover } from '../adapters/failover-runner.js';
+import { createReporter, type VerboseReporter } from '../utils/verbose-reporter.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -240,10 +241,14 @@ async function runHeadlessLive(
   dependencies: HeadlessDependencies,
 ): Promise<HeadlessResult> {
   const startTime = Date.now();
+  const reporter = createReporter(options.verbose ?? false);
   let issueContext: GitHubIssueContext | undefined;
   let githubToken: string | undefined;
 
   async function finish(result: HeadlessResult): Promise<HeadlessResult> {
+    reporter.pipelineComplete(result.success, result.duration);
+    reporter.dispose();
+
     if (!issueContext || !githubToken) {
       return result;
     }
@@ -262,7 +267,7 @@ async function runHeadlessLive(
     const config = await dependencies.loadConfigFn(options.configPath);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
     const outputDir = options.outputDir ?? config.outputDir;
-    const prompt = await resolveHeadlessPrompt(options, dependencies, (context, token) => {
+    const prompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
       issueContext = context;
       githubToken = token;
     });
@@ -286,6 +291,7 @@ async function runHeadlessLive(
     });
 
     assertConfiguredAdaptersInstalled(config, detection);
+    reporter.pipelineStart(prompt);
 
     const qaAssessments: QaAssessment[] = [];
     const reviewedSpecText = await runSpecReviewQaLoop(
@@ -295,8 +301,10 @@ async function runHeadlessLive(
       runtimeState,
       config,
       qaAssessments,
+      reporter,
     );
 
+    reporter.stageStart('execute');
     let executionResult = await runExecuteStage(
       context,
       dependencies,
@@ -304,7 +312,10 @@ async function runHeadlessLive(
       runtimeState,
       config,
       reviewedSpecText,
+      undefined,
+      reporter,
     );
+    reporter.stageComplete('execute', Date.now() - runtimeState.lastActivityAt);
 
     if (!executionResult.success) {
       return await finish({
@@ -323,6 +334,7 @@ async function runHeadlessLive(
     }
 
     for (let attempt = 1; attempt <= config.quality.maxCodeQaIterations; attempt += 1) {
+      reporter.stageStart('qa');
       const assessment = await runCodeQaStage(
         context,
         dependencies,
@@ -331,10 +343,14 @@ async function runHeadlessLive(
         config,
         reviewedSpecText,
         executionResult,
+        reporter,
       );
       qaAssessments.push(assessment);
+      reporter.stageComplete('qa', Date.now() - runtimeState.lastActivityAt);
+      reporter.codeQaResult(assessment.passed, attempt, config.quality.maxCodeQaIterations);
 
       if (assessment.passed) {
+        reporter.stageStart('docs');
         const documentationResult = await runDocsStage(
           context,
           dependencies,
@@ -344,7 +360,9 @@ async function runHeadlessLive(
           reviewedSpecText,
           executionResult,
           qaAssessments,
+          reporter,
         );
+        reporter.stageComplete('docs', Date.now() - runtimeState.lastActivityAt);
 
         return await finish({
           version: 1,
@@ -377,6 +395,7 @@ async function runHeadlessLive(
         });
       }
 
+      reporter.stageStart('execute');
       executionResult = await runCodeFixStage(
         context,
         dependencies,
@@ -386,7 +405,9 @@ async function runHeadlessLive(
         reviewedSpecText,
         assessment,
         executionResult.outputDir,
+        reporter,
       );
+      reporter.stageComplete('execute', Date.now() - runtimeState.lastActivityAt);
 
       if (!executionResult.success) {
         return await finish({
@@ -425,6 +446,7 @@ async function runHeadlessLive(
         : err instanceof Error
           ? err.message
           : String(err);
+    reporter.dispose();
     return await finish({
       version: 1,
       success: false,
@@ -442,6 +464,7 @@ async function runHeadlessLive(
 
 async function resolveHeadlessPrompt(
   options: HeadlessOptions,
+  config: PipelineConfig,
   dependencies: HeadlessDependencies,
   onContext: (context: GitHubIssueContext, token: string) => void,
 ): Promise<string> {
@@ -449,9 +472,11 @@ async function resolveHeadlessPrompt(
     return options.prompt;
   }
 
-  const token = getGitHubToken(dependencies.env);
+  const token = await resolveGitHubToken(config, dependencies.env);
   if (!token) {
-    throw new Error('GITHUB_TOKEN is required when --github-issue is provided');
+    throw new Error(
+      'GitHub token not found. Set GITHUB_TOKEN, add github.token to pipeline.yaml, or run "gh auth login"',
+    );
   }
 
   const ref = parseGitHubIssueUrl(options.githubIssueUrl);
@@ -499,6 +524,7 @@ async function runSpecStage(
   config: PipelineConfig,
   latestSpecContent = '',
   latestReviewedSpecContent = '',
+  reporter?: VerboseReporter,
 ): Promise<string> {
   const chain = buildAdapterChain(config.agents.spec, config.ollama.host);
   const prompt = buildStagePrompt({
@@ -518,6 +544,7 @@ async function runSpecStage(
         stage: 'spec',
         runtimeConfig,
         runtimeState,
+        reporter,
       }),
     )
   ).trim();
@@ -530,6 +557,7 @@ async function runReviewStage(
   runtimeState: RuntimeState,
   config: PipelineConfig,
   specText: string,
+  reporter?: VerboseReporter,
 ): Promise<{ reviewedSpec: ReviewedSpec; score: RefinementScore }> {
   const chain = buildAdapterChain(config.agents.review, config.ollama.host);
   const prompt = buildStagePrompt({
@@ -548,6 +576,7 @@ async function runReviewStage(
       stage: 'review',
       runtimeConfig,
       runtimeState,
+      reporter,
     }),
   );
   return parseReviewOutput(output, context.iteration, context.spec?.version ?? 1);
@@ -560,12 +589,14 @@ async function runSpecReviewQaLoop(
   runtimeState: RuntimeState,
   config: PipelineConfig,
   qaAssessments: QaAssessment[],
+  reporter?: VerboseReporter,
 ): Promise<string> {
   let latestSpecText = '';
   let latestReviewedSpecText = '';
 
   for (let attempt = 1; attempt <= config.quality.maxSpecQaIterations; attempt += 1) {
     markActivity(runtimeState);
+    reporter?.stageStart('spec', attempt);
     const specText = await runSpecStage(
       context,
       dependencies,
@@ -574,11 +605,14 @@ async function runSpecReviewQaLoop(
       config,
       latestSpecText,
       latestReviewedSpecText,
+      reporter,
     );
+    reporter?.stageComplete('spec', Date.now() - runtimeState.lastActivityAt);
     markActivity(runtimeState);
     context.spec = createSpec(specText, context.iteration);
     latestSpecText = specText;
 
+    reporter?.stageStart('review', attempt);
     const review = await runReviewStage(
       context,
       dependencies,
@@ -586,12 +620,15 @@ async function runSpecReviewQaLoop(
       runtimeState,
       config,
       specText,
+      reporter,
     );
+    reporter?.stageComplete('review', Date.now() - runtimeState.lastActivityAt);
     markActivity(runtimeState);
     context.reviewedSpec = review.reviewedSpec;
     context.refinementScores = [...context.refinementScores, review.score];
     latestReviewedSpecText = review.reviewedSpec.content;
 
+    reporter?.stageStart('qa', attempt);
     const assessment = await runSpecQaStage(
       context,
       dependencies,
@@ -599,8 +636,11 @@ async function runSpecReviewQaLoop(
       runtimeState,
       config,
       review.reviewedSpec.content,
+      reporter,
     );
+    reporter?.stageComplete('qa', Date.now() - runtimeState.lastActivityAt);
     qaAssessments.push(assessment);
+    reporter?.specQaResult(assessment.passed, attempt, config.quality.maxSpecQaIterations);
 
     if (assessment.passed) {
       return review.reviewedSpec.content;
@@ -626,6 +666,7 @@ async function runSpecQaStage(
   runtimeState: RuntimeState,
   config: PipelineConfig,
   reviewedSpecText: string,
+  reporter?: VerboseReporter,
 ): Promise<QaAssessment> {
   const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
   const basePrompt = buildSpecQaPrompt(context.prompt, reviewedSpecText);
@@ -641,6 +682,7 @@ async function runSpecQaStage(
       stage: 'qa',
       runtimeConfig,
       runtimeState,
+      reporter,
     }),
   );
 
@@ -655,6 +697,7 @@ async function runExecuteStage(
   config: PipelineConfig,
   reviewedSpecText: string,
   executionOutputDir?: string,
+  reporter?: VerboseReporter,
 ): Promise<ExecutionResult> {
   const outputDir =
     executionOutputDir ??
@@ -675,6 +718,7 @@ async function runExecuteStage(
       stage: 'execute',
       runtimeConfig,
       runtimeState,
+      reporter,
     }),
   );
 
@@ -689,6 +733,7 @@ async function runCodeQaStage(
   config: PipelineConfig,
   reviewedSpecText: string,
   executionResult: ExecutionResult,
+  reporter?: VerboseReporter,
 ): Promise<QaAssessment> {
   const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
@@ -704,6 +749,7 @@ async function runCodeQaStage(
       stage: 'qa',
       runtimeConfig,
       runtimeState,
+      reporter,
     }),
   );
 
@@ -719,6 +765,7 @@ async function runDocsStage(
   reviewedSpecText: string,
   executionResult: ExecutionResult,
   qaAssessments: QaAssessment[],
+  reporter?: VerboseReporter,
 ): Promise<DocumentationResult> {
   const chain = buildAdapterChain(config.agents.docs, config.ollama.host);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
@@ -740,6 +787,7 @@ async function runDocsStage(
       stage: 'docs',
       runtimeConfig,
       runtimeState,
+      reporter,
     }),
   );
 
@@ -760,6 +808,7 @@ async function runCodeFixStage(
   reviewedSpecText: string,
   assessment: QaAssessment,
   outputDir: string,
+  reporter?: VerboseReporter,
 ): Promise<ExecutionResult> {
   const chain = buildAdapterChain(config.agents.execute, config.ollama.host);
   const basePrompt = buildCodeFixPrompt(reviewedSpecText, qaFeedbackText(assessment), outputDir);
@@ -777,6 +826,7 @@ async function runCodeFixStage(
         stage: 'execute',
         runtimeConfig,
         runtimeState,
+        reporter,
       },
     ),
   );
@@ -808,6 +858,7 @@ interface CollectOutputOptions {
   stage: StageName;
   runtimeConfig: HeadlessRuntimeConfig;
   runtimeState: RuntimeState;
+  reporter?: VerboseReporter;
 }
 
 async function collectAdapterOutput(
@@ -856,6 +907,7 @@ async function collectAdapterOutput(
       }
 
       output += event.value.value;
+      options.reporter?.onChunk(event.value.value.length);
       markActivity(options.runtimeState);
       nextPromise = iterator
         .next()
@@ -907,6 +959,7 @@ export async function runHeadlessV2(
   dependencies: HeadlessDependencies = defaultDependencies,
 ): Promise<HeadlessResultV2> {
   const startTime = Date.now();
+  const reporter = createReporter(options.verbose ?? false);
 
   try {
     const config = await dependencies.loadConfigFn(options.configPath);
@@ -924,20 +977,30 @@ export async function runHeadlessV2(
     const agents = getEnabledAgents(rawAgents);
 
     if (agents.size === 0) {
+      reporter.dispose();
       return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, 'No agents available');
     }
 
+    reporter.pipelineStart(options.prompt);
+
+    reporter.dagRoutingStart();
+    const routeStart = Date.now();
     const routerAdapter = dependencies.createAdapterFn({
       type: config.router.adapter,
       model: config.router.model,
     });
     const plan = await routeTask(options.prompt, agents, routerAdapter, config.router);
+    reporter.dagRoutingComplete(plan.plan.length, Date.now() - routeStart);
 
-    const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn);
+    const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn, reporter);
 
-    return buildHeadlessResultV2(plan, dagResult.steps, Date.now() - startTime);
+    const duration = Date.now() - startTime;
+    reporter.dagComplete(dagResult.success, duration);
+    reporter.dispose();
+    return buildHeadlessResultV2(plan, dagResult.steps, duration);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    reporter.dispose();
     return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message);
   }
 }

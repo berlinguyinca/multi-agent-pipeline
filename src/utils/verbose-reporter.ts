@@ -1,0 +1,241 @@
+import type { StageName } from '../types/config.js';
+
+const STAGE_LABELS: Record<StageName, string> = {
+  spec: 'Specification',
+  review: 'Review',
+  qa: 'QA Assessment',
+  execute: 'Execution',
+  docs: 'Documentation',
+};
+
+const STAGE_DESCRIPTIONS: Record<StageName, string> = {
+  spec: 'Generating specification from prompt',
+  review: 'Reviewing and refining specification',
+  qa: 'Running quality assessment',
+  execute: 'Executing implementation',
+  docs: 'Generating documentation',
+};
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+export interface VerboseWriter {
+  write(text: string): void;
+  clearLine(): void;
+}
+
+const stderrWriter: VerboseWriter = {
+  write(text: string) {
+    process.stderr.write(text);
+  },
+  clearLine() {
+    if (process.stderr.isTTY) {
+      process.stderr.write('\r\x1b[K');
+    }
+  },
+};
+
+export class VerboseReporter {
+  private startedAt: number;
+  private stageStartedAt = 0;
+  private stageBytes = 0;
+  private spinnerIdx = 0;
+  private spinnerInterval: ReturnType<typeof setInterval> | null = null;
+  private currentStage: string | null = null;
+  private writer: VerboseWriter;
+
+  constructor(writer: VerboseWriter = stderrWriter) {
+    this.startedAt = Date.now();
+    this.writer = writer;
+  }
+
+  private elapsed(): string {
+    return formatElapsed(Date.now() - this.startedAt);
+  }
+
+  private log(icon: string, message: string): void {
+    this.stopSpinner();
+    this.writer.clearLine();
+    this.writer.write(`[${this.elapsed()}] ${icon} ${message}\n`);
+  }
+
+  private startSpinner(label: string): void {
+    this.stopSpinner();
+    this.currentStage = label;
+    this.spinnerIdx = 0;
+
+    // Only animate if TTY; otherwise just print a static line
+    if (!process.stderr.isTTY) {
+      return;
+    }
+
+    this.spinnerInterval = setInterval(() => {
+      const frame = SPINNER_FRAMES[this.spinnerIdx % SPINNER_FRAMES.length];
+      const elapsed = formatElapsed(Date.now() - this.stageStartedAt);
+      const bytes = formatBytes(this.stageBytes);
+      this.writer.clearLine();
+      this.writer.write(`[${this.elapsed()}] ${frame} ${this.currentStage}  (${elapsed}, ${bytes} received)`);
+      this.spinnerIdx += 1;
+    }, 120);
+  }
+
+  private stopSpinner(): void {
+    if (this.spinnerInterval !== null) {
+      clearInterval(this.spinnerInterval);
+      this.spinnerInterval = null;
+    }
+  }
+
+  // ── Pipeline lifecycle ───────────────────────────────────────────────
+
+  pipelineStart(prompt: string): void {
+    const truncated = prompt.length > 80 ? prompt.slice(0, 77) + '...' : prompt;
+    this.log('▶', `Pipeline started: "${truncated}"`);
+  }
+
+  pipelineComplete(success: boolean, duration: number): void {
+    this.stopSpinner();
+    const icon = success ? '✔' : '✘';
+    const label = success ? 'Pipeline completed successfully' : 'Pipeline failed';
+    this.log(icon, `${label} (${formatElapsed(duration)} total)`);
+  }
+
+  // ── Stage lifecycle ──────────────────────────────────────────────────
+
+  stageStart(stage: StageName, iteration?: number): void {
+    this.stageStartedAt = Date.now();
+    this.stageBytes = 0;
+    const label = STAGE_LABELS[stage] ?? stage;
+    const desc = STAGE_DESCRIPTIONS[stage] ?? '';
+    const iter = iteration !== undefined && iteration > 1 ? ` (iteration ${iteration})` : '';
+    this.log('▶', `${label}${iter} — ${desc}`);
+    this.startSpinner(label + iter);
+  }
+
+  stageComplete(stage: StageName, duration: number): void {
+    const label = STAGE_LABELS[stage] ?? stage;
+    const bytes = formatBytes(this.stageBytes);
+    this.log('✔', `${label} complete (${formatElapsed(duration)}, ${bytes})`);
+  }
+
+  stageFailed(stage: StageName, error: string): void {
+    const label = STAGE_LABELS[stage] ?? stage;
+    this.log('✘', `${label} failed: ${error}`);
+  }
+
+  // ── Streaming activity ───────────────────────────────────────────────
+
+  onChunk(bytes: number): void {
+    this.stageBytes += bytes;
+  }
+
+  // ── QA / iteration events ────────────────────────────────────────────
+
+  specQaResult(passed: boolean, iteration: number, maxIterations: number): void {
+    const icon = passed ? '✔' : '↻';
+    const msg = passed
+      ? `Spec QA passed on iteration ${iteration}`
+      : `Spec QA failed — retrying (${iteration}/${maxIterations})`;
+    this.log(icon, msg);
+  }
+
+  codeQaResult(passed: boolean, iteration: number, maxIterations: number): void {
+    const icon = passed ? '✔' : '↻';
+    const msg = passed
+      ? `Code QA passed on iteration ${iteration}`
+      : `Code QA failed — retrying (${iteration}/${maxIterations})`;
+    this.log(icon, msg);
+  }
+
+  adapterFailover(from: string, to: string): void {
+    this.log('⚠', `Adapter ${from} quota exhausted, failing over to ${to}`);
+  }
+
+  // ── DAG v2 events ────────────────────────────────────────────────────
+
+  dagRoutingStart(): void {
+    this.stageStartedAt = Date.now();
+    this.stageBytes = 0;
+    this.log('▶', 'Router — Planning task execution DAG');
+    this.startSpinner('Router');
+  }
+
+  dagRoutingComplete(stepCount: number, duration: number): void {
+    this.log('✔', `Router complete — ${stepCount} step${stepCount === 1 ? '' : 's'} planned (${formatElapsed(duration)})`);
+  }
+
+  dagStepStart(stepId: string, agent: string, task: string): void {
+    this.stageStartedAt = Date.now();
+    this.stageBytes = 0;
+    const truncated = task.length > 60 ? task.slice(0, 57) + '...' : task;
+    this.log('▶', `Step ${stepId} [${agent}] — ${truncated}`);
+    this.startSpinner(`Step ${stepId} [${agent}]`);
+  }
+
+  dagStepComplete(stepId: string, agent: string, duration: number): void {
+    this.log('✔', `Step ${stepId} [${agent}] complete (${formatElapsed(duration)})`);
+  }
+
+  dagStepFailed(stepId: string, agent: string, error: string): void {
+    this.log('✘', `Step ${stepId} [${agent}] failed: ${error}`);
+  }
+
+  dagStepSkipped(stepId: string, reason: string): void {
+    this.log('⊘', `Step ${stepId} skipped: ${reason}`);
+  }
+
+  dagComplete(success: boolean, duration: number): void {
+    this.stopSpinner();
+    const icon = success ? '✔' : '✘';
+    const label = success ? 'DAG execution completed' : 'DAG execution failed';
+    this.log(icon, `${label} (${formatElapsed(duration)} total)`);
+  }
+
+  // ── Cleanup ──────────────────────────────────────────────────────────
+
+  dispose(): void {
+    this.stopSpinner();
+  }
+}
+
+/** A no-op reporter for when verbose mode is off. */
+export class SilentReporter extends VerboseReporter {
+  constructor() {
+    super({ write() {}, clearLine() {} });
+  }
+  override pipelineStart(): void {}
+  override pipelineComplete(): void {}
+  override stageStart(): void {}
+  override stageComplete(): void {}
+  override stageFailed(): void {}
+  override onChunk(): void {}
+  override specQaResult(): void {}
+  override codeQaResult(): void {}
+  override adapterFailover(): void {}
+  override dagRoutingStart(): void {}
+  override dagRoutingComplete(): void {}
+  override dagStepStart(): void {}
+  override dagStepComplete(): void {}
+  override dagStepFailed(): void {}
+  override dagStepSkipped(): void {}
+  override dagComplete(): void {}
+  override dispose(): void {}
+}
+
+export function createReporter(verbose: boolean): VerboseReporter {
+  return verbose ? new VerboseReporter() : new SilentReporter();
+}
