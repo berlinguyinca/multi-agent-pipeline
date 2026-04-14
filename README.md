@@ -2,7 +2,7 @@
 
 **One prompt. One shot. Working software.**
 
-MAP orchestrates multiple AI tools (Claude, Codex, Ollama) through an iterative spec-refinement pipeline that produces working, test-driven code from a natural language prompt. Instead of burning tokens on implementation retries, MAP invests in spec quality upfront so the execution stage produces working code on the first attempt.
+MAP orchestrates multiple AI tools (Claude, Codex, Ollama) through an iterative spec-refinement pipeline that produces working, test-driven, documented code from a natural language prompt. Instead of burning tokens on implementation retries, MAP invests in spec quality upfront so the execution stage produces working code on the first attempt.
 
 ```
 npm install -g multi-agent-pipeline
@@ -13,7 +13,7 @@ map
 
 ## How It Works
 
-MAP follows a 3-stage pipeline with an iterative feedback loop:
+MAP follows a 4-stage pipeline with spec and code QA gates:
 
 ```
 User Prompt
@@ -49,6 +49,13 @@ User Prompt
 |                  |  2. Implement code to pass all tests
 |                  |  3. Refactor
 |                  |  Output: working project with passing tests
++--------+---------+
+         |
+         v
++------------------+
+| Stage 4: DOCS    |  AI agent updates Markdown documentation
+| (documentation)  |  from the executed project and QA results
+|                  |  Output: runnable project with current docs
 +------------------+
 ```
 
@@ -64,8 +71,8 @@ You need at least one AI CLI tool installed:
 
 | Tool | Install | Used for |
 |------|---------|----------|
-| **Claude** | `npm install -g @anthropic-ai/claude-code` | Spec generation, execution |
-| **Codex** | `npm install -g @openai/codex` | Spec review |
+| **Claude** | `npm install -g @anthropic-ai/claude-code` | Spec generation, execution, documentation |
+| **Codex** | `npm install -g @openai/codex` | Spec review, QA |
 | **Ollama** | [ollama.com/download](https://ollama.com/download) | Any stage (local models) |
 
 ### Install MAP
@@ -86,7 +93,7 @@ This launches the interactive TUI. You'll see:
 2. **A prompt input** where you describe what you want to build
 3. Type your idea and press Enter
 
-MAP will generate a spec, have it reviewed, show you the result, and let you approve or refine before executing.
+MAP will generate a spec, have it reviewed and QA checked, show you the result, and let you approve or refine before executing, code QA, and final Markdown documentation.
 
 ---
 
@@ -103,7 +110,9 @@ MAP will generate a spec, have it reviewed, show you the result, and let you app
   STAGE       AGENT           STATUS
   * Spec      claude          installed
   * Review    codex           installed
+  * QA        codex           installed
   * Execute   claude          installed
+  * Docs      claude          installed
 
   Available agents:
   +-- claude          (installed)
@@ -201,6 +210,8 @@ The execution screen shows strict TDD in action:
 - **GREEN** phase: implementing code to pass tests
 - **REFACTOR** phase: cleaning up while keeping tests green
 
+After execution, MAP runs code QA. If QA finds gaps, the execute agent receives the findings and fixes the generated project until the configured code QA limit is reached. When code QA passes, the docs agent updates Markdown documentation from the final project state.
+
 ### Screen 5: Success
 
 ```
@@ -209,6 +220,7 @@ The execution screen shows strict TDD in action:
   Spec iterations:  3
   Tests generated:  6 (6 passing)
   Files created:    8
+  Docs updated:      README.md, docs/usage.md
   Pipeline time:    4m 32s
 
   Generated project: ./output/task-api/
@@ -236,8 +248,19 @@ agents:
     adapter: claude          # claude | codex | ollama
   review:
     adapter: codex
+  qa:
+    adapter: codex
   execute:
     adapter: claude
+  docs:
+    adapter: claude
+
+ollama:
+  host: http://localhost:11434
+
+quality:
+  maxSpecQaIterations: 3
+  maxCodeQaIterations: 3
 
 # Output directory for generated projects
 outputDir: ./output
@@ -258,12 +281,34 @@ agents:
   review:
     adapter: ollama
     model: hermes:latest            # Good at critical analysis
+  qa:
+    adapter: ollama
+    model: qwen:latest              # Good at quality assessment
   execute:
     adapter: ollama
     model: codellama:13b            # Good at code generation
+  docs:
+    adapter: ollama
+    model: llama3:latest            # Good at concise documentation
+
+ollama:
+  host: http://localhost:11434       # Override for remote Ollama servers
 ```
 
 The `model` field is **required** when `adapter` is `ollama` and is ignored for other adapters.
+The `qa` agent runs after spec review and after implementation. Failed spec QA feeds findings back into another spec/review pass; failed code QA sends findings back to the execute agent for fixes until the configured quality limits are reached. The `docs` agent runs last and may create or update Markdown files only.
+
+### GitHub Issue Input and Reporting
+
+MAP can use a GitHub issue as the source prompt and post one final report back to the issue:
+
+```bash
+GITHUB_TOKEN=ghp_... map --headless --github-issue https://github.com/owner/repo/issues/123
+```
+
+The issue title, body, and non-bot comments become the build prompt. If you also provide prompt text, MAP appends it as additional instructions. The final issue comment includes the generated spec, QA assessments, execution summary, files created, Markdown docs updated, test counts, and failure details when applicable.
+
+The TUI also exposes a separate optional GitHub issue URL field on the welcome screen. `GITHUB_TOKEN` must be available in the environment for issue fetch and final comment posting.
 
 ### Mixing Cloud and Local
 
@@ -274,8 +319,13 @@ agents:
   review:
     adapter: ollama
     model: hermes:latest            # Local: fast review iteration
+  qa:
+    adapter: ollama
+    model: qwen:latest              # Local: spec/code QA gate
   execute:
     adapter: claude                 # Cloud: reliable code generation
+  docs:
+    adapter: claude                 # Cloud: final Markdown docs
 ```
 
 ---
@@ -358,6 +408,14 @@ The execution agent receives the final reviewed spec and follows strict TDD:
 3. **REFACTOR**: Clean up the code while keeping tests green.
 
 The output is a complete, runnable project in the configured output directory.
+
+After execution, the QA agent evaluates the generated project against the reviewed spec, test results, maintainability, README accuracy, and source organization. Failed code QA sends findings back to the execute agent for a fix pass until `quality.maxCodeQaIterations` is reached.
+
+### Stage 4: Documentation
+
+The docs agent runs after code QA passes. It inspects the generated project, reviewed spec, execution summary, and QA assessments, then creates or updates Markdown documentation in the output directory.
+
+The docs phase is constrained to `.md` files. MAP captures the output directory before the phase and fails the pipeline if the docs agent creates, edits, or removes any non-Markdown file.
 
 ---
 
@@ -470,7 +528,7 @@ Type: `Build a REST API for task management with CRUD, authentication, and pagin
 - All criteria are specific and testable
 - Review: "APPROVAL: Spec is comprehensive and implementation-ready"
 
-**Approve**: Execution produces a complete Express API with 12 passing tests.
+**Approve**: Execution produces a complete Express API with 12 passing tests and updated Markdown documentation.
 
 ### Example 3: Mixed Ollama Models
 
@@ -484,15 +542,21 @@ agents:
   review:
     adapter: ollama
     model: deepseek-coder:latest   # Strong at code analysis
+  qa:
+    adapter: ollama
+    model: qwen:latest             # Local QA loop
   execute:
     adapter: claude                 # Cloud model for reliable execution
+  docs:
+    adapter: ollama
+    model: llama3:latest            # Local final Markdown docs
 ```
 
 ```bash
 map "Build a markdown-to-HTML converter library with plugin support"
 ```
 
-This uses local models for the cheap spec/review iterations and a cloud model for the expensive one-shot execution. Maximum token efficiency.
+This uses local models for the cheap spec/review/QA/docs work and a cloud model for the expensive implementation and QA-driven fixes.
 
 ---
 
@@ -507,12 +571,22 @@ Usage:
   map "your idea"        Start pipeline with a prompt
   map --resume [id]      Resume a saved pipeline
   map --config <path>    Use custom config file
+  map --headless "idea"  Run non-interactively, outputs JSON to stdout
+  map --github-issue <url>
+                         Use a GitHub issue as prompt and post final report
 
 Options:
   --help, -h             Show help
   --version, -v          Show version
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
+  --headless             Run without TUI, print JSON result to stdout
+  --output-dir <path>    Output directory (headless mode)
+  --total-timeout <dur>  Total headless runtime budget, e.g. 60m
+  --inactivity-timeout <dur>
+                         Stall timeout since last stage activity, e.g. 10m
+  --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
+  --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
 ```
 
 ### Keyboard Shortcuts
@@ -543,7 +617,7 @@ src/
   types/                        # TypeScript interfaces
     adapter.ts                  # AgentAdapter, AdapterConfig, DetectionResult
     pipeline.ts                 # PipelineStage, PipelineContext, PipelineEvent
-    spec.ts                     # Spec, ReviewedSpec, RefinementScore
+    spec.ts                     # Spec, ReviewedSpec, RefinementScore, DocumentationResult
     config.ts                   # PipelineConfig, AgentAssignment
     checkpoint.ts               # CheckpointData, CheckpointMeta
   adapters/                     # AI backend wrappers
@@ -554,7 +628,7 @@ src/
     adapter-factory.ts          # Config -> AgentAdapter
     detect.ts                   # Binary detection + Ollama model listing
   pipeline/                     # Core orchestration
-    machine.ts                  # XState 5 state machine (8 states)
+    machine.ts                  # XState 5 state machine (12 states)
     guards.ts                   # Transition guard functions
     context.ts                  # Pipeline context factory
   config/                       # Configuration
@@ -576,6 +650,7 @@ src/
     review-system.ts            # Spec review prompt
     execute-system.ts           # TDD execution prompt
     feedback-system.ts          # Feedback refinement prompt
+    docs-system.ts              # Final Markdown documentation prompt
   utils/                        # Shared utilities
     error.ts                    # Custom error types
     platform.ts                 # Cross-platform helpers
@@ -585,15 +660,18 @@ src/
 ### State Machine
 
 ```
-idle --[START]--> specifying --[SPEC_COMPLETE]--> reviewing --[REVIEW_COMPLETE]--> feedback
-                       ^                                                           |   |
-                       +----[FEEDBACK]---------------------------------------------+   |
-                                                                                       |
-                  executing <--[APPROVE]-----------------------------------------------+
-                       |
-              [EXECUTE_COMPLETE]--> complete
-              [ERROR]--> failed (recoverable via FEEDBACK)
-              [CANCEL]--> cancelled (from any active state)
+idle --[START]--> specifying --[SPEC_COMPLETE]--> reviewing --[REVIEW_COMPLETE]--> specAssessing
+                       ^                                                                 |
+                       +----[SPEC_QA_FAIL/FEEDBACK]--------------------------------------+
+                                                                                         |
+feedback <--[SPEC_QA_PASS]---------------------------------------------------------------+
+    |
+    +--[APPROVE]--> executing --[EXECUTE_COMPLETE]--> codeAssessing --[CODE_QA_PASS]--> documenting --[DOCS_COMPLETE]--> complete
+                                                      |
+                                                      +--[CODE_QA_FAIL]--> fixing --[CODE_FIX_COMPLETE]--> codeAssessing
+
+[ERROR] -> failed (recoverable via FEEDBACK from failed)
+[CANCEL] -> cancelled (from active/user-waiting states)
 ```
 
 ### Adapter Interface

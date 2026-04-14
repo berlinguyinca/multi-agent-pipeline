@@ -42,6 +42,23 @@ export interface ExecutionResult {
   duration: number;
 }
 
+export interface DocumentationResult {
+  filesUpdated: string[];
+  outputDir: string;
+  duration: number;
+  rawOutput: string;
+}
+
+export interface QaAssessment {
+  passed: boolean;
+  target: 'spec' | 'code';
+  summary: string;
+  findings: string[];
+  requiredChanges: string[];
+  rawOutput: string;
+  duration: number;
+}
+
 export function createSpec(content: string, version = 1): Spec {
   const criteria = extractAcceptanceCriteria(content);
   return { content, version, createdAt: new Date(), acceptanceCriteria: criteria };

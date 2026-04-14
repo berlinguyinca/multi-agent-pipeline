@@ -11,6 +11,14 @@ export const pipelineMachine = setup({
   guards: {
     hasSpec: ({ context }) => context.spec !== null,
     hasReviewedSpec: ({ context }) => context.reviewedSpec !== null,
+    qaPassed: ({ event }) =>
+      (event.type === 'SPEC_QA_COMPLETE' || event.type === 'CODE_QA_COMPLETE') &&
+      event.assessment.passed,
+    qaMaxReached: ({ event }) =>
+      (event.type === 'SPEC_QA_COMPLETE' || event.type === 'CODE_QA_COMPLETE') &&
+      event.maxReached,
+    executionPassed: ({ event }) => event.type === 'EXECUTE_COMPLETE' && event.result.success,
+    fixPassed: ({ event }) => event.type === 'CODE_FIX_COMPLETE' && event.result.success,
   },
 }).createMachine({
   id: 'pipeline',
@@ -21,7 +29,9 @@ export const pipelineMachine = setup({
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     }),
   states: {
@@ -60,7 +70,7 @@ export const pipelineMachine = setup({
     reviewing: {
       on: {
         REVIEW_COMPLETE: {
-          target: 'feedback',
+          target: 'specAssessing',
           actions: assign({
             reviewedSpec: ({ event }) => event.reviewedSpec,
             refinementScores: ({ context, event }) => [
@@ -69,6 +79,66 @@ export const pipelineMachine = setup({
             ],
           }),
         },
+        ERROR: {
+          target: 'failed',
+          actions: assign({
+            error: ({ event }) => event.error,
+          }),
+        },
+        CANCEL: {
+          target: 'cancelled',
+        },
+      },
+    },
+    specAssessing: {
+      on: {
+        SPEC_QA_COMPLETE: [
+          {
+            guard: 'qaPassed',
+            target: 'feedback',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              specQaIterations: ({ context }) => context.specQaIterations + 1,
+            }),
+          },
+          {
+            guard: 'qaMaxReached',
+            target: 'failed',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              specQaIterations: ({ context }) => context.specQaIterations + 1,
+              error: ({ context }) =>
+                `Spec QA failed after ${context.specQaIterations + 1} iteration${
+                  context.specQaIterations + 1 === 1 ? '' : 's'
+                }`,
+            }),
+          },
+          {
+            target: 'specifying',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              specQaIterations: ({ context }) => context.specQaIterations + 1,
+              feedbackHistory: ({ context, event }) => [
+                ...context.feedbackHistory,
+                event.assessment.requiredChanges.join('\n') ||
+                  event.assessment.summary ||
+                  'Address QA findings before implementation.',
+              ],
+              iteration: ({ context }) => context.iteration + 1,
+              spec: () => null,
+              reviewedSpec: () => null,
+            }),
+          },
+        ],
         ERROR: {
           target: 'failed',
           actions: assign({
@@ -93,6 +163,7 @@ export const pipelineMachine = setup({
               event.text,
             ],
             iteration: ({ context }) => context.iteration + 1,
+            specQaIterations: () => 0,
             spec: () => null,
             reviewedSpec: () => null,
           }),
@@ -104,10 +175,119 @@ export const pipelineMachine = setup({
     },
     executing: {
       on: {
-        EXECUTE_COMPLETE: {
+        EXECUTE_COMPLETE: [
+          {
+            guard: 'executionPassed',
+            target: 'codeAssessing',
+            actions: assign({
+              executionResult: ({ event }) => event.result,
+            }),
+          },
+          {
+            target: 'failed',
+            actions: assign({
+              executionResult: ({ event }) => event.result,
+              error: () => 'Execution completed with failing tests',
+            }),
+          },
+        ],
+        ERROR: {
+          target: 'failed',
+          actions: assign({
+            error: ({ event }) => event.error,
+          }),
+        },
+        CANCEL: {
+          target: 'cancelled',
+        },
+      },
+    },
+    codeAssessing: {
+      on: {
+        CODE_QA_COMPLETE: [
+          {
+            guard: 'qaPassed',
+            target: 'documenting',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              codeQaIterations: ({ context }) => context.codeQaIterations + 1,
+            }),
+          },
+          {
+            guard: 'qaMaxReached',
+            target: 'failed',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              codeQaIterations: ({ context }) => context.codeQaIterations + 1,
+              error: ({ context }) =>
+                `Code QA failed after ${context.codeQaIterations + 1} iteration${
+                  context.codeQaIterations + 1 === 1 ? '' : 's'
+                }`,
+            }),
+          },
+          {
+            target: 'fixing',
+            actions: assign({
+              qaAssessments: ({ context, event }) => [
+                ...context.qaAssessments,
+                event.assessment,
+              ],
+              codeQaIterations: ({ context }) => context.codeQaIterations + 1,
+            }),
+          },
+        ],
+        ERROR: {
+          target: 'failed',
+          actions: assign({
+            error: ({ event }) => event.error,
+          }),
+        },
+        CANCEL: {
+          target: 'cancelled',
+        },
+      },
+    },
+    fixing: {
+      on: {
+        CODE_FIX_COMPLETE: [
+          {
+            guard: 'fixPassed',
+            target: 'codeAssessing',
+            actions: assign({
+              executionResult: ({ event }) => event.result,
+            }),
+          },
+          {
+            target: 'failed',
+            actions: assign({
+              executionResult: ({ event }) => event.result,
+              error: () => 'Execution fix completed with failing tests',
+            }),
+          },
+        ],
+        ERROR: {
+          target: 'failed',
+          actions: assign({
+            error: ({ event }) => event.error,
+          }),
+        },
+        CANCEL: {
+          target: 'cancelled',
+        },
+      },
+    },
+    documenting: {
+      on: {
+        DOCS_COMPLETE: {
           target: 'complete',
           actions: assign({
-            executionResult: ({ event }) => event.result,
+            documentationResult: ({ event }) => event.result,
           }),
         },
         ERROR: {
@@ -134,6 +314,7 @@ export const pipelineMachine = setup({
               event.text,
             ],
             iteration: ({ context }) => context.iteration + 1,
+            specQaIterations: () => 0,
             spec: () => null,
             reviewedSpec: () => null,
             error: () => undefined,

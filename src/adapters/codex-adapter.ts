@@ -10,7 +10,7 @@ export class CodexAdapter extends BaseAdapter {
   }
 
   async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
-    const args = ['exec', prompt];
+    const args = ['exec', '--skip-git-repo-check', prompt];
 
     yield* this.streamProcess('codex', args, {
       signal: options?.signal,

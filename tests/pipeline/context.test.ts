@@ -8,7 +8,9 @@ describe('createPipelineContext', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     });
 
@@ -17,6 +19,9 @@ describe('createPipelineContext', () => {
     expect(ctx.reviewedSpec).toBeNull();
     expect(ctx.iteration).toBe(1);
     expect(ctx.refinementScores).toEqual([]);
+    expect(ctx.qaAssessments).toEqual([]);
+    expect(ctx.specQaIterations).toBe(0);
+    expect(ctx.codeQaIterations).toBe(0);
     expect(ctx.feedbackHistory).toEqual([]);
     expect(ctx.outputDir).toBe('./output');
     expect(ctx.pipelineId).toMatch(/^[0-9a-f-]+$/);
@@ -29,7 +34,9 @@ describe('createPipelineContext', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
       outputDir: '/custom/path',
     });
@@ -43,7 +50,9 @@ describe('createPipelineContext', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     });
     const ctx2 = createPipelineContext({
@@ -51,7 +60,9 @@ describe('createPipelineContext', () => {
       agents: {
         spec: { type: 'claude' },
         review: { type: 'codex' },
+        qa: { type: 'codex' },
         execute: { type: 'claude' },
+        docs: { type: 'claude' },
       },
     });
 

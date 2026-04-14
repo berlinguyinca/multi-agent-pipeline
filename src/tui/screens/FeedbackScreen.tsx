@@ -6,6 +6,7 @@ import SpecViewer from '../components/SpecViewer.js';
 import SpecDiff from '../components/SpecDiff.js';
 import ChatInput from '../components/ChatInput.js';
 import KeyboardHelp from '../components/KeyboardHelp.js';
+import { useKeyboard } from '../hooks/useKeyboard.js';
 
 interface StageInfo {
   name: string;
@@ -40,6 +41,18 @@ export default function FeedbackScreen({
 }: FeedbackScreenProps) {
   const [showDiff, setShowDiff] = useState(false);
   const hasDiff = previousSpecContent !== undefined && previousSpecContent !== '';
+
+  useKeyboard([
+    { key: 'e', ctrl: true, handler: onApprove },
+    {
+      key: '\t',
+      handler: () => {
+        if (hasDiff) {
+          setShowDiff((prev) => !prev);
+        }
+      },
+    },
+  ]);
 
   return (
     <Box flexDirection="column" gap={1}>

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { hasSpec, hasReviewedSpec, hasExecutionResult, isExecutionSuccessful } from '../../src/pipeline/guards.js';
+import {
+  hasDocumentationResult,
+  hasSpec,
+  hasReviewedSpec,
+  hasExecutionResult,
+  isExecutionSuccessful,
+} from '../../src/pipeline/guards.js';
 import type { PipelineContext } from '../../src/types/pipeline.js';
 
 function makeContext(overrides: Partial<PipelineContext> = {}): PipelineContext {
@@ -9,10 +15,15 @@ function makeContext(overrides: Partial<PipelineContext> = {}): PipelineContext 
     reviewedSpec: null,
     iteration: 1,
     refinementScores: [],
+    qaAssessments: [],
+    specQaIterations: 0,
+    codeQaIterations: 0,
     agents: {
       spec: { type: 'claude' },
       review: { type: 'codex' },
+      qa: { type: 'codex' },
       execute: { type: 'claude' },
+      docs: { type: 'claude' },
     },
     outputDir: './output',
     feedbackHistory: [],
@@ -32,6 +43,27 @@ describe('hasSpec', () => {
       hasSpec(
         makeContext({
           spec: { content: 'test', version: 1, createdAt: new Date(), acceptanceCriteria: [] },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('hasDocumentationResult', () => {
+  it('returns false when no documentation result exists', () => {
+    expect(hasDocumentationResult(makeContext())).toBe(false);
+  });
+
+  it('returns true when documentation result exists', () => {
+    expect(
+      hasDocumentationResult(
+        makeContext({
+          documentationResult: {
+            filesUpdated: ['README.md'],
+            outputDir: './output',
+            duration: 100,
+            rawOutput: 'done',
+          },
         }),
       ),
     ).toBe(true);

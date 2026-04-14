@@ -16,9 +16,15 @@ const FILLED = '█';
 const EMPTY = '░';
 
 function renderBar(score: number): string {
-  const filled = Math.round(score * BAR_WIDTH);
+  const normalized = normalizeScore(score);
+  const filled = Math.round(normalized * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   return FILLED.repeat(filled) + EMPTY.repeat(empty);
+}
+
+function normalizeScore(score: number): number {
+  const normalized = score > 1 ? score / 100 : score;
+  return Math.min(Math.max(normalized, 0), 1);
 }
 
 export default function RefinementScore({ scores, target }: Props) {
@@ -42,7 +48,7 @@ export default function RefinementScore({ scores, target }: Props) {
       {scores.map((entry, i) => {
         const isLast = i === lastIndex;
         const bar = renderBar(entry.score);
-        const pct = Math.round(entry.score * 100);
+        const pct = Math.round(normalizeScore(entry.score) * 100);
         const arrow = isLast ? chalk.yellow(' ◄') : '';
         const barColor = isLast ? chalk.cyan : chalk.dim;
 

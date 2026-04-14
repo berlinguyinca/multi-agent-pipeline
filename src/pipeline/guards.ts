@@ -15,3 +15,7 @@ export function hasExecutionResult(context: PipelineContext): boolean {
 export function isExecutionSuccessful(context: PipelineContext): boolean {
   return context.executionResult?.success === true;
 }
+
+export function hasDocumentationResult(context: PipelineContext): boolean {
+  return context.documentationResult !== undefined;
+}

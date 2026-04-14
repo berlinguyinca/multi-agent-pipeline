@@ -14,7 +14,9 @@ export async function saveCheckpoint(
     agents: {
       spec: { adapter: context.agents.spec.type },
       review: { adapter: context.agents.review.type },
+      qa: { adapter: context.agents.qa.type },
       execute: { adapter: context.agents.execute.type },
+      docs: { adapter: context.agents.docs.type },
     },
     timestamp: new Date(),
     commitHash: '',

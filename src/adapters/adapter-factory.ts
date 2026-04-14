@@ -10,7 +10,7 @@ export function createAdapter(config: AdapterConfig): AgentAdapter {
     case 'codex':
       return new CodexAdapter();
     case 'ollama':
-      return new OllamaAdapter(config.model);
+      return new OllamaAdapter(config.model, config.host);
     default: {
       const _exhaustive: never = config.type;
       throw new Error(`Unknown adapter type: ${_exhaustive}`);

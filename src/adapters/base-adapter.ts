@@ -56,13 +56,15 @@ export abstract class BaseAdapter implements AgentAdapter {
   protected async *streamProcess(
     binary: string,
     args: string[],
-    options?: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
+    options?: { signal?: AbortSignal; cwd?: string; env?: NodeJS.ProcessEnv },
   ): AsyncGenerator<string, void, void> {
     const child = spawn(binary, args, {
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...options?.env },
     });
+
+    child.stdin?.end();
 
     this.currentProcess = child;
     let stderr = '';

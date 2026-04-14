@@ -15,6 +15,8 @@ export type {
   RefinementScore,
   FeedbackLoop,
   ExecutionResult,
+  DocumentationResult,
+  QaAssessment,
 } from './types/spec.js';
 
 export type {
@@ -27,12 +29,21 @@ export type {
   PipelineConfig,
   AgentAssignment,
   StageName,
+  OllamaConfig,
+  QualityConfig,
 } from './types/config.js';
 
 export type {
   CheckpointData,
   CheckpointMeta,
 } from './types/checkpoint.js';
+
+export type {
+  GitHubIssueRef,
+  GitHubIssueComment,
+  GitHubIssueContext,
+  GitHubReportResult,
+} from './types/github.js';
 
 export {
   createSpec,
@@ -42,3 +53,13 @@ export {
 
 export { isActiveStage, isTerminalStage, ACTIVE_STAGES } from './types/pipeline.js';
 export { STAGE_NAMES } from './types/config.js';
+
+export type { HeadlessOptions, HeadlessResult } from './types/headless.js';
+
+export { runHeadless } from './headless/runner.js';
+
+export {
+  parseGitHubIssueUrl,
+  buildGitHubIssuePrompt,
+  buildGitHubReport,
+} from './github/issues.js';

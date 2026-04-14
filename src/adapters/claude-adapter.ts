@@ -10,7 +10,9 @@ export class ClaudeAdapter extends BaseAdapter {
   }
 
   async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
-    const args = ['--print', prompt];
+    const args = options?.allowTools
+      ? ['--permission-mode', 'bypassPermissions', '--print', prompt]
+      : ['--tools', '""', '--print', prompt];
 
     if (options?.systemPrompt) {
       args.unshift('--append-system-prompt', options.systemPrompt);

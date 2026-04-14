@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import type { PipelineConfig } from '../types/config.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 import { validateConfig } from './schema.js';
+import { validateDurationRelationship } from '../utils/duration.js';
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -43,10 +44,27 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
     agents: {
       spec: override.agents?.spec ?? base.agents.spec,
       review: override.agents?.review ?? base.agents.review,
+      qa: override.agents?.qa ?? base.agents.qa,
       execute: override.agents?.execute ?? base.agents.execute,
+      docs: override.agents?.docs ?? base.agents.docs,
+    },
+    ollama: {
+      host: override.ollama?.host ?? base.ollama.host,
+    },
+    quality: {
+      maxSpecQaIterations:
+        override.quality?.maxSpecQaIterations ?? base.quality.maxSpecQaIterations,
+      maxCodeQaIterations:
+        override.quality?.maxCodeQaIterations ?? base.quality.maxCodeQaIterations,
     },
     outputDir: override.outputDir ?? base.outputDir,
     gitCheckpoints: override.gitCheckpoints ?? base.gitCheckpoints,
+    headless: {
+      totalTimeoutMs: override.headless?.totalTimeoutMs ?? base.headless.totalTimeoutMs,
+      inactivityTimeoutMs:
+        override.headless?.inactivityTimeoutMs ?? base.headless.inactivityTimeoutMs,
+      pollIntervalMs: override.headless?.pollIntervalMs ?? base.headless.pollIntervalMs,
+    },
   };
 }
 
@@ -54,7 +72,13 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
   const resolvedPath = await findConfigFile(configPath);
 
   if (resolvedPath === null) {
-    return { ...DEFAULT_CONFIG, agents: { ...DEFAULT_CONFIG.agents } };
+    return {
+      ...DEFAULT_CONFIG,
+      agents: { ...DEFAULT_CONFIG.agents },
+      ollama: { ...DEFAULT_CONFIG.ollama },
+      quality: { ...DEFAULT_CONFIG.quality },
+      headless: { ...DEFAULT_CONFIG.headless },
+    };
   }
 
   const content = await fs.readFile(resolvedPath, 'utf-8');
@@ -63,5 +87,12 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
   // Validate the parsed config (throws on invalid)
   const validated = validateConfig(parsed);
 
-  return deepMerge(DEFAULT_CONFIG, validated);
+  const merged = deepMerge(DEFAULT_CONFIG, validated);
+  validateDurationRelationship(
+    merged.headless.totalTimeoutMs,
+    merged.headless.inactivityTimeoutMs,
+    merged.headless.pollIntervalMs,
+  );
+
+  return merged;
 }
