@@ -1,0 +1,12 @@
+name: researcher
+description: "Synthesizes comprehensive answers from knowledge and analysis"
+adapter: ollama
+model: gemma4
+prompt: prompt.md
+pipeline:
+  - name: research
+  - name: summarize
+handles: "research questions, knowledge synthesis, explanations, analysis, comparisons, how-to guides"
+output:
+  type: answer
+tools: []
