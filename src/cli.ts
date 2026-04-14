@@ -5,7 +5,7 @@ import App from './tui/App.js';
 import { loadConfig } from './config/loader.js';
 import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
-import { extractFlag, extractPrompt } from './cli-args.js';
+import { extractFlag, extractPrompt, extractSubcommand } from './cli-args.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -38,12 +38,24 @@ Options:
   --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
   --personality <text>   Personality/tone injected into all AI prompts
   --v2                   Use v2 routing mode (DAG-based agent routing)
+
+Commands:
+  map agent list              List all registered agents
+  map agent create            Create a new agent (LLM-assisted)
+  map agent test <name>       Test an agent with a sample prompt
 `);
     process.exit(0);
   }
 
   if (args.includes('--version') || args.includes('-v')) {
     console.log('0.1.0');
+    process.exit(0);
+  }
+
+  const subcommand = extractSubcommand(args);
+  if (subcommand?.command === 'agent') {
+    const { handleAgentCommand } = await import('./cli/agent-commands.js');
+    await handleAgentCommand(subcommand.subArgs);
     process.exit(0);
   }
 

@@ -1,3 +1,12 @@
+export function extractSubcommand(args: string[]): { command: string; subArgs: string[] } | null {
+  if (args.length === 0) return null;
+  const first = args[0];
+  if (first.startsWith('-')) return null;
+  const knownCommands = ['agent'];
+  if (!knownCommands.includes(first)) return null;
+  return { command: first, subArgs: args.slice(1) };
+}
+
 const flagsWithValues = new Set([
   '--output-dir',
   '--config',
