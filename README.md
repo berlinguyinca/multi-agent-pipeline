@@ -51,7 +51,7 @@ npm install
 npm run dev -- --help
 ```
 
-## Build The `map` Command
+## Install And Build
 
 Fastest install from GitHub:
 
@@ -59,21 +59,9 @@ Fastest install from GitHub:
 curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/main/install.sh | bash
 ```
 
-That online installer clones or updates MAP in `~/.local/share/multi-agent-pipeline`, runs `npm install`, builds `dist/cli.js`, runs `npm link` so `map` is available on your PATH, and creates a first-run config when none exists.
+The installer clones or updates MAP in `~/.local/share/multi-agent-pipeline`, installs dependencies, builds `dist/cli.js`, links `map` onto your `PATH`, and creates `~/.map/pipeline.yaml` when needed.
 
-During onboarding, the installer:
-
-- Updates an existing MAP checkout before rebuilding, unless local changes make that unsafe.
-- Detects installed backends: Claude, Codex, Ollama, and Hermes.
-- Generates `~/.map/pipeline.yaml` by default.
-- If MAP is already installed but no config exists yet, asks whether to run onboarding.
-- Lets interactive users choose adapters and models for each classic stage.
-- Lets users choose router and agent-creation backends.
-- Lets users either apply one default to all software-delivery agents or customize each agent's enabled state, adapter, and model individually.
-- Lets users set Ollama host/model and output directory.
-- Uses safe defaults in non-interactive `curl | bash` mode.
-- Enables the software-delivery agent bundle.
-- Offers to list available agents and optionally generate a custom agent.
+Onboarding detects available backends, sets classic and v2 defaults, enables the software-delivery agent bundle, and can optionally generate a custom agent. Non-interactive `curl | bash` installs use safe defaults.
 
 Installer options:
 
@@ -140,42 +128,32 @@ MAP_DEFAULT_AGENT_ADAPTER=codex \
 scripts/configure-map.sh
 ```
 
-From a local checkout, build the distributable CLI:
+From a local checkout:
 
 ```bash
 npm install
 npm run build
-```
-
-Run the built command directly:
-
-```bash
 ./dist/cli.js --help
 ./dist/cli.js --headless "Build a tested Node.js CLI"
-```
-
-Install the local checkout as a global `map` command:
-
-```bash
 npm link
 map --help
 map --headless --v2 "Build the feature with TDD and QA review"
 ```
 
-After `npm link`, changes to source files still need a rebuild before `map` uses them:
+If you use `npm link`, rebuild after source changes before running `map` again:
 
 ```bash
 npm run build
 map agent list
 ```
 
-Remove the linked global command when you no longer want this checkout on your PATH:
+Remove the linked global command:
 
 ```bash
 npm unlink -g multi-agent-pipeline
 ```
 
-Helper scripts are available for the same workflows:
+Helper scripts wrap the same workflows:
 
 ```bash
 scripts/build-map.sh
@@ -209,21 +187,10 @@ CONFIG=./pipeline.yaml \
 scripts/map-v2.sh "Investigate, test, fix, and review readiness"
 ```
 
-Classic headless script variables:
+Common script variables:
 
-- `CONFIG`
-- `OUTPUT_DIR`
-- `TOTAL_TIMEOUT`
-- `INACTIVITY_TIMEOUT`
-- `POLL_INTERVAL`
-- `GITHUB_ISSUE`
-- `PERSONALITY`
-
-V2 script variables:
-
-- `CONFIG`
-- `OUTPUT_DIR`
-- `PERSONALITY`
+- Classic: `CONFIG`, `OUTPUT_DIR`, `TOTAL_TIMEOUT`, `INACTIVITY_TIMEOUT`, `POLL_INTERVAL`, `GITHUB_ISSUE`, `PERSONALITY`
+- V2: `CONFIG`, `OUTPUT_DIR`, `PERSONALITY`
 
 ## Running MAP
 
@@ -520,7 +487,7 @@ agentOverrides:
 
 ## Built-In Agents
 
-PR #1 added a software delivery bundle. These agents default to `adapter: ollama` and `model: gemma4:26b`:
+MAP ships with a software-delivery bundle. These agents default to `adapter: ollama` and `model: gemma4:26b`:
 
 | Agent | Output | Handles |
 | --- | --- | --- |
@@ -745,7 +712,7 @@ npm run typecheck
 npm run build
 ```
 
-Current verification baseline after PR #1:
+Verification baseline:
 
 - `npm test`: 70 test files, 393 tests
 - `npm run typecheck`
