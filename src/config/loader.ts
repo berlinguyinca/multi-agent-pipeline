@@ -82,6 +82,16 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
       ...base.agentOverrides,
       ...override.agentOverrides,
     },
+    security: {
+      enabled: override.security?.enabled ?? base.security.enabled,
+      maxRemediationRetries:
+        override.security?.maxRemediationRetries ?? base.security.maxRemediationRetries,
+      adapter: override.security?.adapter ?? base.security.adapter,
+      model: override.security?.model ?? base.security.model,
+      staticPatternsEnabled:
+        override.security?.staticPatternsEnabled ?? base.security.staticPatternsEnabled,
+      llmReviewEnabled: override.security?.llmReviewEnabled ?? base.security.llmReviewEnabled,
+    },
   };
 }
 
@@ -99,6 +109,7 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       router: { ...DEFAULT_CONFIG.router },
       agentCreation: { ...DEFAULT_CONFIG.agentCreation },
       agentOverrides: { ...DEFAULT_CONFIG.agentOverrides },
+      security: { ...DEFAULT_CONFIG.security },
     };
   }
 

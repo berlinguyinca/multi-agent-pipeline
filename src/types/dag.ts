@@ -1,5 +1,7 @@
 // src/types/dag.ts
 
+import type { SecurityFinding } from '../security/types.js';
+
 export interface DAGStep {
   id: string;
   agent: string;
@@ -25,6 +27,8 @@ export interface StepResult {
   duration?: number;
   error?: string;
   reason?: string;
+  securityFindings?: SecurityFinding[];
+  securityPassed?: boolean;
 }
 
 export interface DAGNode {

@@ -1,4 +1,5 @@
 import type { AdapterType } from './adapter.js';
+import type { SecurityConfig } from '../security/types.js';
 
 export interface AdapterFallback {
   adapter: AdapterType;
@@ -59,6 +60,7 @@ export interface PipelineConfig {
   router: RouterConfig;
   agentCreation: AgentCreationConfig;
   agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }>;
+  security: SecurityConfig;
 }
 
 export type StageName = 'spec' | 'review' | 'qa' | 'execute' | 'docs';

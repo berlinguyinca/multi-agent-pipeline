@@ -1,5 +1,6 @@
 import type { AdapterType } from '../types/adapter.js';
 import type { PipelineConfig } from '../types/config.js';
+import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 
 export const DEFAULT_CONFIG: PipelineConfig = {
   agents: {
@@ -35,4 +36,5 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     model: 'gemma4',
   },
   agentOverrides: {},
+  security: DEFAULT_SECURITY_CONFIG,
 };
