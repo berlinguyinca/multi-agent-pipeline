@@ -45,6 +45,121 @@ Run headless smart-routing mode:
 map --headless --v2 "Research the best design, implement it with tests, then review readiness"
 ```
 
+## Build The `map` Command
+
+Fastest install from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/main/install.sh | bash
+```
+
+That online installer clones or updates MAP in `~/.local/share/multi-agent-pipeline`, runs `npm install`, builds `dist/cli.js`, and runs `npm link` so `map` is available on your PATH.
+
+Installer options:
+
+```bash
+# Install somewhere else
+curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/main/install.sh \
+  | MAP_INSTALL_DIR="$HOME/dev/multi-agent-pipeline" bash
+
+# Install from another branch or fork
+curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/main/install.sh \
+  | MAP_BRANCH=main MAP_REPO_URL=https://github.com/berlinguyinca/multi-agent-pipeline.git bash
+
+# Build but skip npm link
+curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/main/install.sh \
+  | MAP_NO_LINK=1 bash
+```
+
+From this checkout, run the same installer directly:
+
+```bash
+./install.sh
+```
+
+From a local checkout, build the distributable CLI:
+
+```bash
+npm install
+npm run build
+```
+
+Run the built command directly:
+
+```bash
+./dist/cli.js --help
+./dist/cli.js --headless "Build a tested Node.js CLI"
+```
+
+Install the local checkout as a global `map` command:
+
+```bash
+npm link
+map --help
+map --headless --v2 "Build the feature with TDD and QA review"
+```
+
+After `npm link`, changes to source files still need a rebuild before `map` uses them:
+
+```bash
+npm run build
+map agent list
+```
+
+Remove the linked global command when you no longer want this checkout on your PATH:
+
+```bash
+npm unlink -g multi-agent-pipeline
+```
+
+Helper scripts are available for the same workflows:
+
+```bash
+scripts/build-map.sh
+scripts/link-map.sh
+scripts/unlink-map.sh
+```
+
+After building, run the local CLI without npm:
+
+```bash
+scripts/map-classic.sh "Build a tested Node.js CLI"
+scripts/map-v2.sh "Build the feature with TDD and QA review"
+scripts/map-agent.sh list
+scripts/map-agent.sh test implementation-coder
+```
+
+The run scripts accept environment variables for common flags:
+
+```bash
+PERSONALITY="Be concise and strict about verification." \
+CONFIG=./pipeline.yaml \
+OUTPUT_DIR=./output/demo \
+scripts/map-classic.sh "Build a pantry CLI"
+```
+
+```bash
+PERSONALITY="Prefer small diffs and explicit risks." \
+CONFIG=./pipeline.yaml \
+scripts/map-v2.sh "Investigate, test, fix, and review readiness"
+```
+
+Classic headless script variables:
+
+- `CONFIG`
+- `OUTPUT_DIR`
+- `TOTAL_TIMEOUT`
+- `INACTIVITY_TIMEOUT`
+- `POLL_INTERVAL`
+- `GITHUB_ISSUE`
+- `PERSONALITY`
+
+V2 script variables:
+
+- `CONFIG`
+- `OUTPUT_DIR`
+- `PERSONALITY`
+
 ## Running MAP
 
 Use `map ...` after installing the package globally. In a local checkout, use `npm run dev -- ...` with the same arguments.
