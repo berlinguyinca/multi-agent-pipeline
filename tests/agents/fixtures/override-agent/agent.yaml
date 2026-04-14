@@ -1,0 +1,12 @@
+name: override-test
+description: "Agent for testing overrides"
+adapter: claude
+prompt: prompt.md
+pipeline:
+  - name: step1
+handles: "test"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
