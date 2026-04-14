@@ -446,7 +446,6 @@ async function runHeadlessLive(
         : err instanceof Error
           ? err.message
           : String(err);
-    reporter.dispose();
     return await finish({
       version: 1,
       success: false,

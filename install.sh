@@ -492,6 +492,7 @@ configure_pipeline() {
         printf '  token: %s\n' "$gh_token"
       } >>"$config_path"
       log "GitHub token captured from gh CLI"
+      chmod 600 "$config_path"
     fi
   fi
 
