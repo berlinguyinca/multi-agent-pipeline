@@ -47,7 +47,6 @@ export async function executeDAG(
       (s) => !running.has(s.id) && !failed.has(s.id),
     );
 
-    if (ready.length === 0 && running.size === 0) break;
     if (ready.length === 0) break;
 
     const executions = ready.map(async (step) => {

@@ -9,7 +9,6 @@ const QUOTA_PATTERNS: RegExp[] = [
   /billing\s*(limit|quota)/i,
   /insufficient[\s_]*(credits?|funds|balance)/i,
   /exceeded.*(?:plan|tier)\s*(?:limit|quota)/i,
-  /rate\s*limit\s*exceeded/i,
 ];
 
 export function isQuotaExhaustion(error: unknown): boolean {

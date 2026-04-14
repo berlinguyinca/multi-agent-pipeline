@@ -61,7 +61,12 @@ Commands:
     process.exit(0);
   }
 
+  const hasReviewPr = args.includes('--review-pr');
   const reviewPrUrl = extractFlag(args, '--review-pr');
+  if (hasReviewPr && !reviewPrUrl) {
+    console.error('Error: --review-pr requires a URL argument (e.g. --review-pr https://github.com/owner/repo/pull/123)');
+    process.exit(1);
+  }
   if (reviewPrUrl) {
     const { runPRReview } = await import('./headless/pr-review.js');
     const configPath = extractFlag(args, '--config');

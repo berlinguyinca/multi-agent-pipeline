@@ -103,14 +103,14 @@ describe('isQuotaExhaustion', () => {
     expect(isQuotaExhaustion(err)).toBe(true);
   });
 
-  it('detects "rate limit exceeded" in stderr', () => {
+  it('does not treat rate limit as quota exhaustion (transient, should retry)', () => {
     const err = new AdapterError(
       'claude exited with code 1',
       'claude',
       1,
       'rate limit exceeded',
     );
-    expect(isQuotaExhaustion(err)).toBe(true);
+    expect(isQuotaExhaustion(err)).toBe(false);
   });
 
   it('detects quota patterns in error message when stderr is empty', () => {

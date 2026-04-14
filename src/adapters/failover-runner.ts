@@ -34,6 +34,8 @@ export async function runWithFailover<T>(
     }
   }
 
+  // Unreachable: the for-loop always returns or throws.
+  // TypeScript needs this for exhaustiveness.
   throw new AllAdaptersExhaustedError(configs.map((c) => c.type));
 }
 
