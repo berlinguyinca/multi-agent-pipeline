@@ -8,7 +8,7 @@ import type {
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
 
-const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama'];
+const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes'];
 
 function isValidAdapter(value: unknown): value is AdapterType {
   return typeof value === 'string' && (VALID_ADAPTERS as readonly string[]).includes(value);
