@@ -1,6 +1,6 @@
 # MAP - Multi-Agent Pipeline
 
-**One prompt. One shot. Working software.**
+**One task. One shot. Useful output.**
 
 MAP orchestrates AI CLIs and local models through spec-first, test-driven software delivery. It can run the original guided pipeline, or use v2 smart routing to select repo-defined agents and execute a dependency-aware DAG.
 
@@ -35,7 +35,7 @@ map
 Run headless classic mode:
 
 ```bash
-map --headless "Build a TypeScript CLI that converts CSV to JSON"
+map --headless "Investigate how a concept is used in a domain"
 ```
 
 Run headless smart-routing mode:
@@ -134,10 +134,10 @@ From a local checkout:
 npm install
 npm run build
 ./dist/cli.js --help
-./dist/cli.js --headless "Build a tested Node.js CLI"
+./dist/cli.js --headless "Explain how alanine is used in metabolomics research"
 npm link
 map --help
-map --headless --v2 "Build the feature with TDD and QA review"
+map --headless --v2 "Research the best approach, plan the steps, and review readiness"
 ```
 
 If you use `npm link`, rebuild after source changes before running `map` again:
@@ -165,8 +165,8 @@ scripts/configure-map.sh
 After building, run the local CLI without npm:
 
 ```bash
-scripts/map-classic.sh "Build a tested Node.js CLI"
-scripts/map-v2.sh "Build the feature with TDD and QA review"
+scripts/map-classic.sh "Explain how alanine is used in metabolomics research"
+scripts/map-v2.sh "Research the best approach, plan the steps, and review readiness"
 scripts/map-agent.sh list
 scripts/map-agent.sh test implementation-coder
 scripts/map-agent.sh create --adapter ollama --model gemma4:26b
@@ -178,13 +178,13 @@ The run scripts accept environment variables for common flags:
 PERSONALITY="Be concise and strict about verification." \
 CONFIG=./pipeline.yaml \
 OUTPUT_DIR=./output/demo \
-scripts/map-classic.sh "Build a pantry CLI"
+scripts/map-classic.sh "Explain a concept in the target domain"
 ```
 
 ```bash
 PERSONALITY="Prefer small diffs and explicit risks." \
 CONFIG=./pipeline.yaml \
-scripts/map-v2.sh "Investigate, test, fix, and review readiness"
+scripts/map-v2.sh "Investigate the task, plan execution, and review readiness"
 ```
 
 Common script variables:
@@ -192,103 +192,281 @@ Common script variables:
 - Classic: `CONFIG`, `OUTPUT_DIR`, `TOTAL_TIMEOUT`, `INACTIVITY_TIMEOUT`, `POLL_INTERVAL`, `GITHUB_ISSUE`, `PERSONALITY`
 - V2: `CONFIG`, `OUTPUT_DIR`, `PERSONALITY`
 
-## Running MAP
+## Two Modes of Operation
+
+MAP has two primary usage modes. Choose the one that fits your workflow:
+
+| | Interactive TUI | Headless Service |
+| --- | --- | --- |
+| **Purpose** | Developer at the terminal, steering the pipeline in real-time | Unattended execution for CI, cron jobs, or long-running daemons |
+| **Launch** | `map` | `map --headless "prompt"` |
+| **Feedback** | You review specs, give feedback, approve or reject | Auto-approves every stage |
+| **Output** | Rich terminal UI with streaming, scores, diffs | Structured JSON to stdout, progress to stderr |
+| **Best for** | Exploratory work, research questions, agent assignment | Batch builds, scheduled issue processing, PR review bots |
 
 Use `map ...` after installing the package globally. In a local checkout, use `npm run dev -- ...` with the same arguments.
 
-### Normal Interactive Mode
+---
 
-Launch the TUI and type the prompt in the welcome screen:
+## Interactive TUI
+
+The TUI is a neo-blessed terminal interface for hands-on pipeline work. You see every stage as it happens, review specs with refinement scores, give feedback, swap agents per stage, and approve execution when the spec is ready.
+
+### Launching
 
 ```bash
+# Open the TUI with an empty welcome screen
 map
-```
 
-Start the TUI with the prompt already filled in:
+# Pre-fill the prompt so the welcome screen is ready to go
+map "Explain how alanine is used in metabolomics research"
 
-```bash
-map "Build a REST API for task management with CRUD, auth, and pagination"
-```
+# Point at a specific config
+map --config ./pipeline.yaml "Explain the tradeoffs of two approaches"
 
-Use a specific config file:
+# Start from a GitHub issue — the issue title, body, and comments become the prompt
+map --github-issue https://github.com/owner/repo/issues/123
 
-```bash
-map --config ./pipeline.yaml "Build a markdown-to-HTML converter"
-```
-
-Start from a GitHub issue in the TUI:
-
-```bash
-GITHUB_TOKEN=ghp_... map --github-issue https://github.com/owner/repo/issues/123
-```
-
-Resume saved checkpointed work:
-
-```bash
+# Resume a previously checkpointed pipeline
 map --resume
 ```
 
-Normal interactive mode supports prompt text, config selection, GitHub issue input, stage-agent selection, feedback, approval, cancellation, and resume. `--personality` is currently applied by headless runners; it is not wired into the interactive TUI path yet.
+### Screens
 
-### Headless Classic Mode
+The TUI walks through a series of screens that mirror the pipeline stages:
 
-Classic headless mode runs the fixed spec/review/QA/execute/docs pipeline and prints JSON to stdout:
+**Welcome** — Choose which AI backend handles each classic stage (spec, review, QA, execute, docs). Enter a task, question, or GitHub issue URL. Press Enter to continue.
+
+**Pipeline** — Shows a stage progress bar and streams live output from the current agent. The status line at the bottom tracks elapsed time and the active stage.
+
+**Feedback** — Appears after spec review. Displays the reviewed spec, a refinement score (completeness, testability, specificity → combined 0-100), and an optional diff against the previous iteration. Type feedback to refine further, or approve to move to execution.
+
+**DAG Execution** (v2) — When running smart-routing inside the TUI, shows each DAG step with status icons (pending, running, completed, failed, skipped), the assigned agent, and per-step duration.
+
+**Router Plan** (v2) — Displays the router-generated DAG before execution. Review the step graph — agent assignments, tasks, and dependency chains — then press Enter to execute or Esc to cancel.
+
+**Complete** — Summarizes the finished pipeline: test counts (passing/failing), files created, docs updated, iteration count, total duration, and GitHub report status if applicable.
+
+### Keyboard Shortcuts
+
+| Screen | Key | Action |
+| --- | --- | --- |
+| Welcome | `Tab` | Cycle focus: agent picker, URL input, prompt |
+| Welcome | `Enter` | Start pipeline or confirm agent change |
+| Welcome | `Ctrl+O` | Browse saved checkpoints |
+| Pipeline | `Ctrl+C` | Cancel pipeline and save checkpoint |
+| Feedback | `Enter` | Submit feedback text and refine spec |
+| Feedback | `Ctrl+E` | Approve spec and begin execution |
+| Feedback | `Tab` | Toggle between full spec and diff view |
+| Complete | `Enter` | Start a new pipeline |
+| Complete | `o` | Open output directory in file manager |
+| Any | `q` | Quit |
+| Any | `Esc` | Go back |
+
+### TUI Workflow
+
+A typical interactive session looks like this:
+
+1. Launch `map` and land on the Welcome screen.
+2. Optionally reassign agents per stage (e.g. switch spec from Claude to Ollama).
+3. Type or paste a prompt, then press Enter.
+4. Watch the spec stage stream output. Review arrives next with a refinement score.
+5. On the Feedback screen, read the score. If it is low, type feedback and press Enter to loop back through spec/review. If the score is high or plateaued, press `Ctrl+E` to approve.
+6. Execution runs TDD: watch test markers (`[TEST:PASS]`, `[TEST:FAIL]`) stream in real-time.
+7. Code QA may loop back to fix issues automatically (up to `maxCodeQaIterations`).
+8. Docs stage generates or updates Markdown files.
+9. Complete screen shows the summary. Press `o` to open the output directory.
+
+If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map --resume`.
+
+---
+
+## Headless Service
+
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is structured JSON on stdout, and progress (when `--verbose` is set) goes to stderr. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+
+### One-Shot Invocation
+
+Run once and exit. Good for CI pipelines, local scripts, or manual batch runs.
 
 ```bash
-map --headless "Build a TypeScript CLI called pantry that tracks grocery items"
-```
+# Classic pipeline — fixed spec/review/QA/execute/docs stages
+map --headless "Explain how a concept is used in a domain"
 
-Write output to a specific directory:
+# Smart-routing v2 — router picks agents and builds a DAG
+map --headless --v2 "Research the best approach, plan the work, and review readiness"
 
-```bash
-map --headless --output-dir ./output/pantry "Build a pantry CLI"
-```
+# Write output to a specific directory
+map --headless --output-dir ./output/pantry "Investigate a specific question"
 
-Use runtime timeouts:
-
-```bash
-map --headless \
-  --total-timeout 60m \
-  --inactivity-timeout 10m \
-  --poll-interval 10s \
-  "Build a tested Node.js HTTP server"
-```
-
-Inject a personality or tone into all classic headless AI prompts:
-
-```bash
+# Inject a personality or tone into all AI prompts
 map --headless \
   --personality "Be concise, skeptical, and strict about test evidence." \
-  "Build a URL validator library with tests"
+  "Explain a technical tradeoff"
+
+# Use a GitHub issue as the prompt and post the result back as a comment
+map --headless --github-issue https://github.com/owner/repo/issues/123
+
+# Review a pull request and post findings as a PR comment
+map --review-pr https://github.com/owner/repo/pull/456
 ```
 
-Use a GitHub issue as prompt source and post the final report back:
+### Cron-Scheduled Runs
+
+Use cron (or systemd timers, launchd, GitHub Actions schedules) to run MAP on a recurring basis against a single repo. Common use cases: nightly builds from a backlog issue, periodic PR review sweeps, or scheduled spec generation.
 
 ```bash
-GITHUB_TOKEN=ghp_... map --headless \
-  --github-issue https://github.com/owner/repo/issues/123
+# crontab -e
+# Run every night at 2 AM against the next open issue labeled "map-ready"
+0 2 * * * cd /path/to/repo && map --headless \
+  --config /path/to/pipeline.yaml \
+  --github-issue "$(gh issue list -l map-ready --limit 1 --json url -q '.[0].url')" \
+  --output-dir ./output/nightly \
+  --total-timeout 60m \
+  --verbose \
+  >> /var/log/map-nightly.log 2>&1
 ```
-
-### Headless Smart-Routing Mode
-
-Smart-routing mode asks the router to choose registered agents and execute a DAG:
 
 ```bash
-map --headless --v2 "Add a feature, write tests, review code quality, and update docs"
+# Review all open PRs every 6 hours
+0 */6 * * * cd /path/to/repo && gh pr list --json url -q '.[].url' | while read -r pr; do \
+  map --review-pr "$pr" --config /path/to/pipeline.yaml >> /var/log/map-pr-review.log 2>&1; \
+done
 ```
 
-Use a custom config and personality:
+A wrapper script for issue-driven cron:
 
 ```bash
-map --headless --v2 \
-  --config ./pipeline.yaml \
-  --personality "Prefer small diffs, explicit risks, and no new dependencies." \
-  "Investigate the bug, add a regression test, fix it, and assess release readiness"
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_DIR="/path/to/repo"
+CONFIG="$HOME/.map/pipeline.yaml"
+
+cd "$REPO_DIR"
+ISSUE_URL="$(gh issue list -l map-ready --limit 1 --json url -q '.[0].url')"
+[ -z "$ISSUE_URL" ] && exit 0
+
+map --headless \
+  --config "$CONFIG" \
+  --github-issue "$ISSUE_URL" \
+  --output-dir "./output/$(date +%Y%m%d-%H%M%S)" \
+  --total-timeout 60m \
+  --inactivity-timeout 10m \
+  --verbose
 ```
 
-The v2 result JSON includes per-step results and a DAG summary. V2 uses `router` config plus enabled agents from `agents/`; it does not use the fixed `agents.spec/review/qa/execute/docs` stage assignments except where those assignments are relevant to classic mode.
+### Long-Running Daemon
 
-### Agent Commands
+For continuous operation — watching a repo for new issues or running on a polling loop — wrap MAP in a simple daemon script or a systemd service. MAP itself is not a daemon; each invocation runs one pipeline and exits. The daemon wrapper handles scheduling and restarts.
+
+Polling loop example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_DIR="/path/to/repo"
+CONFIG="$HOME/.map/pipeline.yaml"
+POLL_INTERVAL=300  # seconds between checks
+
+cd "$REPO_DIR"
+while true; do
+  ISSUE_URL="$(gh issue list -l map-ready --limit 1 --json url -q '.[0].url' 2>/dev/null || true)"
+  if [ -n "$ISSUE_URL" ]; then
+    echo "[$(date)] Processing $ISSUE_URL"
+    map --headless \
+      --config "$CONFIG" \
+      --github-issue "$ISSUE_URL" \
+      --output-dir "./output/$(date +%Y%m%d-%H%M%S)" \
+      --total-timeout 60m \
+      --inactivity-timeout 10m \
+      --verbose 2>&1 | tee -a /var/log/map-daemon.log
+    # Optionally close/label the issue after success
+    gh issue edit "$ISSUE_URL" --remove-label map-ready --add-label map-done
+  fi
+  sleep "$POLL_INTERVAL"
+done
+```
+
+systemd unit example (`/etc/systemd/system/map-daemon.service`):
+
+```ini
+[Unit]
+Description=MAP Pipeline Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/path/to/repo
+ExecStart=/path/to/map-daemon.sh
+Restart=on-failure
+RestartSec=30
+Environment=PATH=/usr/local/bin:/usr/bin
+Environment=MAP_CONFIG_PATH=/home/deploy/.map/pipeline.yaml
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Timeouts
+
+Headless mode enforces three timeout budgets to prevent runaway runs:
+
+| Flag | Config key | Default | Purpose |
+| --- | --- | --- | --- |
+| `--total-timeout` | `headless.totalTimeoutMs` | 60m | Maximum wall-clock time for the entire pipeline |
+| `--inactivity-timeout` | `headless.inactivityTimeoutMs` | 10m | Maximum silence from the AI backend before aborting |
+| `--poll-interval` | `headless.pollIntervalMs` | 10s | How often MAP checks the timeout clocks |
+
+Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
+
+### Verbose Progress
+
+Pass `--verbose` (or `-V`) to emit human-readable progress on stderr while JSON goes to stdout. Useful for cron logs and daemon monitoring:
+
+```bash
+map --headless --verbose "Explain a technical concept" > result.json 2> progress.log
+```
+
+Verbose output includes: stage transitions, byte counts, elapsed time, QA verdicts, and test markers.
+
+### Output Format
+
+Classic mode (v1) returns:
+
+```json
+{
+  "version": 1,
+  "success": true,
+  "spec": "...",
+  "filesCreated": ["src/index.ts", "tests/index.test.ts"],
+  "outputDir": "./output",
+  "testsTotal": 12,
+  "testsPassing": 12,
+  "testsFailing": 0,
+  "duration": 45200,
+  "qaAssessments": [],
+  "githubReport": { "posted": true, "url": "..." }
+}
+```
+
+Smart-routing mode (v2) returns:
+
+```json
+{
+  "version": 2,
+  "success": true,
+  "dag": { "nodes": [], "edges": [] },
+  "steps": [
+    { "id": "step-1", "agent": "spec-writer", "status": "completed", "duration": 8200 }
+  ],
+  "duration": 32100
+}
+```
+
+---
+
+## Agent Commands
 
 Inspect registered agents:
 
@@ -308,14 +486,14 @@ Generate a new agent definition:
 map agent create --adapter ollama --model gemma4:26b
 ```
 
-### Local Development Equivalents
+## Local Development Equivalents
 
 From this repository, prefix the same commands with `npm run dev --`:
 
 ```bash
 npm run dev -- --headless --v2 \
   --personality "Use a terse engineering review style." \
-  "Build the feature with TDD and QA review"
+  "Research the task, plan execution, and review readiness"
 ```
 
 ```bash
@@ -410,7 +588,7 @@ prompt
 Run it with:
 
 ```bash
-map --headless --v2 "Build a feature, write tests, update docs, and assess release readiness"
+map --headless --v2 "Research the task, plan the steps, and assess readiness"
 ```
 
 The router uses the registered agents' `name`, `description`, `handles`, and `output.type` to produce JSON:
@@ -633,30 +811,6 @@ Options:
   --personality <text>   Personality or tone injected into AI prompts
 ```
 
-## TUI Notes
-
-The TUI supports:
-
-- Agent assignment for classic pipeline stages.
-- GitHub issue URL entry on the welcome screen.
-- Spec feedback loop with reviewed spec and refinement score.
-- Execution progress, code QA/fix loops, and final docs progress.
-- Router plan and DAG execution screens for v2 UI surfaces as the routing experience continues to mature.
-
-Keyboard shortcuts:
-
-| Screen | Key | Action |
-| --- | --- | --- |
-| Welcome | `Tab` | Select stage for agent assignment |
-| Welcome | `Enter` | Start pipeline or change agent |
-| Welcome | `Ctrl+O` | Open saved pipelines |
-| Pipeline | `Ctrl+C` | Cancel and save checkpoint |
-| Feedback | `Enter` | Submit feedback and refine spec |
-| Feedback | `Ctrl+E` | Approve and execute |
-| Feedback | `Tab` | Toggle spec/diff view |
-| Complete | `Enter` | Start a new pipeline |
-| Complete | `o` | Open output directory |
-
 ## Architecture
 
 Important directories:
@@ -675,7 +829,7 @@ src/
   prompts/        System prompt builders
   router/         LLM router prompt and DAG parsing
   tools/          Built-in tool registry and prompt injection
-  tui/            Ink/React terminal UI
+  tui/            neo-blessed terminal UI
   types/          Shared TypeScript contracts
   utils/          Duration, error, logging, platform helpers
 

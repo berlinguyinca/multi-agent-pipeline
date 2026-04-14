@@ -1,10 +1,9 @@
-import React from 'react';
-import { render } from 'ink';
 import { runHeadless } from './headless/runner.js';
-import App from './tui/App.js';
+import { createTuiApp } from './tui/tui-app.js';
 import { loadConfig } from './config/loader.js';
 import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
+import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
 
 async function main() {
@@ -13,16 +12,16 @@ async function main() {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 MAP - Multi-Agent Pipeline
-One prompt. One shot. Working software.
+One task. One shot. Useful output.
 
 Usage:
   map                    Launch interactive TUI
-  map "your idea"        Start pipeline with a prompt
+  map "your idea"        Start with a task or question
   map --resume [id]      Resume a saved pipeline
   map --config <path>    Use custom config file
   map --headless "idea"  Run non-interactively, outputs JSON to stdout
   map --github-issue <url>
-                         Use a GitHub issue as the build prompt and post final report
+                         Use a GitHub issue as the task prompt and post final report
   map --review-pr <url>  Review a GitHub PR and post findings as a comment
 
 Options:
@@ -89,6 +88,12 @@ Commands:
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
 
+    const validation = validatePrompt(prompt, githubIssueUrl);
+    if (!validation.valid) {
+      console.error(`Error: ${validation.error}`);
+      process.exit(1);
+    }
+
     if (useV2) {
       const { runHeadlessV2 } = await import('./headless/runner.js');
       const result = await runHeadlessV2({
@@ -125,20 +130,20 @@ Commands:
   }
 
   const configPath = extractFlag(args, '--config');
+  const useV2 = args.includes('--v2');
   const initialPrompt = extractPrompt(args);
   const initialGithubIssueUrl = extractFlag(args, '--github-issue');
   const config = await loadConfig(configPath);
   const detection = await detectAllAdapters(config.ollama.host);
 
-  const { waitUntilExit } = render(
-    React.createElement(App, {
-      config,
-      detection,
-      initialPrompt: initialPrompt === '' ? undefined : initialPrompt,
-      initialGithubIssueUrl,
-    }),
-  );
-  await waitUntilExit();
+  const app = createTuiApp({
+    config,
+    detection,
+    useV2,
+    initialPrompt: initialPrompt === '' ? undefined : initialPrompt,
+    initialGithubIssueUrl,
+  });
+  await app.run();
 }
 
 main().catch((err) => {
