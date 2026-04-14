@@ -123,6 +123,34 @@ describe('executeDAG', () => {
     expect(result.steps[1].reason).toContain('step-1');
   });
 
+  it('injects agent system prompt and tool catalog into step context', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'coder', task: 'Build X', dependsOn: [] }],
+    };
+    const coderAgent = makeAgent('coder', 'files');
+    coderAgent.prompt = 'You are a coding expert.';
+    coderAgent.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([['coder', coderAgent]]);
+
+    let capturedPrompt = '';
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        capturedPrompt = prompt;
+        yield 'Output';
+      },
+    }));
+
+    await executeDAG(plan, agents, createAdapter);
+
+    expect(capturedPrompt).toContain('You are a coding expert');
+    expect(capturedPrompt).toContain('shell');
+    expect(capturedPrompt).toContain('Build X');
+  });
+
   it('reports partial success', async () => {
     const plan: DAGPlan = {
       plan: [

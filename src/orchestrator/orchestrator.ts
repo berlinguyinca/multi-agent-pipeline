@@ -3,6 +3,8 @@ import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { DAGPlan, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
+import { createToolRegistry } from '../tools/registry.js';
+import { injectToolCatalog } from '../tools/inject.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -53,7 +55,9 @@ export async function executeDAG(
       const startedAt = Date.now();
 
       try {
-        const context = buildStepContext(step.task, step.dependsOn, results);
+        const tools = createToolRegistry(agent, process.cwd());
+        const rawContext = buildStepContext(step.task, step.dependsOn, results);
+        const context = injectToolCatalog(rawContext, tools, agent.prompt);
         const adapter = createAdapter({
           type: agent.adapter,
           model: agent.model,
