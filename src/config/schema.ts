@@ -4,6 +4,8 @@ import type {
   HeadlessRuntimeConfig,
   OllamaConfig,
   QualityConfig,
+  RouterConfig,
+  AgentCreationConfig,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
@@ -144,6 +146,117 @@ function validateQualityConfig(value: unknown): Partial<QualityConfig> {
   return quality;
 }
 
+function validateRouterConfig(value: unknown): Partial<RouterConfig> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('router must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const router: Partial<RouterConfig> = {};
+
+  if (obj['adapter'] !== undefined) {
+    if (!isValidAdapter(obj['adapter'])) {
+      throw new Error(
+        `router.adapter must be one of: ${VALID_ADAPTERS.join(', ')}; got "${String(obj['adapter'])}"`
+      );
+    }
+    router.adapter = obj['adapter'];
+  }
+
+  if (obj['model'] !== undefined) {
+    if (typeof obj['model'] !== 'string' || obj['model'].trim() === '') {
+      throw new Error('router.model must be a non-empty string');
+    }
+    router.model = obj['model'].trim();
+  }
+
+  if (obj['maxSteps'] !== undefined) {
+    router.maxSteps = validatePositiveInteger(obj['maxSteps'], 'router.maxSteps');
+  }
+
+  if (obj['timeoutMs'] !== undefined) {
+    if (typeof obj['timeoutMs'] !== 'string' && typeof obj['timeoutMs'] !== 'number') {
+      throw new Error('router.timeoutMs must be a string or number');
+    }
+    router.timeoutMs = parseDuration(obj['timeoutMs'], 'router.timeoutMs');
+  }
+
+  return router;
+}
+
+function validateAgentCreationConfig(value: unknown): Partial<AgentCreationConfig> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('agentCreation must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const agentCreation: Partial<AgentCreationConfig> = {};
+
+  if (obj['adapter'] !== undefined) {
+    if (!isValidAdapter(obj['adapter'])) {
+      throw new Error(
+        `agentCreation.adapter must be one of: ${VALID_ADAPTERS.join(', ')}; got "${String(obj['adapter'])}"`
+      );
+    }
+    agentCreation.adapter = obj['adapter'];
+  }
+
+  if (obj['model'] !== undefined) {
+    if (typeof obj['model'] !== 'string' || obj['model'].trim() === '') {
+      throw new Error('agentCreation.model must be a non-empty string');
+    }
+    agentCreation.model = obj['model'].trim();
+  }
+
+  return agentCreation;
+}
+
+function validateAgentOverrides(
+  value: unknown,
+): Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('agentOverrides must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const result: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> = {};
+
+  for (const [key, entry] of Object.entries(obj)) {
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`agentOverrides.${key} must be an object`);
+    }
+    const entryObj = entry as Record<string, unknown>;
+    const override: { adapter?: AdapterType; model?: string; enabled?: boolean } = {};
+
+    if (entryObj['adapter'] !== undefined) {
+      if (!isValidAdapter(entryObj['adapter'])) {
+        throw new Error(
+          `agentOverrides.${key}.adapter must be one of: ${VALID_ADAPTERS.join(', ')}; got "${String(entryObj['adapter'])}"`
+        );
+      }
+      override.adapter = entryObj['adapter'];
+    }
+
+    if (entryObj['model'] !== undefined) {
+      if (typeof entryObj['model'] !== 'string' || entryObj['model'].trim() === '') {
+        throw new Error(`agentOverrides.${key}.model must be a non-empty string`);
+      }
+      override.model = entryObj['model'].trim();
+    }
+
+    if (entryObj['enabled'] !== undefined) {
+      if (typeof entryObj['enabled'] !== 'boolean') {
+        throw new Error(`agentOverrides.${key}.enabled must be a boolean`);
+      }
+      override.enabled = entryObj['enabled'];
+    }
+
+    result[key] = override;
+  }
+
+  return result;
+}
+
 export function validateConfig(config: unknown): PipelineConfig {
   if (typeof config !== 'object' || config === null) {
     throw new Error('Config must be an object');
@@ -203,6 +316,21 @@ export function validateConfig(config: unknown): PipelineConfig {
     quality = validateQualityConfig(obj['quality']);
   }
 
+  let router: Partial<RouterConfig> | undefined;
+  if (obj['router'] !== undefined) {
+    router = validateRouterConfig(obj['router']);
+  }
+
+  let agentCreation: Partial<AgentCreationConfig> | undefined;
+  if (obj['agentCreation'] !== undefined) {
+    agentCreation = validateAgentCreationConfig(obj['agentCreation']);
+  }
+
+  let agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> | undefined;
+  if (obj['agentOverrides'] !== undefined) {
+    agentOverrides = validateAgentOverrides(obj['agentOverrides']);
+  }
+
   return {
     ...(agents !== undefined ? { agents } : {}),
     ...(ollama !== undefined ? { ollama } : {}),
@@ -210,5 +338,8 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(typeof obj['outputDir'] === 'string' ? { outputDir: obj['outputDir'] } : {}),
     ...(typeof obj['gitCheckpoints'] === 'boolean' ? { gitCheckpoints: obj['gitCheckpoints'] } : {}),
     ...(headless !== undefined ? { headless } : {}),
+    ...(router !== undefined ? { router } : {}),
+    ...(agentCreation !== undefined ? { agentCreation } : {}),
+    ...(agentOverrides !== undefined ? { agentOverrides } : {}),
   } as PipelineConfig;
 }

@@ -65,6 +65,20 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
         override.headless?.inactivityTimeoutMs ?? base.headless.inactivityTimeoutMs,
       pollIntervalMs: override.headless?.pollIntervalMs ?? base.headless.pollIntervalMs,
     },
+    router: {
+      adapter: override.router?.adapter ?? base.router.adapter,
+      model: override.router?.model ?? base.router.model,
+      maxSteps: override.router?.maxSteps ?? base.router.maxSteps,
+      timeoutMs: override.router?.timeoutMs ?? base.router.timeoutMs,
+    },
+    agentCreation: {
+      adapter: override.agentCreation?.adapter ?? base.agentCreation.adapter,
+      model: override.agentCreation?.model ?? base.agentCreation.model,
+    },
+    agentOverrides: {
+      ...base.agentOverrides,
+      ...override.agentOverrides,
+    },
   };
 }
 
@@ -78,6 +92,9 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       ollama: { ...DEFAULT_CONFIG.ollama },
       quality: { ...DEFAULT_CONFIG.quality },
       headless: { ...DEFAULT_CONFIG.headless },
+      router: { ...DEFAULT_CONFIG.router },
+      agentCreation: { ...DEFAULT_CONFIG.agentCreation },
+      agentOverrides: { ...DEFAULT_CONFIG.agentOverrides },
     };
   }
 

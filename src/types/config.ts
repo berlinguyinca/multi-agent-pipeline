@@ -20,6 +20,18 @@ export interface QualityConfig {
   maxCodeQaIterations: number;
 }
 
+export interface RouterConfig {
+  adapter: AdapterType;
+  model: string;
+  maxSteps: number;
+  timeoutMs: number;
+}
+
+export interface AgentCreationConfig {
+  adapter: AdapterType;
+  model: string;
+}
+
 export interface PipelineConfig {
   agents: {
     spec: AgentAssignment;
@@ -33,6 +45,9 @@ export interface PipelineConfig {
   outputDir: string;
   gitCheckpoints: boolean;
   headless: HeadlessRuntimeConfig;
+  router: RouterConfig;
+  agentCreation: AgentCreationConfig;
+  agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }>;
 }
 
 export type StageName = 'spec' | 'review' | 'qa' | 'execute' | 'docs';

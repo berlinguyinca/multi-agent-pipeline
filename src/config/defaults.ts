@@ -1,3 +1,4 @@
+import type { AdapterType } from '../types/adapter.js';
 import type { PipelineConfig } from '../types/config.js';
 
 export const DEFAULT_CONFIG: PipelineConfig = {
@@ -22,4 +23,15 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     inactivityTimeoutMs: 10 * 60 * 1000,
     pollIntervalMs: 10 * 1000,
   },
+  router: {
+    adapter: 'ollama' as AdapterType,
+    model: 'gemma4',
+    maxSteps: 10,
+    timeoutMs: 30_000,
+  },
+  agentCreation: {
+    adapter: 'ollama' as AdapterType,
+    model: 'gemma4',
+  },
+  agentOverrides: {},
 };
