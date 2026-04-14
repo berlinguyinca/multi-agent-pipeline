@@ -5,6 +5,7 @@ import type { DAGPlan, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
+import { runWithFailover } from '../adapters/failover-runner.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -58,15 +59,22 @@ export async function executeDAG(
         const tools = createToolRegistry(agent, process.cwd());
         const rawContext = buildStepContext(step.task, step.dependsOn, results);
         const context = injectToolCatalog(rawContext, tools, agent.prompt);
-        const adapter = createAdapter({
-          type: agent.adapter,
-          model: agent.model,
-        });
 
-        let output = '';
-        for await (const chunk of adapter.run(context)) {
-          output += chunk;
-        }
+        const configs: AdapterConfig[] = [
+          { type: agent.adapter, model: agent.model },
+          ...(agent.fallbacks ?? []).map((fb) => ({
+            type: fb.adapter,
+            model: fb.model,
+          })),
+        ];
+
+        const output = await runWithFailover(configs, createAdapter, async (adapter) => {
+          let out = '';
+          for await (const chunk of adapter.run(context)) {
+            out += chunk;
+          }
+          return out.trim();
+        });
 
         const result: StepResult = {
           id: step.id,
@@ -74,7 +82,7 @@ export async function executeDAG(
           task: step.task,
           status: 'completed',
           outputType: agent.output.type,
-          output: output.trim(),
+          output,
           duration: Date.now() - startedAt,
         };
         results.set(step.id, result);

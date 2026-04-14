@@ -2,250 +2,212 @@
 
 **One prompt. One shot. Working software.**
 
-MAP orchestrates multiple AI tools (Claude, Codex, Ollama) through an iterative spec-refinement pipeline that produces working, test-driven, documented code from a natural language prompt. Instead of burning tokens on implementation retries, MAP invests in spec quality upfront so the execution stage produces working code on the first attempt.
+MAP orchestrates AI CLIs and local models through spec-first, test-driven software delivery. It can run the original guided pipeline, or use v2 smart routing to select repo-defined agents and execute a dependency-aware DAG.
 
-```
+```bash
 npm install -g multi-agent-pipeline
 map
 ```
 
----
+## What MAP Does
 
-## How It Works
+MAP supports two execution modes:
 
-MAP follows a 4-stage pipeline with spec and code QA gates:
+- **Classic pipeline**: spec generation, spec review, spec QA, user feedback, TDD execution, code QA, and Markdown docs.
+- **Smart routing v2**: a router reads registered agents from `agents/`, creates a DAG plan, and runs independent agent steps in parallel where possible.
 
-```
-User Prompt
-    |
-    v
-+------------------+
-| Stage 1: SPEC    |  AI agent generates a structured specification
-| (generation)     |  from your natural language prompt
-+--------+---------+
-         |
-         v
-+------------------+
-| Stage 2: REVIEW  |  A different AI agent reviews the spec,
-| (validation)     |  finds gaps, and produces an improved version
-+--------+---------+
-         |
-         v
-+--------------------------------------+
-| FEEDBACK LOOP                        |
-| You review the spec in the TUI.      |
-| Options:                             |
-|   * Approve --> proceed to execution |
-|   * Add suggestions --> re-enter     |
-|     Stage 1 with feedback, refine,   |
-|     and re-review                    |
-|   * Cancel --> save checkpoint, exit |
-+--------+-----------------------------+
-         | (approved)
-         v
-+------------------+
-| Stage 3: EXECUTE |  AI agent implements with strict TDD:
-| (implementation) |  1. Write failing tests from acceptance criteria
-|                  |  2. Implement code to pass all tests
-|                  |  3. Refactor
-|                  |  Output: working project with passing tests
-+--------+---------+
-         |
-         v
-+------------------+
-| Stage 4: DOCS    |  AI agent updates Markdown documentation
-| (documentation)  |  from the executed project and QA results
-|                  |  Output: runnable project with current docs
-+------------------+
-```
-
-The key insight: **iterate on the spec, not on the code**. Each refinement cycle costs a fraction of what a failed implementation retry would cost. By the time you approve the spec for execution, it's precise enough for one-shot success.
-
----
+The core idea is the same in both modes: invest in the spec and verification path before spending expensive implementation cycles.
 
 ## Quick Start
 
-### Prerequisites
-
-You need at least one AI CLI tool installed:
-
-| Tool | Install | Used for |
-|------|---------|----------|
-| **Claude** | `npm install -g @anthropic-ai/claude-code` | Spec generation, execution, documentation |
-| **Codex** | `npm install -g @openai/codex` | Spec review, QA |
-| **Ollama** | [ollama.com/download](https://ollama.com/download) | Any stage (local models) |
-
-### Install MAP
+Install dependencies and run the CLI:
 
 ```bash
-npm install -g multi-agent-pipeline
+npm install
+npm run dev
 ```
 
-### Your First Pipeline
+Run the interactive TUI:
 
 ```bash
 map
 ```
 
-This launches the interactive TUI. You'll see:
+Run headless classic mode:
 
-1. **Agent configuration** showing which tools are installed
-2. **A prompt input** where you describe what you want to build
-3. Type your idea and press Enter
-
-MAP will generate a spec, have it reviewed and QA checked, show you the result, and let you approve or refine before executing, code QA, and final Markdown documentation.
-
----
-
-## TUI Walkthrough
-
-### Screen 1: Welcome & Configuration
-
-```
-  MAP   Multi-Agent Pipeline
-        One prompt. One shot. Working software.
-
-  Agent Configuration
-
-  STAGE       AGENT           STATUS
-  * Spec      claude          installed
-  * Review    codex           installed
-  * QA        codex           installed
-  * Execute   claude          installed
-  * Docs      claude          installed
-
-  Available agents:
-  +-- claude          (installed)
-  +-- codex           (installed)
-  +-- ollama
-      +-- deepseek-coder:latest
-      +-- hermes:latest
-      +-- codellama:13b
-
-  What would you like to build?
-  > _
-
-  [Enter] Start   [Ctrl+O] Resume saved   [?] Help
+```bash
+map --headless "Build a TypeScript CLI that converts CSV to JSON"
 ```
 
-On launch, MAP auto-detects installed binaries and lists available Ollama models. Use **Tab** to select a stage, **Enter** to change its agent. Type your idea at the bottom and press Enter to start.
+Run headless smart-routing mode:
 
-### Screen 2: Pipeline Execution
-
-```
-  MAP Pipeline                              Iteration 1
-
-  * Spec ====== o Review ------ o Execute
-  claude         codex           claude
-  ========== 78%
-
-  --- Spec Generation (claude) ---
-
-  # REST API for Task Management
-
-  ## Goal
-  Build a RESTful API with CRUD endpoints...
-
-  ## Acceptance Criteria
-  - [ ] POST /tasks creates a task
-  - [ ] GET /tasks returns paginated list
-  ...  (streaming...)
-
-  [Ctrl+C] Cancel & save checkpoint
+```bash
+map --headless --v2 "Research the best design, implement it with tests, then review readiness"
 ```
 
-Watch the spec being generated in real-time. The pipeline bar at the top shows progress across all stages.
+## Running MAP
 
-### Screen 3: Feedback Loop (The Heart of MAP)
+Use `map ...` after installing the package globally. In a local checkout, use `npm run dev -- ...` with the same arguments.
 
-```
-  MAP Pipeline                              Iteration 2
+### Normal Interactive Mode
 
-  REFINEMENT SCORE
+Launch the TUI and type the prompt in the welcome screen:
 
-    Iteration 1:  ========..........  45%
-    Iteration 2:  =============.....  72%  <- now
-
-    Target: ==================..  90% (one-shot)
-
-  --- Reviewed Spec (v2) ---
-
-  # REST API for Task Management (v2)
-  ## Acceptance Criteria
-  - [ ] POST /tasks creates a task with validated input
-  - [ ] GET /tasks returns cursor-paginated list
-  - [ ] Rate limiting: 100 req/min per user
-  ... (scroll for more)
-
-  --- Your Feedback ---
-  > Add error response schemas with consistent JSON format_
-
-  [Enter] Refine again   [Ctrl+E] Approve & Execute
+```bash
+map
 ```
 
-This is where the magic happens:
+Start the TUI with the prompt already filled in:
 
-- **Refinement Score** shows how the spec improves across iterations
-- **Spec viewer** displays the current reviewed spec (toggle diff view with **Tab**)
-- **Chat input** lets you type feedback in natural language
-- Press **Enter** to refine again, or **Ctrl+E** when you're confident the spec is ready
-
-### Screen 4: TDD Execution
-
-```
-  Phase: RED (writing failing tests)
-
-  tests/tasks.test.ts
-  +-- written: POST /tasks creates a task
-  +-- written: GET /tasks returns paginated list
-  +-- writing: PUT /tasks/:id updates...
-  +-- pending: DELETE /tasks/:id
-  +-- pending: Auth middleware
-
-  Tests: 3 written | 0 passing | 3 failing | 2 pending
+```bash
+map "Build a REST API for task management with CRUD, auth, and pagination"
 ```
 
-The execution screen shows strict TDD in action:
-- **RED** phase: writing failing tests from acceptance criteria
-- **GREEN** phase: implementing code to pass tests
-- **REFACTOR** phase: cleaning up while keeping tests green
+Use a specific config file:
 
-After execution, MAP runs code QA. If QA finds gaps, the execute agent receives the findings and fixes the generated project until the configured code QA limit is reached. When code QA passes, the docs agent updates Markdown documentation from the final project state.
-
-### Screen 5: Success
-
-```
-  ONE-SHOT SUCCESS
-
-  Spec iterations:  3
-  Tests generated:  6 (6 passing)
-  Files created:    8
-  Docs updated:      README.md, docs/usage.md
-  Pipeline time:    4m 32s
-
-  Generated project: ./output/task-api/
-  Run tests: cd output/task-api && npm test
-
-  [Enter] New pipeline   [o] Open project   [Ctrl+C] Exit
+```bash
+map --config ./pipeline.yaml "Build a markdown-to-HTML converter"
 ```
 
----
+Start from a GitHub issue in the TUI:
 
-## Configuration
+```bash
+GITHUB_TOKEN=ghp_... map --github-issue https://github.com/owner/repo/issues/123
+```
 
-MAP looks for configuration in this order:
-1. Path passed via `--config`
-2. `pipeline.yaml` in the current directory
-3. `~/.map/pipeline.yaml`
-4. Built-in defaults
+Resume saved checkpointed work:
 
-### pipeline.yaml
+```bash
+map --resume
+```
+
+Normal interactive mode supports prompt text, config selection, GitHub issue input, stage-agent selection, feedback, approval, cancellation, and resume. `--personality` is currently applied by headless runners; it is not wired into the interactive TUI path yet.
+
+### Headless Classic Mode
+
+Classic headless mode runs the fixed spec/review/QA/execute/docs pipeline and prints JSON to stdout:
+
+```bash
+map --headless "Build a TypeScript CLI called pantry that tracks grocery items"
+```
+
+Write output to a specific directory:
+
+```bash
+map --headless --output-dir ./output/pantry "Build a pantry CLI"
+```
+
+Use runtime timeouts:
+
+```bash
+map --headless \
+  --total-timeout 60m \
+  --inactivity-timeout 10m \
+  --poll-interval 10s \
+  "Build a tested Node.js HTTP server"
+```
+
+Inject a personality or tone into all classic headless AI prompts:
+
+```bash
+map --headless \
+  --personality "Be concise, skeptical, and strict about test evidence." \
+  "Build a URL validator library with tests"
+```
+
+Use a GitHub issue as prompt source and post the final report back:
+
+```bash
+GITHUB_TOKEN=ghp_... map --headless \
+  --github-issue https://github.com/owner/repo/issues/123
+```
+
+### Headless Smart-Routing Mode
+
+Smart-routing mode asks the router to choose registered agents and execute a DAG:
+
+```bash
+map --headless --v2 "Add a feature, write tests, review code quality, and update docs"
+```
+
+Use a custom config and personality:
+
+```bash
+map --headless --v2 \
+  --config ./pipeline.yaml \
+  --personality "Prefer small diffs, explicit risks, and no new dependencies." \
+  "Investigate the bug, add a regression test, fix it, and assess release readiness"
+```
+
+The v2 result JSON includes per-step results and a DAG summary. V2 uses `router` config plus enabled agents from `agents/`; it does not use the fixed `agents.spec/review/qa/execute/docs` stage assignments except where those assignments are relevant to classic mode.
+
+### Agent Commands
+
+Inspect registered agents:
+
+```bash
+map agent list
+```
+
+Validate one agent:
+
+```bash
+map agent test implementation-coder
+```
+
+Generate a new agent definition:
+
+```bash
+map agent create --adapter ollama --model gemma4:26b
+```
+
+### Local Development Equivalents
+
+From this repository, prefix the same commands with `npm run dev --`:
+
+```bash
+npm run dev -- --headless --v2 \
+  --personality "Use a terse engineering review style." \
+  "Build the feature with TDD and QA review"
+```
+
+```bash
+npm run dev -- agent list
+```
+
+## Supported Backends
+
+| Backend | Install | Notes |
+| --- | --- | --- |
+| Claude CLI | `npm install -g @anthropic-ai/claude-code` | Strong default for spec generation, implementation, and docs. |
+| Codex CLI | `npm install -g @openai/codex` | Good for review, QA, and analysis. |
+| Ollama | `curl -fsSL https://ollama.com/install.sh \| sh` | Local model backend. MAP can start the server and pull/update configured models before use. |
+| Hermes | Install Hermes CLI and keep `hermes` on `PATH` | Optional adapter for `hermes chat -q ... -Q` workflows. |
+
+For Ollama-backed agents, `model` is required. If an Ollama-backed stage or v2 agent runs and the server is not available, MAP starts `ollama serve` in the background, waits for it to respond, then runs `ollama pull <model>`. Pulling installs a missing model and refreshes an existing tag. MAP does this once per distinct model/host per process run.
+
+## Classic Pipeline
+
+Classic mode follows the fixed stage machine:
+
+```text
+prompt
+  -> spec
+  -> review
+  -> spec QA
+  -> feedback/approval loop
+  -> TDD execution
+  -> code QA/fix loop
+  -> docs
+  -> complete
+```
+
+The stage assignments come from `pipeline.yaml`:
 
 ```yaml
-# Agent assignment per pipeline stage
 agents:
   spec:
-    adapter: claude          # claude | codex | ollama
+    adapter: claude
   review:
     adapter: codex
   qa:
@@ -262,318 +224,251 @@ quality:
   maxSpecQaIterations: 3
   maxCodeQaIterations: 3
 
-# Output directory for generated projects
 outputDir: ./output
-
-# Auto-commit at stage boundaries for cancel/resume
 gitCheckpoints: true
 ```
 
-### Using Ollama Models
+The QA agent is used twice:
 
-You can assign different Ollama models to different stages:
+- After review, it checks whether the spec is complete enough to execute.
+- After implementation, it checks generated code, tests, docs, maintainability, and spec conformance.
 
-```yaml
-agents:
-  spec:
-    adapter: ollama
-    model: deepseek-coder:latest    # Good at understanding requirements
-  review:
-    adapter: ollama
-    model: hermes:latest            # Good at critical analysis
-  qa:
-    adapter: ollama
-    model: qwen:latest              # Good at quality assessment
-  execute:
-    adapter: ollama
-    model: codellama:13b            # Good at code generation
-  docs:
-    adapter: ollama
-    model: llama3:latest            # Good at concise documentation
+Failed spec QA loops back to spec/review. Failed code QA sends findings to the execute agent until `quality.maxCodeQaIterations` is reached.
 
-ollama:
-  host: http://localhost:11434       # Override for remote Ollama servers
+## Refinement Score
+
+The refinement score answers whether a reviewed spec is ready for one-shot execution. Review output includes component scores for completeness, testability, and specificity, then combines them into a 0-100 score.
+
+Use the score as a planning signal:
+
+- Low score: add feedback or clarify requirements before execution.
+- Improving score: keep iterating on the spec.
+- High or plateaued score: approve and execute.
+
+The feedback loop is intentionally cheaper than implementation retries: MAP iterates on the spec until the acceptance criteria are concrete enough to drive TDD.
+
+## Smart Routing v2
+
+Smart routing turns a user task into a DAG of named agents:
+
+```text
+prompt
+  -> router
+  -> DAG plan
+  -> orchestrator
+  -> agent steps, parallel where dependencies allow
+  -> v2 result
 ```
 
-The `model` field is **required** when `adapter` is `ollama` and is ignored for other adapters.
-The `qa` agent runs after spec review and after implementation. Failed spec QA feeds findings back into another spec/review pass; failed code QA sends findings back to the execute agent for fixes until the configured quality limits are reached. The `docs` agent runs last and may create or update Markdown files only.
+Run it with:
 
-### GitHub Issue Input and Reporting
+```bash
+map --headless --v2 "Build a feature, write tests, update docs, and assess release readiness"
+```
 
-MAP can use a GitHub issue as the source prompt and post one final report back to the issue:
+The router uses the registered agents' `name`, `description`, `handles`, and `output.type` to produce JSON:
+
+```json
+{
+  "plan": [
+    { "id": "step-1", "agent": "spec-writer", "task": "Create an implementation-ready specification", "dependsOn": [] },
+    { "id": "step-2", "agent": "tdd-engineer", "task": "Write failing tests", "dependsOn": ["step-1"] },
+    { "id": "step-3", "agent": "implementation-coder", "task": "Implement the behavior", "dependsOn": ["step-2"] }
+  ]
+}
+```
+
+Steps with no unmet dependencies run concurrently. Dependent steps receive previous step outputs as context. If a dependency fails, downstream steps are skipped with a clear reason.
+
+## Agent Registry
+
+Agents live in git under `agents/<name>/`:
+
+```text
+agents/
+  spec-writer/
+    agent.yaml
+    prompt.md
+  implementation-coder/
+    agent.yaml
+    prompt.md
+```
+
+Each `agent.yaml` declares runtime configuration and routing metadata:
+
+```yaml
+name: implementation-coder
+description: "Implements the smallest code change needed to satisfy failing tests and reviewed specs"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-tests
+  - name: write-code
+  - name: refactor
+handles: "code implementation, feature work, bug fixes, test fixes, minimal diffs"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
+```
+
+Supported output types:
+
+| Type | Meaning |
+| --- | --- |
+| `answer` | Text analysis or recommendation. |
+| `data` | Structured data result. |
+| `files` | Creates or modifies project files. |
+
+Supported tool declarations:
+
+- `builtin: shell` for bounded shell command access.
+- `builtin: file-read` for file reads with path traversal protection.
+- `mcp` for future MCP-backed tool catalogs.
+
+Deployment overrides live in `pipeline.yaml` under `agentOverrides`. Scalar fields replace the agent definition; tools are merged by name.
+
+```yaml
+agentOverrides:
+  implementation-coder:
+    model: qwen2.5-coder:14b
+  docs-maintainer:
+    enabled: false
+```
+
+## Built-In Agents
+
+PR #1 added a software delivery bundle. These agents default to `adapter: ollama` and `model: gemma4:26b`:
+
+| Agent | Output | Handles |
+| --- | --- | --- |
+| `software-delivery` | `files` | Full spec -> QA -> TDD -> implementation -> code QA lifecycle. |
+| `spec-writer` | `answer` | Requirements, acceptance criteria, constraints, implementation-ready specs. |
+| `spec-qa-reviewer` | `answer` | Spec ambiguity, missing tests, edge cases, implementation risk. |
+| `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
+| `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
+| `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
+| `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
+| `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
+| `refactor-cleaner` | `files` | Behavior-preserving cleanup using existing patterns. |
+| `docs-maintainer` | `files` | Markdown docs updates after implementation and QA. |
+| `release-readiness-reviewer` | `answer` | Final readiness, evidence, risk, and handoff status. |
+
+Example DAG flows are documented in [docs/agents/software-delivery-flows.md](docs/agents/software-delivery-flows.md).
+
+## Agent CLI
+
+Agent definitions can be inspected and generated from the CLI:
+
+```bash
+map agent list
+map agent test implementation-coder
+map agent create --adapter ollama --model gemma4:26b
+```
+
+`map agent list` loads `agents/` and prints each agent's adapter, model, output type, pipeline, and tool count.
+
+`map agent test <name>` validates the agent definition and prints its routing metadata.
+
+`map agent create` asks what the agent should do, calls the configured agent-creation adapter, and writes `agents/<name>/agent.yaml` plus `prompt.md`. Review generated files before committing them.
+
+## GitHub Issue Mode
+
+Headless mode can use a GitHub issue as the source prompt and post one final report back to the issue:
 
 ```bash
 GITHUB_TOKEN=ghp_... map --headless --github-issue https://github.com/owner/repo/issues/123
 ```
 
-The issue title, body, and non-bot comments become the build prompt. If you also provide prompt text, MAP appends it as additional instructions. The final issue comment includes the generated spec, QA assessments, execution summary, files created, Markdown docs updated, test counts, and failure details when applicable.
+The issue title, body, and non-bot comments become the task prompt. If you also pass prompt text, MAP appends it as additional instructions. The final comment includes the generated spec, QA assessments, execution summary, files created, Markdown docs updated, test counts, and failure details when applicable.
 
-The TUI also exposes a separate optional GitHub issue URL field on the welcome screen. `GITHUB_TOKEN` must be available in the environment for issue fetch and final comment posting.
+## Checkpoints And Resume
 
-### Mixing Cloud and Local
-
-```yaml
-agents:
-  spec:
-    adapter: claude                 # Cloud: strong at spec writing
-  review:
-    adapter: ollama
-    model: hermes:latest            # Local: fast review iteration
-  qa:
-    adapter: ollama
-    model: qwen:latest              # Local: spec/code QA gate
-  execute:
-    adapter: claude                 # Cloud: reliable code generation
-  docs:
-    adapter: claude                 # Cloud: final Markdown docs
-```
-
----
-
-## Supported Backends
-
-### Claude CLI
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-Uses `claude --print <prompt>` for non-interactive execution. Ideal for spec generation and code execution due to strong reasoning capabilities.
-
-### Codex CLI
-
-```bash
-npm install -g @openai/codex
-```
-
-Uses `codex exec <prompt>` for execution. Well-suited for code review and analysis tasks.
-
-### Ollama (Local Models)
-
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull models you want to use
-ollama pull deepseek-coder
-ollama pull hermes
-ollama pull codellama:13b
-```
-
-Uses `ollama run <model> <prompt>`. Each stage can use a different model. MAP auto-detects installed models on launch.
-
-### Binary Detection
-
-On startup, MAP checks for installed binaries using `which` (Unix) or `where` (Windows). The TUI shows installation status for each tool and provides helpful error messages with install commands if a configured adapter isn't found.
-
----
-
-## Pipeline Stages in Detail
-
-### Stage 1: Spec Generation
-
-The spec agent receives your prompt and generates a structured markdown specification with:
-- **Goal** — Clear description of what to build
-- **Constraints** — Technical requirements and limitations
-- **Non-Goals** — Explicitly excluded scope
-- **Acceptance Criteria** — Testable checkboxes (these drive Stage 3)
-- **Technical Approach** — Recommended implementation strategy
-
-When feedback is provided (iterations 2+), the agent receives the original prompt plus your feedback and rewrites the spec from scratch.
-
-### Stage 2: Review
-
-A different agent reviews the generated spec and:
-- Evaluates **completeness**, **testability**, and **specificity**
-- Produces annotations (improvements, warnings, approvals)
-- Rewrites the spec with improvements incorporated
-- Outputs a **Refinement Score** (0-100) based on:
-  - `completeness` (0.0-1.0): Are all requirements captured?
-  - `testability` (0.0-1.0): Can each criterion be verified?
-  - `specificity` (0.0-1.0): Are requirements concrete enough?
-
-### Feedback Loop
-
-You see the reviewed spec and its Refinement Score. You can:
-- **Approve** (`Ctrl+E`) — Proceed to execution. Do this when the score is high and you're confident.
-- **Provide feedback** (type + Enter) — Your feedback goes back into Stage 1 with the original prompt. The spec is regenerated incorporating your feedback, then re-reviewed. The cycle repeats.
-- **Cancel** (`Ctrl+C`) — Save a git checkpoint and exit. Resume later.
-
-### Stage 3: TDD Execution
-
-The execution agent receives the final reviewed spec and follows strict TDD:
-
-1. **RED**: Write failing tests from the acceptance criteria. Each checkbox in the spec becomes at least one test.
-2. **GREEN**: Write the minimum code to make all tests pass.
-3. **REFACTOR**: Clean up the code while keeping tests green.
-
-The output is a complete, runnable project in the configured output directory.
-
-After execution, the QA agent evaluates the generated project against the reviewed spec, test results, maintainability, README accuracy, and source organization. Failed code QA sends findings back to the execute agent for a fix pass until `quality.maxCodeQaIterations` is reached.
-
-### Stage 4: Documentation
-
-The docs agent runs after code QA passes. It inspects the generated project, reviewed spec, execution summary, and QA assessments, then creates or updates Markdown documentation in the output directory.
-
-The docs phase is constrained to `.md` files. MAP captures the output directory before the phase and fails the pipeline if the docs agent creates, edits, or removes any non-Markdown file.
-
----
-
-## Refinement Score
-
-The Refinement Score is the core UX concept that makes MAP work. It answers: **"Is this spec good enough for one-shot execution?"**
-
-```
-REFINEMENT SCORE
-
-  Iteration 1:  ========..........  45%
-  Iteration 2:  =============.....  72%
-  Iteration 3:  =================.  92%  <- now
-
-  Target: ==================..  90% (one-shot)
-```
-
-Each iteration through the feedback loop should increase the score. When improvement plateaus (diminishing returns), that's your signal to approve and execute.
-
-The score is computed by the review agent from three dimensions:
-- **Completeness**: Are all requirements captured?
-- **Testability**: Can acceptance criteria be turned into automated tests?
-- **Specificity**: Are requirements concrete enough to implement without guessing?
-
----
-
-## Checkpoints & Resume
-
-MAP uses git as its checkpoint mechanism. At each stage boundary, all generated files are auto-committed with a structured message:
-
-```
-[MAP] stage:reviewing iter:2 id:abc-123 name:task-api ts:2026-04-12T14:32:00Z
-```
-
-### Resuming a Pipeline
+MAP uses git checkpoints at stage boundaries. Cancelling with `Ctrl+C` saves progress so a pipeline can be resumed later.
 
 ```bash
 map --resume
 ```
 
-Or press **Ctrl+O** on the Welcome screen to see saved pipelines:
+You can also press `Ctrl+O` on the welcome screen to browse saved checkpoints. When resuming, MAP can keep the original stage assignments or use the current configuration, which is useful when switching from a local model to a stronger backend after a failed or incomplete run.
 
-```
-  Saved pipelines (git checkpoints):
+## Configuration Reference
 
-  > task-api          Iteration 2 | Review done | Paused at: Feedback
-    12 Apr 14:32      Agents: claude/codex/claude
+MAP loads config in this order:
 
-    chat-widget       Iteration 1 | Spec done   | Paused at: Review
-    11 Apr 09:15      Agents: ollama:hermes/codex/claude
+1. `--config <path>`
+2. `pipeline.yaml` in the current directory
+3. `~/.map/pipeline.yaml`
+4. Built-in defaults
 
-  Resume with current agents?  Or reconfigure:
-    Spec:    [claude    ]
-    Review:  [codex     ]
-    Execute: [claude    ]
-
-  [Enter] Resume  [d] Delete pipeline
-```
-
-You can **swap agents** before resuming. This is powerful: start with a fast local model, and if the execution fails, resume with a stronger cloud model.
-
-### Safe Cancel
-
-`Ctrl+C` is always safe. MAP saves a checkpoint before exiting, so you never lose progress.
-
----
-
-## Examples
-
-### Example 1: Simple CLI Tool
-
-```bash
-map "Build a Node.js CLI that converts CSV files to JSON"
-```
-
-**Iteration 1**: MAP generates a spec with acceptance criteria like:
-- `[ ] Reads CSV from stdin or file argument`
-- `[ ] Outputs JSON to stdout`
-- `[ ] Handles quoted fields with commas`
-
-**Review** catches missing edge cases: "What about malformed CSV? Empty files?"
-
-**You add feedback**: "Handle errors gracefully with exit code 1"
-
-**Iteration 2**: Improved spec includes error handling criteria.
-
-**Approve & Execute**: Tests written first, then implementation. Output in `./output/`.
-
-### Example 2: REST API with Feedback Loop
-
-```bash
-map
-```
-
-Type: `Build a REST API for task management with CRUD, authentication, and pagination`
-
-**Iteration 1** (Score: 45%):
-- Spec is vague on pagination style and auth method
-- Review flags: "Missing rate limiting, no error response schema"
-
-**You add**: `Use cursor-based pagination, JWT auth, rate limit 100 req/min`
-
-**Iteration 2** (Score: 72%):
-- Spec is more specific but missing input validation
-- Review suggests: "Add request body validation schemas"
-
-**You add**: `Use zod for input validation on all POST/PUT endpoints`
-
-**Iteration 3** (Score: 92%):
-- All criteria are specific and testable
-- Review: "APPROVAL: Spec is comprehensive and implementation-ready"
-
-**Approve**: Execution produces a complete Express API with 12 passing tests and updated Markdown documentation.
-
-### Example 3: Mixed Ollama Models
-
-Create `pipeline.yaml`:
+Full example:
 
 ```yaml
 agents:
   spec:
-    adapter: ollama
-    model: qwen2.5-coder:7b       # Fast local model for spec drafting
+    adapter: claude
   review:
-    adapter: ollama
-    model: deepseek-coder:latest   # Strong at code analysis
+    adapter: codex
   qa:
     adapter: ollama
-    model: qwen:latest             # Local QA loop
+    model: qwen:latest
   execute:
-    adapter: claude                 # Cloud model for reliable execution
+    adapter: claude
   docs:
     adapter: ollama
-    model: llama3:latest            # Local final Markdown docs
+    model: gemma4:26b
+
+router:
+  adapter: ollama
+  model: gemma4:26b
+  maxSteps: 10
+  timeoutMs: 30s
+
+agentCreation:
+  adapter: ollama
+  model: gemma4:26b
+
+agentOverrides:
+  implementation-coder:
+    model: qwen2.5-coder:14b
+  release-readiness-reviewer:
+    enabled: true
+
+ollama:
+  host: http://localhost:11434
+
+quality:
+  maxSpecQaIterations: 3
+  maxCodeQaIterations: 3
+
+headless:
+  totalTimeoutMs: 60m
+  inactivityTimeoutMs: 10m
+  pollIntervalMs: 10s
+
+outputDir: ./output
+gitCheckpoints: true
 ```
-
-```bash
-map "Build a markdown-to-HTML converter library with plugin support"
-```
-
-This uses local models for the cheap spec/review/QA/docs work and a cloud model for the expensive implementation and QA-driven fixes.
-
----
 
 ## CLI Reference
 
-```
-MAP - Multi-Agent Pipeline
-One prompt. One shot. Working software.
-
+```text
 Usage:
   map                    Launch interactive TUI
   map "your idea"        Start pipeline with a prompt
   map --resume [id]      Resume a saved pipeline
   map --config <path>    Use custom config file
   map --headless "idea"  Run non-interactively, outputs JSON to stdout
+  map --headless --v2 "idea"
+                         Run smart-routing DAG mode
   map --github-issue <url>
                          Use a GitHub issue as prompt and post final report
+  map agent list         List registered agents
+  map agent create       Generate a new agent definition
+  map agent test <name>  Validate and inspect one agent
 
 Options:
   --help, -h             Show help
@@ -581,168 +476,111 @@ Options:
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
   --headless             Run without TUI, print JSON result to stdout
-  --output-dir <path>    Output directory (headless mode)
+  --v2                   Use DAG-based smart routing in headless mode
+  --output-dir <path>    Output directory for generated projects
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
-  --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
+  --github-issue <url>   GitHub issue URL for prompt/reporting
+  --personality <text>   Personality or tone injected into AI prompts
 ```
 
-### Keyboard Shortcuts
+## TUI Notes
+
+The TUI supports:
+
+- Agent assignment for classic pipeline stages.
+- GitHub issue URL entry on the welcome screen.
+- Spec feedback loop with reviewed spec and refinement score.
+- Execution progress, code QA/fix loops, and final docs progress.
+- Router plan and DAG execution screens for v2 UI surfaces as the routing experience continues to mature.
+
+Keyboard shortcuts:
 
 | Screen | Key | Action |
-|--------|-----|--------|
+| --- | --- | --- |
 | Welcome | `Tab` | Select stage for agent assignment |
-| Welcome | `Enter` | Start pipeline / Change agent |
+| Welcome | `Enter` | Start pipeline or change agent |
 | Welcome | `Ctrl+O` | Open saved pipelines |
-| Pipeline | `Ctrl+C` | Cancel & save checkpoint |
-| Feedback | `Enter` | Submit feedback, refine spec |
-| Feedback | `Ctrl+E` | Approve & execute |
+| Pipeline | `Ctrl+C` | Cancel and save checkpoint |
+| Feedback | `Enter` | Submit feedback and refine spec |
+| Feedback | `Ctrl+E` | Approve and execute |
 | Feedback | `Tab` | Toggle spec/diff view |
-| Execute | `Ctrl+C` | Cancel & save checkpoint |
-| Complete | `Enter` | Start new pipeline |
+| Complete | `Enter` | Start a new pipeline |
 | Complete | `o` | Open output directory |
-
----
 
 ## Architecture
 
-### File Structure
+Important directories:
 
-```
+```text
 src/
-  cli.ts                        # CLI entry point
-  index.ts                      # Library exports
-  types/                        # TypeScript interfaces
-    adapter.ts                  # AgentAdapter, AdapterConfig, DetectionResult
-    pipeline.ts                 # PipelineStage, PipelineContext, PipelineEvent
-    spec.ts                     # Spec, ReviewedSpec, RefinementScore, DocumentationResult
-    config.ts                   # PipelineConfig, AgentAssignment
-    checkpoint.ts               # CheckpointData, CheckpointMeta
-  adapters/                     # AI backend wrappers
-    base-adapter.ts             # Abstract base with subprocess management
-    claude-adapter.ts           # claude --print <prompt>
-    codex-adapter.ts            # codex exec <prompt>
-    ollama-adapter.ts           # ollama run <model> <prompt>
-    adapter-factory.ts          # Config -> AgentAdapter
-    detect.ts                   # Binary detection + Ollama model listing
-  pipeline/                     # Core orchestration
-    machine.ts                  # XState 5 state machine (12 states)
-    guards.ts                   # Transition guard functions
-    context.ts                  # Pipeline context factory
-  config/                       # Configuration
-    loader.ts                   # YAML config loading + merge
-    defaults.ts                 # Default agent assignments
-    schema.ts                   # Config validation
-  checkpoint/                   # Git-based persistence
-    git-checkpoint.ts           # Git operations (init, commit, log)
-    checkpoint-manager.ts       # Save/restore pipeline state
-    parser.ts                   # Checkpoint commit message format
-  tui/                          # Terminal UI (Ink 7 + React 19)
-    App.tsx                     # Screen router (XState state -> screen)
-    screens/                    # 6 full-page screens
-    components/                 # 11 reusable components
-    hooks/                      # useAgent, useScrollable, useKeyboard
-    providers/                  # PipelineProvider, ConfigProvider
-  prompts/                      # System prompt templates
-    spec-system.ts              # Spec generation prompt
-    review-system.ts            # Spec review prompt
-    execute-system.ts           # TDD execution prompt
-    feedback-system.ts          # Feedback refinement prompt
-    docs-system.ts              # Final Markdown documentation prompt
-  utils/                        # Shared utilities
-    error.ts                    # Custom error types
-    platform.ts                 # Cross-platform helpers
-    logger.ts                   # Debug logging
+  adapters/       AI backend wrappers: Claude, Codex, Ollama, Hermes
+  agents/         Agent loader and registry
+  checkpoint/     Git checkpoint save/resume support
+  cli/            Agent CLI commands and creation dialog
+  config/         YAML config loading, defaults, validation
+  github/         GitHub issue fetch/reporting helpers
+  headless/       Headless classic and v2 runners
+  orchestrator/   DAG execution engine
+  pipeline/       Classic XState pipeline
+  prompts/        System prompt builders
+  router/         LLM router prompt and DAG parsing
+  tools/          Built-in tool registry and prompt injection
+  tui/            Ink/React terminal UI
+  types/          Shared TypeScript contracts
+  utils/          Duration, error, logging, platform helpers
+
+agents/           Git-tracked runtime agent definitions
+docs/agents/      Agent-flow documentation
 ```
 
-### State Machine
+Core contracts:
 
+- `AgentAdapter` streams output from each backend and supports cancellation.
+- `AgentDefinition` describes a routable agent, its prompt, pipeline, tools, and output type.
+- `DAGPlan` is router-produced JSON with `id`, `agent`, `task`, and `dependsOn`.
+- `StepResult` records per-step status, output, duration, files, and errors.
+- `HeadlessResultV2` includes step results and a graph-friendly DAG summary.
+
+Classic state machine:
+
+```text
+idle -> specifying -> reviewing -> specAssessing
+                   ^                |
+                   +-- spec QA fail-+
+specAssessing -> feedback -> executing -> codeAssessing
+                                     |        |
+                                     |        +-- code QA fail -> fixing -> codeAssessing
+                                     +-- pass -> documenting -> complete
 ```
-idle --[START]--> specifying --[SPEC_COMPLETE]--> reviewing --[REVIEW_COMPLETE]--> specAssessing
-                       ^                                                                 |
-                       +----[SPEC_QA_FAIL/FEEDBACK]--------------------------------------+
-                                                                                         |
-feedback <--[SPEC_QA_PASS]---------------------------------------------------------------+
-    |
-    +--[APPROVE]--> executing --[EXECUTE_COMPLETE]--> codeAssessing --[CODE_QA_PASS]--> documenting --[DOCS_COMPLETE]--> complete
-                                                      |
-                                                      +--[CODE_QA_FAIL]--> fixing --[CODE_FIX_COMPLETE]--> codeAssessing
-
-[ERROR] -> failed (recoverable via FEEDBACK from failed)
-[CANCEL] -> cancelled (from active/user-waiting states)
-```
-
-### Adapter Interface
-
-All adapters implement the same interface:
-
-```typescript
-interface AgentAdapter {
-  readonly type: 'claude' | 'codex' | 'ollama';
-  readonly model: string | undefined;
-  detect(): Promise<DetectInfo>;
-  run(prompt: string, options?: RunOptions): AsyncGenerator<string>;
-  cancel(): void;
-}
-```
-
-The `run()` method returns an `AsyncGenerator` that yields output chunks as strings. This enables real-time streaming in the TUI. Cancellation is handled via `AbortSignal`.
-
----
 
 ## Development
 
 ```bash
-# Clone and install
-git clone <repo-url>
-cd multi-agent-pipeline
 npm install
-
-# Run tests (212 tests)
 npm test
-
-# Watch mode
-npm run test:watch
-
-# Type check
 npm run typecheck
-
-# Development mode (runs without building)
-npm run dev
-
-# Build for distribution
 npm run build
 ```
 
-### Testing
+Current verification baseline after PR #1:
 
-MAP uses [vitest](https://vitest.dev/) with 212 tests across 39 test files:
-
-- **Type contract tests** — Verify interface shapes and helper functions
-- **Adapter tests** — Binary detection, streaming, cancellation (with MockAdapter)
-- **Pipeline tests** — State machine transitions, feedback loop, error recovery
-- **Config tests** — YAML loading, validation, merge with defaults
-- **Checkpoint tests** — Git operations with real temp directories
-- **Component tests** — All TUI components via `ink-testing-library`
-- **Screen tests** — Each screen renders correctly with various props
-- **E2E tests** — Full pipeline flow with MockAdapter, CLI argument parsing
-
----
+- `npm test`: 70 test files, 393 tests
+- `npm run typecheck`
+- `npm run build`
 
 ## Roadmap
 
-### v2 Planned Features
+The v2 foundation is now in place. Useful next steps:
 
-- **Token usage tracking** — Measure and report tokens per stage for efficiency analysis
-- **Auto-retry with escalation** — Automatically retry failed stages, optionally escalating to a stronger model
-- **Mid-stage resume** — Resume from within a stage, not just at boundaries
-- **Plugin system** — Custom adapters for additional AI tools
-- **Parallel execution** — Run multiple acceptance criteria tests in parallel
-- **Web UI** — Browser-based alternative to the terminal TUI
-
----
+- Token usage tracking per stage and per DAG step.
+- Retry/failover policies for quota or transient backend failures.
+- Mid-stage resume instead of only stage-boundary checkpoints.
+- Additional built-in tools and MCP-backed tool execution.
+- Full interactive v2 approval/editing flow in the TUI.
+- Browser-based UI for long-running pipelines.
 
 ## License
 

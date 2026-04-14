@@ -40,7 +40,48 @@ function validateAgentAssignment(value: unknown, field: string): AgentAssignment
     assignment.model = obj['model'];
   }
 
+  if (obj['fallbacks'] !== undefined) {
+    assignment.fallbacks = validateFallbacks(obj['fallbacks'], field);
+  }
+
   return assignment;
+}
+
+function validateFallbacks(
+  value: unknown,
+  parentField: string,
+): Array<{ adapter: AdapterType; model?: string }> {
+  if (!Array.isArray(value)) {
+    throw new Error(`agents.${parentField}.fallbacks must be an array`);
+  }
+
+  return value.map((entry, index) => {
+    const entryField = `agents.${parentField}.fallbacks[${index}]`;
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`${entryField} must be an object`);
+    }
+
+    const obj = entry as Record<string, unknown>;
+
+    if (!isValidAdapter(obj['adapter'])) {
+      throw new Error(
+        `${entryField}.adapter must be one of: ${VALID_ADAPTERS.join(', ')}; got "${String(obj['adapter'])}"`
+      );
+    }
+
+    const adapter = obj['adapter'];
+
+    if (adapter === 'ollama' && (obj['model'] === undefined || obj['model'] === null || obj['model'] === '')) {
+      throw new Error(`${entryField}.model is required when adapter is 'ollama'`);
+    }
+
+    const fallback: { adapter: AdapterType; model?: string } = { adapter };
+    if (typeof obj['model'] === 'string') {
+      fallback.model = obj['model'];
+    }
+
+    return fallback;
+  });
 }
 
 function validateHeadlessConfig(value: unknown): Partial<HeadlessRuntimeConfig> {

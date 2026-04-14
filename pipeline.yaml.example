@@ -12,9 +12,25 @@ agents:
     model: qwen              # used for spec QA and code QA
   execute:
     adapter: ollama
-    model: gemma4            # implementation and QA-driven fixes
+    model: gemma4:26b        # implementation and QA-driven fixes
   docs:
     adapter: claude          # final Markdown documentation update
+
+router:
+  adapter: ollama
+  model: gemma4:26b
+  maxSteps: 10
+  timeoutMs: 30s
+
+agentCreation:
+  adapter: ollama
+  model: gemma4:26b
+
+agentOverrides:
+  implementation-coder:
+    model: gemma4:26b
+  release-readiness-reviewer:
+    enabled: true
 
 ollama:
   host: http://localhost:11434
@@ -22,6 +38,11 @@ ollama:
 quality:
   maxSpecQaIterations: 3
   maxCodeQaIterations: 3
+
+headless:
+  totalTimeoutMs: 60m
+  inactivityTimeoutMs: 10m
+  pollIntervalMs: 10s
 
 # Output directory for generated projects
 outputDir: ./output

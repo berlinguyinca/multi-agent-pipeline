@@ -1,8 +1,14 @@
 import type { AdapterType } from './adapter.js';
 
+export interface AdapterFallback {
+  adapter: AdapterType;
+  model?: string;
+}
+
 export interface AgentAssignment {
   adapter: AdapterType;
   model?: string;
+  fallbacks?: AdapterFallback[];
 }
 
 export interface HeadlessRuntimeConfig {

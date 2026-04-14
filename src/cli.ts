@@ -23,6 +23,7 @@ Usage:
   map --headless "idea"  Run non-interactively, outputs JSON to stdout
   map --github-issue <url>
                          Use a GitHub issue as the build prompt and post final report
+  map --review-pr <url>  Review a GitHub PR and post findings as a comment
 
 Options:
   --help, -h             Show this help
@@ -36,6 +37,7 @@ Options:
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
   --github-issue <url>   GitHub issue URL for prompt/reporting (requires GITHUB_TOKEN)
+  --review-pr <url>      Review a GitHub PR and post review comment (requires GITHUB_TOKEN)
   --personality <text>   Personality/tone injected into all AI prompts
   --v2                   Use v2 routing mode (DAG-based agent routing)
 
@@ -57,6 +59,16 @@ Commands:
     const { handleAgentCommand } = await import('./cli/agent-commands.js');
     await handleAgentCommand(subcommand.subArgs);
     process.exit(0);
+  }
+
+  const reviewPrUrl = extractFlag(args, '--review-pr');
+  if (reviewPrUrl) {
+    const { runPRReview } = await import('./headless/pr-review.js');
+    const configPath = extractFlag(args, '--config');
+    const personality = extractFlag(args, '--personality');
+    const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
+    process.stdout.write(JSON.stringify(result) + '\n');
+    process.exit(result.success ? 0 : 1);
   }
 
   if (args.includes('--headless')) {

@@ -34,6 +34,15 @@ export class AdapterNotFoundError extends MapError {
   }
 }
 
+export class AllAdaptersExhaustedError extends MapError {
+  constructor(public readonly adapters: AdapterType[]) {
+    super(
+      `All adapters in failover chain exhausted: ${adapters.join(' → ')}`,
+    );
+    this.name = 'AllAdaptersExhaustedError';
+  }
+}
+
 function installHint(type: AdapterType): string {
   switch (type) {
     case 'claude':
