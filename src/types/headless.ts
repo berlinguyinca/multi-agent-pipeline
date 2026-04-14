@@ -1,5 +1,6 @@
 import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
+import type { DAGResult, StepResult } from './dag.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -26,4 +27,14 @@ export interface HeadlessResult {
   documentationResult?: DocumentationResult;
   githubReport?: GitHubReportResult;
   error?: string;
+}
+
+export interface HeadlessResultV2 {
+  version: 2;
+  success: boolean;
+  dag: DAGResult;
+  steps: StepResult[];
+  duration: number;
+  error?: string | null;
+  githubReport?: GitHubReportResult;
 }
