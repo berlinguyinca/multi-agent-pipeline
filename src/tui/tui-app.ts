@@ -50,6 +50,7 @@ import {
   type PromptHistoryEntry,
 } from './prompt-history.js';
 import {
+  generateAgentSummary,
   saveFinalReportMarkdown,
   saveStageMarkdown,
   saveStepMarkdown,
@@ -1296,6 +1297,17 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               rawLogPath: finalEntry?.logPath,
             }),
           );
+          if (config.generateAgentSummary) {
+            markdownFiles.push(
+              await generateAgentSummary({
+                outputRoot: config.outputDir,
+                pipelineId,
+                duration: result.steps.reduce((sum, step) => sum + (step.duration ?? 0), 0),
+                success: result.success,
+                steps: result.steps,
+              }),
+            );
+          }
         } catch {
           // Markdown artifacts are best-effort; completion still renders in TUI.
         }

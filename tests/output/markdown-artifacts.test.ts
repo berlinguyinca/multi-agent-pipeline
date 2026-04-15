@@ -154,4 +154,19 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('**Status:** ⚠️ had failures');
     expect(saved).toContain('Model response was empty');
   });
+
+  it('formats hour-long agent summary durations correctly', async () => {
+    const outputRoot = await makeTempDir();
+
+    const file = await generateAgentSummary({
+      outputRoot,
+      pipelineId: 'pipe-hours',
+      duration: 3_600_000,
+      success: true,
+      steps: [],
+    });
+
+    const saved = await fs.readFile(file, 'utf8');
+    expect(saved).toContain('**Duration:** 1.00h');
+  });
 });

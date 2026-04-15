@@ -234,8 +234,8 @@ export async function generateAgentSummary(options: GenerateAgentSummaryOptions)
     }
   }
   
-  const duration = options.duration >= 360000 
-    ? `${(options.duration / 360000).toFixed(2)}h`
+  const duration = options.duration >= 3_600_000
+    ? `${(options.duration / 3_600_000).toFixed(2)}h`
     : options.duration >= 60000
       ? `${(options.duration / 60000).toFixed(1)}m`
       : `${options.duration}ms`;

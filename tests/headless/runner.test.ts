@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { createActor } from 'xstate';
 import { createPipelineActor, pipelineMachine } from '../../src/pipeline/machine.js';
 import { createPipelineContext } from '../../src/pipeline/context.js';
-import { runWithActor, runHeadless } from '../../src/headless/runner.js';
+import { runWithActor, runHeadless, runHeadlessV2 } from '../../src/headless/runner.js';
 import type {
   ExecutionResult,
   Spec,
@@ -899,6 +899,78 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       'GitHub token not found. Set GITHUB_TOKEN, add github.token to pipeline.yaml, or run "gh auth login"',
     );
     expect(adapterCreated).toBe(false);
+  });
+
+  it('writes an agent summary for v2 runs when enabled', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-summary-'));
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a task router')) {
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research the topic","dependsOn":[]}]}';
+          return;
+        }
+
+        yield 'Research result';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      { prompt: 'Research this task', outputDir },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          generateAgentSummary: true,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(result.success).toBe(true);
+    const summaryPath = path.join(outputDir, 'AGENTS_SUMMARY.md');
+    expect(result.markdownFiles).toContain(summaryPath);
+    await expect(fs.readFile(summaryPath, 'utf8')).resolves.toContain('### researcher');
+
+    await fs.rm(outputDir, { recursive: true, force: true });
   });
 
   it('fails on inactivity timeout for a silent stage', async () => {

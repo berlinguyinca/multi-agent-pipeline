@@ -62,6 +62,7 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
     },
     outputDir: override.outputDir ?? base.outputDir,
     gitCheckpoints: override.gitCheckpoints ?? base.gitCheckpoints,
+    generateAgentSummary: override.generateAgentSummary ?? base.generateAgentSummary,
     headless: {
       totalTimeoutMs: override.headless?.totalTimeoutMs ?? base.headless.totalTimeoutMs,
       inactivityTimeoutMs:
@@ -112,6 +113,7 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       github: { ...DEFAULT_CONFIG.github },
       ollama: { ...DEFAULT_CONFIG.ollama },
       quality: { ...DEFAULT_CONFIG.quality },
+      generateAgentSummary: DEFAULT_CONFIG.generateAgentSummary,
       headless: { ...DEFAULT_CONFIG.headless },
       router: { ...DEFAULT_CONFIG.router },
       agentCreation: { ...DEFAULT_CONFIG.agentCreation },
