@@ -65,6 +65,7 @@ export interface PipelineConfig {
   quality: QualityConfig;
   outputDir: string;
   gitCheckpoints: boolean;
+  generateAgentSummary: boolean;
   headless: HeadlessRuntimeConfig;
   router: RouterConfig;
   agentCreation: AgentCreationConfig;

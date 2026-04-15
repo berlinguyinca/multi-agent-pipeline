@@ -20,6 +20,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
   },
   outputDir: './output',
   gitCheckpoints: true,
+  generateAgentSummary: true,
   headless: {
     totalTimeoutMs: 60 * 60 * 1000,
     inactivityTimeoutMs: 10 * 60 * 1000,

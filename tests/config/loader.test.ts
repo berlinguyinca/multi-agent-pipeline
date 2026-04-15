@@ -35,6 +35,7 @@ describe('loadConfig', () => {
     const yamlContent = `
 outputDir: ./custom-output
 gitCheckpoints: false
+generateAgentSummary: false
 agents:
   spec:
     adapter: claude
@@ -61,6 +62,7 @@ quality:
     const config = await loadConfig(configPath);
     expect(config.outputDir).toBe('./custom-output');
     expect(config.gitCheckpoints).toBe(false);
+    expect(config.generateAgentSummary).toBe(false);
     expect(config.agents.execute.adapter).toBe('ollama');
     expect(config.agents.execute.model).toBe('llama3');
     expect(config.agents.qa.adapter).toBe('ollama');
@@ -83,6 +85,7 @@ outputDir: ./my-output
     expect(config.outputDir).toBe('./my-output');
     // Defaults preserved for unspecified fields
     expect(config.gitCheckpoints).toBe(true);
+    expect(config.generateAgentSummary).toBe(true);
     expect(config.agents.spec.adapter).toBe('claude');
     expect(config.agents.review.adapter).toBe('codex');
     expect(config.agents.qa.adapter).toBe('codex');
@@ -91,6 +94,16 @@ outputDir: ./my-output
     expect(config.ollama.host).toBe('http://localhost:11434');
     expect(config.router.timeoutMs).toBe(300_000);
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
+  });
+
+  it('throws on invalid agent summary config', async () => {
+    const yamlContent = `
+generateAgentSummary: yes-please
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('generateAgentSummary');
   });
 
   it('parses headless runtime config values', async () => {

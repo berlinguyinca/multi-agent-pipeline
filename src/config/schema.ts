@@ -411,6 +411,13 @@ export function validateConfig(config: unknown): PipelineConfig {
     throw new Error('gitCheckpoints must be a boolean');
   }
 
+  if (
+    obj['generateAgentSummary'] !== undefined &&
+    typeof obj['generateAgentSummary'] !== 'boolean'
+  ) {
+    throw new Error('generateAgentSummary must be a boolean');
+  }
+
   let headless: Partial<HeadlessRuntimeConfig> | undefined;
   if (obj['headless'] !== undefined) {
     headless = validateHeadlessConfig(obj['headless']);
@@ -458,6 +465,9 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(quality !== undefined ? { quality } : {}),
     ...(typeof obj['outputDir'] === 'string' ? { outputDir: obj['outputDir'] } : {}),
     ...(typeof obj['gitCheckpoints'] === 'boolean' ? { gitCheckpoints: obj['gitCheckpoints'] } : {}),
+    ...(typeof obj['generateAgentSummary'] === 'boolean'
+      ? { generateAgentSummary: obj['generateAgentSummary'] }
+      : {}),
     ...(headless !== undefined ? { headless } : {}),
     ...(router !== undefined ? { router } : {}),
     ...(agentCreation !== undefined ? { agentCreation } : {}),

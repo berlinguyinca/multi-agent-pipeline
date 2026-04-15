@@ -64,6 +64,7 @@ import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import type { SecurityConfig } from '../security/types.js';
 import { isAbortError } from '../utils/error.js';
 import {
+  generateAgentSummary,
   saveFinalReportMarkdown,
   saveStageMarkdown,
   saveStepMarkdown,
@@ -1177,6 +1178,17 @@ export async function runHeadlessV2(
         filesCreated: dagResult.steps.flatMap((step) => step.filesCreated ?? []),
       }),
     );
+    if (config.generateAgentSummary) {
+      markdownFiles.push(
+        await generateAgentSummary({
+          outputRoot: outputDir,
+          pipelineId,
+          duration,
+          success: dagResult.success,
+          steps: dagResult.steps,
+        }),
+      );
+    }
     reporter.dagComplete(dagResult.success, duration);
     return await finish(buildHeadlessResultV2(plan, dagResult.steps, duration, undefined, {
       outputDir,
