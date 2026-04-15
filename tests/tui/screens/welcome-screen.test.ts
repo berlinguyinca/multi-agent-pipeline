@@ -209,6 +209,60 @@ describe('WelcomeScreen', () => {
     expect(content).toContain('Esc');
   });
 
+  it('opens prompt history with Ctrl+H', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const ws = new WelcomeScreen(
+      parent,
+      {
+        availableBackends,
+        recentPrompts: [
+          {
+            prompt: 'Rework the parser',
+            githubIssueUrl: 'https://github.com/org/repo/issues/7',
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      vi.fn(),
+    );
+    ws.activate();
+    simulateKey(screen!, 'C-h');
+    expect(collectContent(parent)).toContain('Prompt History');
+  });
+
+  it('reuses a prompt from history', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const onStart = vi.fn();
+    const ws = new WelcomeScreen(
+      parent,
+      {
+        availableBackends,
+        recentPrompts: [
+          {
+            prompt: 'Rework the parser',
+            githubIssueUrl: 'https://github.com/org/repo/issues/7',
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      onStart,
+    );
+    ws.activate();
+
+    simulateKey(screen!, 'C-h');
+    simulateKey(screen!, 'enter');
+
+    const textboxes = findTextboxes(parent);
+    expect(textboxes[0]?.getValue()).toBe('Rework the parser');
+    expect(textboxes[1]?.getValue()).toBe('https://github.com/org/repo/issues/7');
+    expect(onStart).toHaveBeenCalledWith(
+      'Rework the parser',
+      'https://github.com/org/repo/issues/7',
+    );
+  });
+
   it('shows fallback message when no backends detected', () => {
     screen = createTestScreen();
     const parent = createParentBox(screen);

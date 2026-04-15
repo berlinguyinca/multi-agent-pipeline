@@ -10,6 +10,7 @@ import { KeyboardManager } from './keyboard-manager.js';
 import { StatusLine } from './status-line.js';
 import { ScreenRouter } from './screen-router.js';
 import { VimMode } from './vim-mode.js';
+import { getTheme, toggleTheme } from './theme.js';
 import { PipelineRunner, resolveAgentStage } from './pipeline-runner.js';
 import { loadAgentRegistry, getEnabledAgents, mergeWithOverrides } from '../agents/registry.js';
 import { routeTask } from '../router/router.js';
@@ -33,6 +34,20 @@ import { RouterPlanScreen } from './screens/router-plan-screen.js';
 import { DAGExecutionScreen } from './screens/dag-execution-screen.js';
 import type { PipelineBarData } from './widgets/pipeline-bar.js';
 import type { TestStatus } from './widgets/test-progress.js';
+import { createRawOutputPane } from './widgets/raw-output-pane.js';
+import { createRawOutputStore } from './raw-output-store.js';
+import { copyToClipboard } from './clipboard.js';
+import { openFile } from './file-opener.js';
+import {
+  persistRawOutputLog,
+  persistRawOutputLogSync,
+  formatRawOutputForStorage,
+} from './raw-output-log.js';
+import {
+  loadPromptHistory,
+  recordPromptHistory,
+  type PromptHistoryEntry,
+} from './prompt-history.js';
 import { shouldUseResearchFlow } from '../utils/prompt-intent.js';
 
 export interface TuiAppOptions {
@@ -49,6 +64,7 @@ export interface TuiApp {
 }
 
 const RENDER_DEBOUNCE_MS = 16;
+const RAW_OUTPUT_HEIGHT = 10;
 
 const STAGE_NAMES: StageName[] = ['spec', 'review', 'qa', 'execute', 'docs'];
 
@@ -171,6 +187,49 @@ function formatRouterNoMatchMessage(decision: {
   return lines.join('\n');
 }
 
+function getV1RawOutputKey(stateValue: string, iteration: number): string | null {
+  switch (stateValue) {
+    case 'specifying':
+      return `spec:${iteration}`;
+    case 'reviewing':
+      return `review:${iteration}`;
+    case 'specAssessing':
+      return `qa:${iteration}`;
+    case 'executing':
+      return `execute:${iteration}`;
+    case 'fixing':
+      return `fixing:${iteration}`;
+    case 'documenting':
+      return `docs:${iteration}`;
+    default:
+      return null;
+  }
+}
+
+function getV1RawOutputLabel(stateValue: string): string {
+  switch (stateValue) {
+    case 'specifying':
+      return 'Specification';
+    case 'reviewing':
+      return 'Review';
+    case 'specAssessing':
+      return 'QA Assessment';
+    case 'executing':
+      return 'Execution';
+    case 'fixing':
+      return 'Fixing';
+    case 'documenting':
+      return 'Documentation';
+    default:
+      return stateValue;
+  }
+}
+
+function isFocusedOnInput(screen: blessed.Widgets.Screen | null): boolean {
+  const focused = screen?.focused;
+  return Boolean(focused && (focused as blessed.Widgets.TextboxElement).readInput);
+}
+
 function mapTestStatus(item: TestProgressItem): { name: string; status: TestStatus } {
   const statusMap: Record<string, TestStatus> = {
     writing: 'running',
@@ -184,12 +243,76 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
   const { config, detection, initialPrompt, initialGithubIssueUrl, useV2 = false } = options;
 
   let screen: blessed.Widgets.Screen | null = null;
+  let headerBar: blessed.Widgets.BoxElement | null = null;
+  let contentBox: blessed.Widgets.BoxElement | null = null;
   let statusLine: StatusLine | null = null;
+  let keyboardManager: KeyboardManager | null = null;
+  let rawOutputPane: ReturnType<typeof createRawOutputPane> | null = null;
+  let rawOutputFullscreenPane: ReturnType<typeof createRawOutputPane> | null = null;
+  let rawOutputBottomContainer: blessed.Widgets.BoxElement | null = null;
+  let rawOutputFullscreenContainer: blessed.Widgets.BoxElement | null = null;
+  let rawOutputToast: blessed.Widgets.BoxElement | null = null;
+  let rawOutputToastTimer: ReturnType<typeof setTimeout> | null = null;
+  let rawOutputStore = createRawOutputStore();
+  let lastSessionLogPath: string | null = null;
+  let sessionLogPrinted = false;
   let runner: PipelineRunner | null = null;
   let router: ScreenRouter | null = null;
   let v2AbortController: AbortController | null = null;
   let lastRenderAt = 0;
   let renderPending = false;
+  let rawOutputFullscreen = false;
+
+  function applyThemeToShell(): void {
+    const theme = getTheme();
+    if (headerBar) {
+      headerBar.style = {
+        ...(headerBar.style ?? {}),
+        fg: theme.colors.inverseFg,
+        bg: theme.colors.accent,
+      };
+    }
+    if (contentBox) {
+      contentBox.style = {
+        ...(contentBox.style ?? {}),
+        fg: theme.colors.panelFg,
+        bg: theme.colors.panelBg,
+      };
+    }
+    if (rawOutputBottomContainer) {
+      rawOutputBottomContainer.style = {
+        ...(rawOutputBottomContainer.style ?? {}),
+        fg: theme.colors.panelFg,
+        bg: theme.colors.panelBg,
+        border: { fg: theme.colors.border },
+      };
+    }
+    if (rawOutputFullscreenContainer) {
+      rawOutputFullscreenContainer.style = {
+        ...(rawOutputFullscreenContainer.style ?? {}),
+        fg: theme.colors.panelFg,
+        bg: theme.colors.panelBg,
+        border: { fg: theme.colors.border },
+      };
+    }
+    if (rawOutputToast) {
+      rawOutputToast.style = {
+        ...(rawOutputToast.style ?? {}),
+        fg: theme.colors.inverseFg,
+        bg: theme.colors.accent,
+        border: { fg: theme.colors.accentSoft },
+      };
+    }
+    statusLine?.applyTheme();
+    rawOutputPane?.destroy();
+    rawOutputPane = rawOutputBottomContainer ? createRawOutputPane(rawOutputBottomContainer, rawOutputStore) : null;
+    rawOutputFullscreenPane?.destroy();
+    rawOutputFullscreenPane = rawOutputFullscreenContainer
+      ? createRawOutputPane(rawOutputFullscreenContainer, rawOutputStore)
+      : null;
+    router?.current()?.refreshTheme();
+    screen?.render();
+  }
 
   function scheduleRender(): void {
     if (!screen) return;
@@ -212,15 +335,55 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
     v2AbortController = null;
     runner?.destroy();
     runner = null;
+    rawOutputPane?.destroy();
+    rawOutputPane = null;
+    rawOutputFullscreenPane?.destroy();
+    rawOutputFullscreenPane = null;
+    if (rawOutputToastTimer) {
+      clearTimeout(rawOutputToastTimer);
+      rawOutputToastTimer = null;
+    }
+    rawOutputToast?.destroy();
+    rawOutputToast = null;
     statusLine?.destroy();
+    ensureSessionLogFile();
+    printSessionLogLocation();
     if (screen) {
       screen.destroy();
       screen = null;
     }
   }
 
-  function run(): Promise<void> {
+  function ensureSessionLogFile(): void {
+    const currentPath = rawOutputStore.getCurrent()?.logPath;
+    if (currentPath) {
+      lastSessionLogPath = currentPath;
+      return;
+    }
+
+    if (lastSessionLogPath) return;
+
+    const current = rawOutputStore.getCurrent();
+    const content = current?.content ?? '';
+    const title = current?.title ?? 'session';
+    const key = current?.key ?? 'session';
+    lastSessionLogPath = persistRawOutputLogSync(process.cwd(), key, title, content);
+  }
+
+  function printSessionLogLocation(): void {
+    if (sessionLogPrinted) return;
+    sessionLogPrinted = true;
+
+    const location = rawOutputStore.getCurrent()?.logPath ?? lastSessionLogPath;
+    if (!location) return;
+    process.stderr.write(`Session log saved to: ${location}\n`);
+  }
+
+  async function run(): Promise<void> {
+    const promptHistory: PromptHistoryEntry[] = await loadPromptHistory(process.cwd());
+
     return new Promise<void>((resolve) => {
+      const theme = getTheme();
       screen = blessed.screen({
         smartCSR: true,
         title: 'MAP Pipeline',
@@ -228,7 +391,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         warnings: false,
       });
 
-      blessed.box({
+      headerBar = blessed.box({
         parent: screen,
         top: 0,
         left: 0,
@@ -237,13 +400,13 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         content: ' MAP Pipeline',
         tags: false,
         style: {
-          fg: 'white',
-          bg: '#d75f00',
+          fg: theme.colors.inverseFg,
+          bg: theme.colors.accent,
           bold: true,
         },
       });
 
-      const contentBox = blessed.box({
+      contentBox = blessed.box({
         parent: screen,
         top: 1,
         left: 0,
@@ -252,21 +415,70 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         width: '100%',
         tags: false,
         style: {
-          fg: 'white',
-          bg: 'black',
+          fg: theme.colors.panelFg,
+          bg: theme.colors.panelBg,
         },
       });
 
+      rawOutputBottomContainer = blessed.box({
+        parent: screen,
+        bottom: 1,
+        height: RAW_OUTPUT_HEIGHT,
+        left: 0,
+        right: 0,
+        width: '100%',
+        tags: false,
+        style: {
+          fg: theme.colors.panelFg,
+          bg: theme.colors.panelBg,
+          border: {
+            fg: theme.colors.border,
+          },
+        },
+        hidden: false,
+      });
+      rawOutputPane = createRawOutputPane(rawOutputBottomContainer, rawOutputStore);
+
+      rawOutputFullscreenContainer = blessed.box({
+        parent: screen,
+        top: 1,
+        bottom: 1,
+        left: 0,
+        right: 0,
+        width: '100%',
+        tags: false,
+        hidden: true,
+        style: {
+          fg: theme.colors.panelFg,
+          bg: theme.colors.panelBg,
+          border: {
+            fg: theme.colors.border,
+          },
+        },
+      });
+      rawOutputFullscreenPane = createRawOutputPane(
+        rawOutputFullscreenContainer,
+        rawOutputStore,
+      );
+
       statusLine = new StatusLine(screen);
+      statusLine.applyTheme();
       statusLine.update('idle');
-      statusLine.setHints('i:insert  Esc:normal  j/k:scroll  q:quit  ^C:abort');
+      statusLine.setHints('i:insert  Esc:normal  j/k:scroll  f:fullscreen  q:quit  ^C:abort');
 
       const vim = new VimMode();
       vim.onModeChange((mode) => {
         statusLine?.setVimMode(mode);
       });
 
-      const km = new KeyboardManager(screen, vim);
+      keyboardManager = new KeyboardManager(screen, vim);
+      keyboardManager.register('C-t', () => {
+        if (isFocusedOnInput(screen)) {
+          return;
+        }
+        toggleTheme();
+        applyThemeToShell();
+      });
 
       function findFirstTextbox(node: blessed.Widgets.Node): blessed.Widgets.TextboxElement | null {
         if ((node as blessed.Widgets.TextboxElement).readInput) {
@@ -280,7 +492,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       }
 
       (screen as unknown as import('events').EventEmitter).on('vim:insert', () => {
-        const tb = findFirstTextbox(contentBox);
+        const tb = findFirstTextbox(contentBox!);
         if (tb) {
           vim.toInsert();
           tb.focus();
@@ -290,14 +502,68 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
       (screen as unknown as import('events').EventEmitter).on('vim:blur', () => {
         vim.toNormal();
-        contentBox.focus();
+        contentBox?.focus();
         screen?.render();
       });
 
       screen.on('element focus', (el: blessed.Widgets.BlessedElement) => {
         if ((el as blessed.Widgets.TextboxElement).readInput) {
           vim.toInsert();
+        } else {
+          vim.toNormal();
         }
+      });
+
+      keyboardManager.register('f', () => {
+        if (isFocusedOnInput(screen)) {
+          return;
+        }
+        toggleRawOutputFullscreen();
+      });
+
+      keyboardManager.pushScope({
+        escape: () => {
+          if (isFocusedOnInput(screen)) {
+            vim.toNormal();
+            (screen as unknown as import('events').EventEmitter).emit('vim:blur');
+            return;
+          }
+          if (rawOutputFullscreen) {
+            hideRawOutputFullscreen();
+            return;
+          }
+          (screen as unknown as import('events').EventEmitter).emit('back');
+        },
+        j: () => {
+          if (rawOutputFullscreen) {
+            rawOutputFullscreenPane?.element.scroll(1);
+          }
+        },
+        k: () => {
+          if (rawOutputFullscreen) {
+            rawOutputFullscreenPane?.element.scroll(-1);
+          }
+        },
+        y: () => {
+          if (!rawOutputFullscreen) return;
+          const current = rawOutputStore.getCurrent();
+          if (!current) return;
+          void persistCurrentRawOutputLog(current.key, current.title, current.content);
+          showRawOutputToast(copyToClipboard(formatRawOutputForStorage(current.content)) ? 'Copied log text' : 'Copy failed');
+        },
+        'C-y': () => {
+          if (!rawOutputFullscreen) return;
+          const current = rawOutputStore.getCurrent();
+          if (!current) return;
+          void persistCurrentRawOutputLog(current.key, current.title, current.content);
+          showRawOutputToast(copyToClipboard(formatRawOutputForStorage(current.content)) ? 'Copied log text' : 'Copy failed');
+        },
+        o: () => {
+          if (!rawOutputFullscreen) return;
+          const current = rawOutputStore.getCurrent();
+          if (!current) return;
+          void openCurrentRawOutputLog(current.key, current.title, current.content, current.logPath);
+        },
       });
 
       const agents: Record<StageName, AgentAssignment> = {
@@ -313,6 +579,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       let currentGithubReport: GitHubReportResult | undefined;
       let autoStarted = false;
       let previousReviewedSpec = '';
+      let currentV1RawOutputKey: string | null = null;
       let v2Plan: DAGPlan | null = null;
       let v2Agents: Map<string, AgentDefinition> | null = null;
       let v2MessageVisible = false;
@@ -330,24 +597,160 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
             : {}),
         });
 
+      function setRawOutput(key: string, title: string, content: string, streaming: boolean): void {
+        rawOutputStore.setCurrent(key, title, content, streaming);
+      }
+
+      function appendRawOutput(key: string, title: string, chunk: string): void {
+        rawOutputStore.append(key, title, chunk);
+      }
+
+      function markRawOutputComplete(key: string, title: string): void {
+        const entry = rawOutputStore.get(key);
+        const content = entry?.content ?? '';
+        void persistCurrentRawOutputLog(key, title, content).then((logPath) => {
+          if (logPath) {
+            lastSessionLogPath = logPath;
+          }
+          rawOutputStore.complete(key, title, logPath ?? undefined);
+        });
+      }
+
+      async function persistCurrentRawOutputLog(
+        key: string,
+        title: string,
+        content: string,
+      ): Promise<string | null> {
+        try {
+          const logPath = await persistRawOutputLog(process.cwd(), key, title, content);
+          lastSessionLogPath = logPath;
+          return logPath;
+        } catch {
+          // Keep logging best-effort; avoid turning a clipboard action into UI noise.
+          return null;
+        }
+      }
+
+      async function openCurrentRawOutputLog(
+        key: string,
+        title: string,
+        content: string,
+        logPath?: string,
+      ): Promise<void> {
+        const resolvedPath =
+          logPath ?? (await persistCurrentRawOutputLog(key, title, content));
+
+        if (!resolvedPath) {
+          showRawOutputToast('Open failed');
+          return;
+        }
+
+        showRawOutputToast(openFile(resolvedPath) ? 'Opened log file' : 'Open failed');
+      }
+
+      function showRawOutputFullscreen(): void {
+        if (rawOutputFullscreen) return;
+        rawOutputFullscreen = true;
+        rawOutputBottomContainer?.hide();
+        rawOutputFullscreenContainer?.show();
+        rawOutputFullscreenPane?.element.focus();
+        statusLine?.setHints('Esc:close raw output  f:toggle  j/k:scroll  y/C-y:copy  o:open log');
+        screen?.render();
+      }
+
+      function hideRawOutputFullscreen(): void {
+        if (!rawOutputFullscreen) return;
+        rawOutputFullscreen = false;
+        rawOutputFullscreenContainer?.hide();
+        rawOutputBottomContainer?.show();
+        contentBox?.focus();
+        statusLine?.setHints('f:fullscreen  q:quit');
+        screen?.render();
+      }
+
+      function toggleRawOutputFullscreen(): void {
+        if (rawOutputFullscreen) {
+          hideRawOutputFullscreen();
+        } else {
+          showRawOutputFullscreen();
+        }
+      }
+
+      function showRawOutputToast(message: string): void {
+        if (rawOutputToastTimer) {
+          clearTimeout(rawOutputToastTimer);
+          rawOutputToastTimer = null;
+        }
+
+        if (!rawOutputToast && rawOutputFullscreenContainer) {
+          rawOutputToast = blessed.box({
+            parent: rawOutputFullscreenContainer,
+            top: 2,
+            left: 'center',
+            width: 'shrink',
+            height: 3,
+            tags: false,
+            hidden: true,
+            padding: {
+              left: 2,
+              right: 2,
+            },
+            border: 'line',
+            style: {
+              fg: getTheme().colors.inverseFg,
+              bg: getTheme().colors.accent,
+              border: {
+                fg: getTheme().colors.accentSoft,
+              },
+            },
+          });
+        }
+
+        if (!rawOutputToast) return;
+
+        rawOutputToast.setContent(message);
+        rawOutputToast.show();
+        screen?.render();
+
+        rawOutputToastTimer = setTimeout(() => {
+          rawOutputToast?.hide();
+          screen?.render();
+          rawOutputToastTimer = null;
+        }, 1400);
+      }
+
       const availableBackends: string[] = [];
       if (detection.claude.installed) availableBackends.push('claude');
       if (detection.codex.installed) availableBackends.push('codex');
       if (detection.ollama.installed) availableBackends.push('ollama');
       if (detection.hermes.installed) availableBackends.push('hermes');
+      async function startPipeline(prompt: string, githubIssueUrl?: string): Promise<void> {
+        try {
+          await recordPromptHistory(process.cwd(), {
+            prompt,
+            githubIssueUrl,
+          });
+        } catch {
+          // Prompt history is best-effort only.
+        }
+
+        if (useV2 || shouldUseResearchFlow(prompt, githubIssueUrl)) {
+          void startV2Flow(prompt, githubIssueUrl);
+          return;
+        }
+
+        runner?.start(prompt, githubIssueUrl);
+      }
 
       const welcomeScreen = new WelcomeScreen(
         contentBox,
         {
           availableBackends,
           initialGithubIssueUrl,
+          recentPrompts: promptHistory,
         },
         (prompt, githubIssueUrl) => {
-          if (useV2 || shouldUseResearchFlow(prompt, githubIssueUrl)) {
-            void startV2Flow(prompt, githubIssueUrl);
-            return;
-          }
-          runner?.start(prompt, githubIssueUrl);
+          void startPipeline(prompt, githubIssueUrl);
         },
       );
 
@@ -426,7 +829,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         stageOutput = '';
         statusLine?.stopTimer();
         statusLine?.update('idle');
-        statusLine?.setHints('i:insert  Esc:normal  j/k:scroll  q:quit  ^C:abort');
+        statusLine?.setHints('i:insert  Esc:normal  j/k:scroll  f:fullscreen  q:quit  ^C:abort');
         router?.transition('idle');
       }
 
@@ -446,7 +849,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         });
         statusLine?.stopTimer();
         statusLine?.update(phase === 'complete' ? 'complete' : 'error', 'router');
-        statusLine?.setHints('Esc:back  q:quit');
+        statusLine?.setHints('Esc:back  f:fullscreen  q:quit');
         router?.transition('v2-message');
       }
 
@@ -487,7 +890,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
         renderSteps();
         statusLine?.update('executing', 'dag');
-        statusLine?.setHints('q:quit  ^C:abort');
+        statusLine?.setHints('q:quit  ^C:abort  f:fullscreen');
         router?.transition('dag-executing');
 
         v2AbortController?.abort();
@@ -495,28 +898,35 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
         const reporter = {
           onChunk(_bytes: number) {},
-          dagStepStart(stepId: string) {
+          dagStepStart(stepId: string, agent: string) {
+            setRawOutput(stepId, `Step ${stepId} [${agent}]`, '', true);
             updateStep(stepId, { status: 'running', error: undefined, reason: undefined });
           },
           dagStepComplete(stepId: string, _agent: string, duration: number) {
+            markRawOutputComplete(stepId, `Step ${stepId}`);
             updateStep(stepId, { status: 'completed', duration });
           },
           dagStepFailed(stepId: string, _agent: string, error: string) {
+            markRawOutputComplete(stepId, `Step ${stepId}`);
             updateStep(stepId, { status: 'failed', error });
           },
           dagStepSkipped(stepId: string, reason: string) {
+            markRawOutputComplete(stepId, `Step ${stepId}`);
             updateStep(stepId, { status: 'skipped', reason });
+          },
+          dagStepRetry(stepId: string, _agent: string, attempt: number, error: string) {
+            updateStep(stepId, { status: 'running', error: `Retry ${attempt}: ${error}` });
           },
           securityGateStart(_stepId: string, _agent: string) {},
           securityGatePassed(_stepId: string, _duration: number) {},
           securityGateFailed(_stepId: string, _findingCount: number) {},
         };
 
-        const result = await executeDAG(
-          v2Plan,
-          v2Agents,
-          createV2Adapter,
-          reporter as any,
+          const result = await executeDAG(
+            v2Plan,
+            v2Agents,
+            createV2Adapter,
+            reporter as any,
           {
             config: securityConfig,
             createReviewAdapter: () =>
@@ -524,14 +934,23 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
                 type: securityConfig.adapter,
                 model: securityConfig.model,
               }),
-          },
-          v2AbortController.signal,
-        );
+            },
+            v2AbortController.signal,
+            (stepId, chunk) => {
+              appendRawOutput(stepId, `Step ${stepId}`, chunk);
+            },
+            {
+              stepTimeoutMs: config.router.stepTimeoutMs,
+              maxStepRetries: config.router.maxStepRetries,
+              retryDelayMs: config.router.retryDelayMs,
+              adapterDefaults: config.adapterDefaults,
+            },
+          );
 
         dagExecutionScreen.updateData({ steps: result.steps });
         statusLine?.stopTimer();
         statusLine?.update(result.success ? 'complete' : 'failed', 'dag');
-        statusLine?.setHints('q:quit');
+        statusLine?.setHints('q:quit  f:fullscreen');
       }
 
       async function startV2Flow(prompt: string, githubIssueUrl?: string): Promise<void> {
@@ -544,8 +963,11 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           stageOutput = '';
           currentGithubReport = undefined;
 
+          const routerRawKey = 'router';
+          setRawOutput(routerRawKey, 'Router', '', true);
+
           statusLine?.update('routing', config.router.adapter);
-          statusLine?.setHints('q:quit  ^C:abort');
+          statusLine?.setHints('q:quit  ^C:abort  f:fullscreen');
           statusLine?.startTimer();
           pipelineScreen.updateData({
             stages: computeV2BarStages('routing'),
@@ -605,7 +1027,10 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
             }),
             config.router,
             v2AbortController.signal,
+            (chunk) => appendRawOutput(routerRawKey, 'Router', chunk),
           );
+
+          markRawOutputComplete(routerRawKey, 'Router');
 
           if (decision.kind === 'no-match') {
             showV2Message('No Matching Agent', formatRouterNoMatchMessage(decision));
@@ -623,9 +1048,10 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
             },
           });
           statusLine?.update('router-plan', config.router.adapter);
-          statusLine?.setHints('Enter: execute  Esc: cancel  q:quit');
+          statusLine?.setHints('Enter: execute  Esc: cancel  f:fullscreen  q:quit');
           router?.transition('router-plan');
         } catch (err: unknown) {
+          markRawOutputComplete('router', 'Router');
           const message = err instanceof Error ? err.message : String(err);
           showV2Message('Routing Failed', message);
         }
@@ -638,6 +1064,13 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
             if (isActive) {
               stageOutput = '';
+              const rawKey = getV1RawOutputKey(state, context.iteration);
+              if (rawKey && rawKey !== currentV1RawOutputKey) {
+                setRawOutput(rawKey, getV1RawOutputLabel(state), '', true);
+                currentV1RawOutputKey = rawKey;
+              }
+            } else {
+              currentV1RawOutputKey = null;
             }
 
             vim.toNormal();
@@ -701,6 +1134,9 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
                 filesCreated: result?.filesCreated ?? [],
                 duration: Date.now() - context.startedAt.getTime(),
                 outputDir: result?.outputDir ?? config.outputDir,
+                securitySummary: securityConfig.enabled
+                  ? 'enabled for all eligible outputs'
+                  : 'disabled',
                 qaAssessments: context.qaAssessments,
                 documentationResult: context.documentationResult,
                 githubReport: currentGithubReport,
@@ -721,6 +1157,12 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               executeScreen.updateData({ output: stageOutput });
             }
 
+            const rawKey = rawOutputStore.getCurrent()?.key ?? null;
+            if (rawKey) {
+              const title = rawOutputStore.get(rawKey)?.title ?? 'Output';
+              appendRawOutput(rawKey, title, chunk);
+            }
+
             scheduleRender();
           },
 
@@ -737,7 +1179,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
           onError(error: string) {
             statusLine?.update('error');
-            statusLine?.setHints(`ERROR: ${error.slice(0, 60)}`);
+            statusLine?.setHints(`ERROR: ${error.slice(0, 60)}  f:fullscreen`);
             screen?.render();
           },
         });
@@ -768,6 +1210,8 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         v2AbortController = null;
         runner?.destroy();
         runner = null;
+        rawOutputPane?.destroy();
+        rawOutputPane = null;
         statusLine?.destroy();
         resolve();
       });
@@ -776,18 +1220,14 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         destroy();
       });
 
-      void km;
+      void keyboardManager;
 
       router.transition('idle');
       screen.render();
 
       if (initialPrompt && initialPrompt.trim() !== '' && !autoStarted) {
         autoStarted = true;
-        if (useV2 || shouldUseResearchFlow(initialPrompt.trim(), initialGithubIssueUrl)) {
-          void startV2Flow(initialPrompt.trim(), initialGithubIssueUrl);
-        } else if (runner) {
-          runner.start(initialPrompt.trim(), initialGithubIssueUrl);
-        }
+        void startPipeline(initialPrompt.trim(), initialGithubIssueUrl);
       }
     });
   }
