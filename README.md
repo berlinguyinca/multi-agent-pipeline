@@ -61,6 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/
 
 The installer clones or updates MAP in `~/.local/share/multi-agent-pipeline`, installs dependencies, builds `dist/cli.js`, links `map` onto your `PATH`, and creates `~/.map/pipeline.yaml` when needed.
 
+When `map` runs from a git checkout, it checks `origin/main` for newer commits before loading the command runner and fast-forwards the checkout when a newer revision is available. Set `MAP_NO_UPDATE=1` to disable the runtime update check.
+
 Onboarding detects available backends, sets classic and v2 defaults, enables the software-delivery agent bundle, and can optionally generate a custom agent. Non-interactive `curl | bash` installs use safe defaults.
 
 Installer options:
