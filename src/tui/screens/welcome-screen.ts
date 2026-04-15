@@ -361,7 +361,7 @@ export class WelcomeScreen extends BaseScreen {
       this.historyList = historyList;
       this.widgets.push({ destroy: () => historyList.destroy() });
 
-      historyList.key(['enter'], () => {
+      historyList.key('enter', () => {
         const idx = (historyList as blessed.Widgets.ListElement & { selected: number }).selected;
         const selected = recentPrompts[idx] ?? recentPrompts[0];
         if (selected) {
@@ -425,8 +425,9 @@ export class WelcomeScreen extends BaseScreen {
           this.showHistoryPicker();
         }
       };
-      screen.key(['tab'], tabHandler);
-      screen.key(['C-h', 'backspace'], historyHandler);
+      screen.key('tab', tabHandler);
+      screen.key('C-h', historyHandler);
+      screen.key('backspace', historyHandler);
 
       const globalEnterHandler = (_ch: string, key: { name?: string }) => {
         if (key.name !== 'enter') {
@@ -443,8 +444,9 @@ export class WelcomeScreen extends BaseScreen {
       screen.program.on('keypress', globalEnterHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['tab'], tabHandler);
-          screen.unkey(['C-h', 'backspace'], historyHandler);
+          screen.unkey('tab', tabHandler);
+          screen.unkey('C-h', historyHandler);
+          screen.unkey('backspace', historyHandler);
           screen.program.off('keypress', globalEnterHandler);
         },
       });

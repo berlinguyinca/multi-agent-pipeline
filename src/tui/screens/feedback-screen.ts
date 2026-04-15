@@ -155,10 +155,10 @@ export class FeedbackScreen extends BaseScreen {
         }
         this._refreshWidgets();
       };
-      screen.key(['tab'], tabHandler);
+      screen.key('tab', tabHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['tab'], tabHandler);
+          screen.unkey('tab', tabHandler);
         },
       });
     }
@@ -166,10 +166,10 @@ export class FeedbackScreen extends BaseScreen {
     // Ctrl+E to approve
     if (screen) {
       const approveHandler = () => { this.data.onApprove(); };
-      screen.key(['C-e'], approveHandler);
+      screen.key('C-e', approveHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['C-e'], approveHandler);
+          screen.unkey('C-e', approveHandler);
         },
       });
     }

@@ -101,7 +101,7 @@ export class ResumeScreen extends BaseScreen {
 
       list.select(this.selectedIndex);
 
-      list.key(['enter'], () => {
+      list.key('enter', () => {
         const idx = (list as blessed.Widgets.ListElement & { selected: number }).selected;
         const pipeline = pipelines[idx];
         if (pipeline) {
@@ -129,10 +129,10 @@ export class ResumeScreen extends BaseScreen {
     const screen = this.parent.screen;
     if (screen) {
       const escHandler = () => { this.data.onBack(); };
-      screen.key(['escape'], escHandler);
+      screen.key('escape', escHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['escape'], escHandler);
+          screen.unkey('escape', escHandler);
         },
       });
     }

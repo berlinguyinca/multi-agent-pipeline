@@ -153,10 +153,10 @@ export class CompleteScreen extends BaseScreen {
     const screen = this.parent.screen;
     if (screen) {
       const enterHandler = () => { this.data.onNewPipeline(); };
-      screen.key(['enter'], enterHandler);
+      screen.key('enter', enterHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['enter'], enterHandler);
+          screen.unkey('enter', enterHandler);
         },
       });
     }

@@ -76,7 +76,9 @@ export class KeyboardManager {
       this.shortcuts.set(k, { keys, handler, screenHandler });
     }
 
-    this.screen.key(keys, screenHandler);
+    for (const key of keys) {
+      this.screen.key(key, screenHandler);
+    }
   }
 
   unregister(key: string): void {
@@ -87,7 +89,9 @@ export class KeyboardManager {
       this.shortcuts.delete(k);
     }
 
-    this.screen.unkey(shortcut.keys, shortcut.screenHandler);
+    for (const key of shortcut.keys) {
+      this.screen.unkey(key, shortcut.screenHandler);
+    }
   }
 
   pushScope(overrides: Record<string, () => void>): void {

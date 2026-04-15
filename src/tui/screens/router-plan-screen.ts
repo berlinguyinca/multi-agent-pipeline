@@ -108,12 +108,12 @@ export class RouterPlanScreen extends BaseScreen {
     if (screen) {
       const enterHandler = () => { this.data.onApprove(); };
       const escHandler = () => { this.data.onCancel(); };
-      screen.key(['enter'], enterHandler);
-      screen.key(['escape'], escHandler);
+      screen.key('enter', enterHandler);
+      screen.key('escape', escHandler);
       this.widgets.push({
         destroy: () => {
-          screen.unkey(['enter'], enterHandler);
-          screen.unkey(['escape'], escHandler);
+          screen.unkey('enter', enterHandler);
+          screen.unkey('escape', escHandler);
         },
       });
     }
