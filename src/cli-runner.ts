@@ -39,6 +39,10 @@ Options:
   --verbose, -V          Show detailed progress and stage output on stderr
   --v2                   Use v2 routing mode (DAG-based agent routing)
 
+Runtime updates:
+  map checks the current checkout branch for newer commits before startup.
+  Set MAP_NO_UPDATE=1 to disable the launch-time update check.
+
 Commands:
   map agent list              List all registered agents
   map agent create            Create a new agent (LLM-assisted)

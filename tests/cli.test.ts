@@ -13,6 +13,8 @@ describe('CLI', () => {
     expect(stdout).toContain('MAP - Multi-Agent Pipeline');
     expect(stdout).toContain('Usage:');
     expect(stdout).toContain('--resume');
+    expect(stdout).toContain('Runtime updates:');
+    expect(stdout).toContain('MAP_NO_UPDATE=1');
   });
 
   it('shows version with --version flag', async () => {
