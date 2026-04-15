@@ -43,6 +43,11 @@ export class AllAdaptersExhaustedError extends MapError {
   }
 }
 
+export function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === 'AbortError' || err.message.toLowerCase().includes('aborted');
+}
+
 function installHint(type: AdapterType): string {
   switch (type) {
     case 'claude':

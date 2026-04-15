@@ -1,0 +1,18 @@
+name: ux-design-agent
+description: "Designs user flows, information architecture, and usability-oriented interaction strategies"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: analyze-user-flow
+  - name: design-ux
+handles: "ux design, user journeys, usability, accessibility, interaction flow, information architecture"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search

@@ -3,8 +3,10 @@ import { BaseScreen } from './base-screen.js';
 import type { QaAssessment, DocumentationResult } from '../../types/spec.js';
 import type { GitHubReportResult } from '../../types/github.js';
 import { getTheme, fgTag } from '../theme.js';
+import { renderModelOutput } from '../output-renderer.js';
 
 export interface CompleteScreenData {
+  outcome: 'success' | 'blocked' | 'failed' | 'cancelled';
   iterations: number;
   testsTotal: number;
   testsPassing: number;
@@ -15,21 +17,58 @@ export interface CompleteScreenData {
   qaAssessments?: QaAssessment[];
   documentationResult?: DocumentationResult;
   githubReport?: GitHubReportResult;
+  finalReport?: {
+    title: string;
+    content: string;
+    logPath?: string;
+  };
+  executionGraph?: Array<{
+    id: string;
+    agent: string;
+    provider?: string;
+    model?: string;
+    task: string;
+    status: string;
+    duration?: number;
+    dependsOn: string[];
+    edges?: Array<{
+      from: string;
+      type: 'planned' | 'handoff' | 'recovery' | 'spawned';
+    }>;
+  }>;
+  markdownFiles?: string[];
   onNewPipeline: () => void;
+}
+
+function formatDuration(ms?: number): string {
+  if (!ms) return '';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function sectionTitle(title: string): string {
+  return `${fgTag(getTheme().colors.accent)}{bold}${title}{/bold}{/}`;
 }
 
 function buildContent(data: CompleteScreenData): string {
   const durationSecs = (data.duration / 1000).toFixed(1);
   const qaAssessments = data.qaAssessments ?? [];
   const finalCodeQa = [...qaAssessments].reverse().find((qa) => qa.target === 'code');
+  const banner =
+    data.outcome === 'success'
+      ? '{green-fg}{bold}Task finished successfully{/bold}{/green-fg}'
+      : data.outcome === 'blocked'
+        ? '{yellow-fg}{bold}Task blocked{/bold}{/yellow-fg}'
+        : data.outcome === 'cancelled'
+          ? '{#888888-fg}{bold}Task cancelled{/bold}{/}'
+          : '{red-fg}{bold}Task failed{/bold}{/red-fg}';
 
   const lines: string[] = [];
-  lines.push('{green-fg}{bold}Task finished successfully{/bold}{/green-fg}');
+  lines.push(banner);
   lines.push('');
   lines.push(`{#888888-fg}Iterations:{/}  ${data.iterations}`);
-  lines.push(
-    `{#888888-fg}Tests:{/}       {green-fg}${data.testsPassing}/${data.testsTotal} passing{/green-fg}`,
-  );
+  const passingColor = data.testsPassing === data.testsTotal ? 'green-fg' : 'yellow-fg';
+  lines.push(`{#888888-fg}Tests:{/}       {${passingColor}}${data.testsPassing}/${data.testsTotal} passing{/${passingColor}}`);
   lines.push(`{#888888-fg}Duration:{/}    ${durationSecs}s`);
   lines.push(`{#888888-fg}Output:{/}      ${data.outputDir}`);
 
@@ -71,6 +110,57 @@ function buildContent(data: CompleteScreenData): string {
     lines.push('{#888888-fg}Files created:{/}');
     for (const f of data.filesCreated) {
       lines.push(`  {#888888-fg}•{/} ${f}`);
+    }
+  }
+
+  if (data.executionGraph && data.executionGraph.length > 0) {
+    const edges = data.executionGraph.flatMap((step) =>
+      (step.edges ?? step.dependsOn.map((dep) => ({ from: dep, type: 'planned' as const }))).map(
+        (edge) => `${edge.from} -[${edge.type}]-> ${step.id}`,
+      ),
+    );
+
+    lines.push('');
+    lines.push(sectionTitle('Execution graph'));
+    if (edges.length > 0) {
+      lines.push(`{#888888-fg}Connections:{/} ${edges.join(', ')}`);
+    } else {
+      lines.push('{#888888-fg}Connections:{/} none');
+    }
+
+    data.executionGraph.forEach((step, index) => {
+      const duration = step.duration ? ` ${formatDuration(step.duration)}` : '';
+      const runtime =
+        step.provider !== undefined
+          ? ` | ${step.provider}${step.model ? `/${step.model}` : ''}`
+          : '';
+      lines.push(
+        `${index + 1}. ${step.id} [${step.agent}${runtime}] ${step.status}${duration}`,
+      );
+      lines.push(`   ${step.task}`);
+      lines.push(
+        step.dependsOn.length > 0
+          ? `   depends on: ${step.dependsOn.join(', ')}`
+          : '   ready to start',
+      );
+    });
+  }
+
+  if (data.finalReport?.content.trim()) {
+    lines.push('');
+    lines.push(sectionTitle(data.finalReport.title));
+    if (data.finalReport.logPath) {
+      lines.push(`{#888888-fg}Raw log:{/}     ${data.finalReport.logPath}`);
+    }
+    lines.push('');
+    lines.push(renderModelOutput(data.finalReport.content));
+  }
+
+  if (data.markdownFiles && data.markdownFiles.length > 0) {
+    lines.push('');
+    lines.push(sectionTitle('Saved Markdown'));
+    for (const file of data.markdownFiles) {
+      lines.push(`- ${file}`);
     }
   }
 
@@ -117,9 +207,10 @@ export class CompleteScreen extends BaseScreen {
   activate(): void {
     const box = blessed.box({
       parent: this.parent,
-      top: 1,
-      left: 1,
-      right: 1,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 2,
       tags: true,
       border: { type: 'line' },
       wrap: true,
@@ -132,7 +223,12 @@ export class CompleteScreen extends BaseScreen {
         fg: getTheme().colors.panelFg,
         bg: getTheme().colors.panelBg,
       },
-      padding: 1,
+      padding: {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+      },
       content: buildContent(this.data),
     });
     this.mainBox = box;
@@ -144,7 +240,7 @@ export class CompleteScreen extends BaseScreen {
       tags: true,
       height: 1,
       shrink: true,
-      content: `${fgTag(getTheme().colors.muted)}Press [Enter] or run again to start a new pipeline{/}`,
+      content: `${fgTag(getTheme().colors.muted)}j/k: scroll  Enter: new pipeline  q: restart later{/}`,
     });
     this.hintBox = hint;
     this.widgets.push({ destroy: () => hint.destroy() });
@@ -161,6 +257,7 @@ export class CompleteScreen extends BaseScreen {
       });
     }
 
+    box.focus();
     this.parent.screen?.render();
   }
 }

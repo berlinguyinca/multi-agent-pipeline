@@ -427,6 +427,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--total-timeout` | `headless.totalTimeoutMs` | 60m | Maximum wall-clock time for the entire pipeline |
 | `--inactivity-timeout` | `headless.inactivityTimeoutMs` | 10m | Maximum silence from the AI backend before aborting |
 | `--poll-interval` | `headless.pollIntervalMs` | 10s | How often MAP checks the timeout clocks |
+| `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 
@@ -760,7 +761,7 @@ router:
   adapter: ollama
   model: gemma4:26b
   maxSteps: 10
-  timeoutMs: 30s
+  timeoutMs: 5m
 
 agentCreation:
   adapter: ollama

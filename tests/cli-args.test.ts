@@ -21,6 +21,8 @@ describe('cli argument parsing', () => {
       'eval-output/demo',
       '--total-timeout',
       '20m',
+      '--router-timeout',
+      '5m',
       '--github-issue',
       'https://github.com/openai/codex/issues/1',
     ]);

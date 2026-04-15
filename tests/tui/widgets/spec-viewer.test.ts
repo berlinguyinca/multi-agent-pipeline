@@ -37,6 +37,8 @@ describe('createSpecViewer', () => {
     const content = getBoxContent(widget.element);
     expect(content).toContain('My Feature');
     expect(content).toContain('Section');
+    expect(widget.element.options.mouse).toBe(true);
+    expect(content).not.toContain('# My Feature');
   });
 
   it('renders unchecked checkboxes', () => {

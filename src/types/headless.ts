@@ -1,6 +1,6 @@
 import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
-import type { DAGResult, StepResult } from './dag.js';
+import type { DAGResult, StepResult, StepTerminalOutcome } from './dag.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -10,6 +10,7 @@ export interface HeadlessOptions {
   totalTimeoutMs?: number;
   inactivityTimeoutMs?: number;
   pollIntervalMs?: number;
+  routerTimeoutMs?: number;
   personality?: string;
   verbose?: boolean;
 }
@@ -27,14 +28,18 @@ export interface HeadlessResult {
   qaAssessments?: QaAssessment[];
   documentationResult?: DocumentationResult;
   githubReport?: GitHubReportResult;
+  markdownFiles?: string[];
   error?: string;
 }
 
 export interface HeadlessResultV2 {
   version: 2;
   success: boolean;
+  outcome: StepTerminalOutcome;
   dag: DAGResult;
   steps: StepResult[];
+  outputDir: string;
+  markdownFiles: string[];
   duration: number;
   error?: string | null;
   githubReport?: GitHubReportResult;

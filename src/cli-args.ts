@@ -14,6 +14,7 @@ const flagsWithValues = new Set([
   '--total-timeout',
   '--inactivity-timeout',
   '--poll-interval',
+  '--router-timeout',
   '--github-issue',
   '--personality',
   '--review-pr',

@@ -37,6 +37,7 @@ import {
   postGitHubIssueComment,
 } from '../github/issues.js';
 import { resolveGitHubToken } from '../github/token.js';
+import { saveStageMarkdown } from '../output/markdown-artifacts.js';
 
 export type StreamSink = (chunk: string) => void;
 
@@ -45,6 +46,7 @@ export interface PipelineCallbacks {
   onStreamChunk: StreamSink;
   onTestProgress: (tests: TestProgressItem[]) => void;
   onGithubReport?: (report: GitHubReportResult) => void;
+  onMarkdownFile?: (filePath: string) => void;
   onError: (error: string) => void;
 }
 
@@ -293,6 +295,8 @@ export class PipelineRunner {
           return;
         }
 
+        await this.saveStageMarkdown(context, stateValue, stage, output);
+
         if (stage === 'spec') {
           this.specContent = output.trim();
           send({
@@ -370,6 +374,27 @@ export class PipelineRunner {
         }
       }
     })();
+  }
+
+  private async saveStageMarkdown(
+    context: PipelineContext,
+    stateValue: string,
+    stage: StageName,
+    output: string,
+  ): Promise<void> {
+    try {
+      const filePath = await saveStageMarkdown({
+        outputRoot: this.config.outputDir,
+        pipelineId: context.pipelineId,
+        iteration: context.iteration,
+        stage: stateValue,
+        title: `${stage} output`,
+        content: output,
+      });
+      this.callbacks.onMarkdownFile?.(filePath);
+    } catch {
+      // Markdown artifacts are best-effort and should not fail generation.
+    }
   }
 }
 

@@ -1,0 +1,18 @@
+name: visualization-builder
+description: "Creates charts, diagrams, and supporting visual assets for reports and presentations"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: select-visuals
+  - name: build-assets
+handles: "charts, diagrams, visuals, graphs, report assets, presentation visuals"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5

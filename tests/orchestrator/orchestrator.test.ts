@@ -70,6 +70,30 @@ describe('executeDAG', () => {
     expect(onOutputChunk).toHaveBeenCalledWith('step-1', 'Raw output');
   });
 
+  it('passes configured working directory to adapter runs', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    let capturedCwd: string | undefined;
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, options?: { cwd?: string }) {
+        capturedCwd = options?.cwd;
+        yield 'Output';
+      },
+    }));
+
+    await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir: '/tmp/generated',
+    });
+
+    expect(capturedCwd).toBe('/tmp/generated');
+  });
+
   it('executes parallel steps concurrently', async () => {
     const plan: DAGPlan = {
       plan: [
@@ -85,6 +109,80 @@ describe('executeDAG', () => {
     expect(result.success).toBe(true);
     expect(result.steps).toHaveLength(2);
     expect(result.steps.every((s) => s.status === 'completed')).toBe(true);
+  });
+
+  it('serializes ready ollama-backed steps to avoid GPU contention', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher-a', task: 'Research A', dependsOn: [] },
+        { id: 'step-2', agent: 'researcher-b', task: 'Research B', dependsOn: [] },
+      ],
+    };
+    const agentA = makeAgent('researcher-a');
+    agentA.adapter = 'ollama';
+    agentA.model = 'gemma4';
+    const agentB = makeAgent('researcher-b');
+    agentB.adapter = 'ollama';
+    agentB.model = 'gemma4:26b';
+    const agents = new Map([
+      ['researcher-a', agentA],
+      ['researcher-b', agentB],
+    ]);
+    let active = 0;
+    let peak = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'ollama' as const,
+      model: 'gemma4',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        yield 'done';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+    expect(result.success).toBe(true);
+    expect(peak).toBe(1);
+  });
+
+  it('still runs ready remote-provider steps concurrently', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'claude-agent', task: 'Do A', dependsOn: [] },
+        { id: 'step-2', agent: 'codex-agent', task: 'Do B', dependsOn: [] },
+      ],
+    };
+    const claudeAgent = makeAgent('claude-agent');
+    claudeAgent.adapter = 'claude';
+    const codexAgent = makeAgent('codex-agent');
+    codexAgent.adapter = 'codex';
+    const agents = new Map([
+      ['claude-agent', claudeAgent],
+      ['codex-agent', codexAgent],
+    ]);
+    let active = 0;
+    let peak = 0;
+    const createAdapter = vi.fn((config?: { type?: string }) => ({
+      type: (config?.type ?? 'claude') as 'claude' | 'codex',
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        yield 'done';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+    expect(result.success).toBe(true);
+    expect(peak).toBeGreaterThan(1);
   });
 
   it('passes dependency output as context', async () => {
@@ -339,6 +437,35 @@ describe('executeDAG', () => {
     expect(result.steps[0].status).toBe('failed');
   });
 
+  it('reports a specific step timeout message when a step aborts', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
+        await new Promise<void>((resolve) => {
+          opts?.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        const err = new Error('This operation was aborted.');
+        (err as Error & { name: string }).name = 'AbortError';
+        throw err;
+      },
+    }));
+
+    const result = await executeDAG(
+      plan, agents, createAdapter, undefined, undefined, undefined, undefined,
+      { stepTimeoutMs: 10, maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps[0].error).toContain('Step timed out during step-1 (researcher)');
+  });
+
   it('reports attempts as 1 when no retries configured', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
@@ -457,5 +584,80 @@ describe('executeDAG', () => {
     expect(result.steps[0].status).toBe('failed');
     expect(result.steps[0].securityPassed).toBe(false);
     expect(result.steps[0].securityFindings?.[0]?.rule).toBe('eval-injection');
+  });
+
+  it('routes compile failures through a recovery helper and retry step', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Build feature', dependsOn: [] }],
+    };
+    const implementationAgent = makeAgent('implementation-coder', 'files');
+    const buildFixer = makeAgent('build-fixer', 'files');
+    const agents = new Map([
+      ['implementation-coder', implementationAgent],
+      ['build-fixer', buildFixer],
+    ]);
+    const callCount = new Map<string, number>();
+    const createAdapter = vi.fn((config?: { model?: string }) => ({
+      type: 'claude' as const,
+      model: config?.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        const key = prompt.includes('Fix the failed step') ? 'build-fixer' : 'implementation-coder';
+        callCount.set(key, (callCount.get(key) ?? 0) + 1);
+        if (key === 'implementation-coder' && callCount.get(key) === 1) {
+          throw new Error('TypeScript compile failed: cannot find name Foo');
+        }
+        yield key === 'build-fixer' ? 'Patched the imports' : 'Feature compiled successfully';
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual(
+      expect.arrayContaining(['step-1', 'step-1-recovery-1', 'step-1-retry-1']),
+    );
+    expect(result.steps.find((step) => step.id === 'step-1')?.status).toBe('recovered');
+    expect(result.steps.find((step) => step.id === 'step-1-recovery-1')?.agent).toBe('build-fixer');
+    expect(result.steps.find((step) => step.id === 'step-1-retry-1')?.status).toBe('completed');
+  });
+
+  it('executes declared tools before returning the final step output', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],
+    };
+    const researcher = makeAgent('researcher');
+    researcher.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['researcher', researcher]]);
+    let runCount = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield '{"tool":"shell","params":{"command":"printf current-status"}}';
+          return;
+        }
+        yield 'Final synthesized answer';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+    expect(result.success).toBe(true);
+    expect(result.steps[0].output).toBe('Final synthesized answer');
+    expect(runCount).toBe(2);
   });
 });

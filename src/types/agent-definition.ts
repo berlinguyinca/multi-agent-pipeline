@@ -1,7 +1,7 @@
 // src/types/agent-definition.ts
 import type { AdapterType } from './adapter.js';
 
-export type OutputType = 'answer' | 'data' | 'files';
+export type OutputType = 'answer' | 'data' | 'files' | 'presentation';
 
 export interface AgentOutputConfig {
   type: OutputType;
@@ -45,7 +45,7 @@ export interface AgentDefinition {
   think?: boolean;
 }
 
-const VALID_OUTPUT_TYPES: readonly OutputType[] = ['answer', 'data', 'files'];
+const VALID_OUTPUT_TYPES: readonly OutputType[] = ['answer', 'data', 'files', 'presentation'];
 
 export function isValidAgentDefinition(agent: AgentDefinition): boolean {
   if (!agent.name || typeof agent.name !== 'string') return false;

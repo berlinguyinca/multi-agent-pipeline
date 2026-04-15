@@ -9,4 +9,10 @@ pipeline:
 handles: "research questions, knowledge synthesis, explanations, analysis, comparisons, how-to guides"
 output:
   type: answer
-tools: []
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: shell

@@ -11,10 +11,13 @@ import type { VerboseReporter } from '../utils/verbose-reporter.js';
 import { runSecurityGate } from '../security/gate.js';
 import type { SecurityConfig } from '../security/types.js';
 import { shouldGateStep } from '../security/should-gate.js';
+import { isAbortError } from '../utils/error.js';
+import { recordLearningCandidate } from '../knowledge/index.js';
 
 export interface DAGExecutionResult {
   success: boolean;
   steps: StepResult[];
+  plan: DAGPlan;
 }
 
 type AdapterFactory = (config: AdapterConfig) => AgentAdapter;
@@ -29,7 +32,12 @@ export interface DAGRetryOptions {
   maxStepRetries?: number;
   retryDelayMs?: number;
   adapterDefaults?: AdapterDefaultsMap;
+  workingDir?: string;
+  knowledgeCwd?: string;
 }
+
+const MAX_TOOL_CALLS = 4;
+const MAX_RECOVERY_ROUNDS = 2;
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof Error)) return true;
@@ -58,16 +66,23 @@ export async function executeDAG(
   onOutputChunk?: (stepId: string, chunk: string) => void,
   retry?: DAGRetryOptions,
 ): Promise<DAGExecutionResult> {
+  const mutablePlan: DAGPlan = {
+    plan: plan.plan.map((step) => ({ ...step, dependsOn: [...step.dependsOn] })),
+  };
   const maxRetries = retry?.maxStepRetries ?? 0;
   const retryDelayMs = retry?.retryDelayMs ?? 3_000;
   const stepTimeoutMs = retry?.stepTimeoutMs ?? 0;
   const adapterDefaults = retry?.adapterDefaults;
+  const workingDir = retry?.workingDir ?? process.cwd();
+  const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
   const results = new Map<string, StepResult>();
   const completed = new Set<string>();
+  const settled = new Set<string>();
   const failed = new Set<string>();
   const running = new Set<string>();
-  const allIds = new Set(plan.plan.map((s) => s.id));
+  const allIds = new Set(mutablePlan.plan.map((s) => s.id));
   const activeAdapters = new Set<AgentAdapter>();
+  const recoveryRounds = new Map<string, number>();
 
   const abortActiveAdapters = () => {
     for (const adapter of activeAdapters) {
@@ -78,14 +93,14 @@ export async function executeDAG(
   signal?.addEventListener('abort', abortActiveAdapters);
 
   try {
-    while (completed.size + failed.size < allIds.size) {
+    while (settled.size < allIds.size) {
       if (signal?.aborted) {
         break;
       }
 
       // Mark steps whose dependencies failed as skipped
-      for (const step of plan.plan) {
-        if (completed.has(step.id) || failed.has(step.id) || running.has(step.id)) continue;
+      for (const step of mutablePlan.plan) {
+        if (settled.has(step.id) || running.has(step.id)) continue;
         const depFailed = step.dependsOn.some((dep) => failed.has(dep));
         if (depFailed) {
           const failedDeps = step.dependsOn.filter((dep) => failed.has(dep));
@@ -98,17 +113,20 @@ export async function executeDAG(
             reason,
           });
           failed.add(step.id);
+          settled.add(step.id);
           reporter?.dagStepSkipped(step.id, reason);
         }
       }
 
-      const ready = getReadySteps(plan, completed).filter(
-        (s) => !running.has(s.id) && !failed.has(s.id),
+      const ready = getReadySteps(mutablePlan, completed).filter(
+        (s) => !running.has(s.id) && !settled.has(s.id),
       );
 
       if (ready.length === 0) break;
 
-      const executions = ready.map(async (step) => {
+      const scheduledReady = scheduleReadySteps(ready, agents);
+
+      const executions = scheduledReady.map(async (step) => {
         if (signal?.aborted) {
           return;
         }
@@ -120,6 +138,7 @@ export async function executeDAG(
 
         let lastError: string | undefined;
         let attempts = 0;
+        let stepTimedOut = false;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           if (signal?.aborted) break;
@@ -132,7 +151,7 @@ export async function executeDAG(
           }
 
           try {
-            const tools = createToolRegistry(agent, process.cwd());
+            const tools = createToolRegistry(agent, workingDir);
             const rawContext = buildStepContext(step.task, step.dependsOn, results);
             const context = injectToolCatalog(rawContext, tools, agent.prompt);
 
@@ -151,7 +170,10 @@ export async function executeDAG(
             const abortFromParent = () => stepController.abort();
             signal?.addEventListener('abort', abortFromParent, { once: true });
             if (stepTimeoutMs > 0) {
-              stepTimer = setTimeout(() => stepController.abort(), stepTimeoutMs);
+              stepTimer = setTimeout(() => {
+                stepTimedOut = true;
+                stepController.abort();
+              }, stepTimeoutMs);
             }
 
             // Resolve thinking: agent-level > adapter-default > undefined
@@ -159,32 +181,19 @@ export async function executeDAG(
 
             let output: string;
             try {
-              output = await runWithFailover(configs, createAdapter, async (adapter) => {
-                activeAdapters.add(adapter);
-                try {
-                  let out = '';
-                  for await (const chunk of adapter.run(
-                    context,
-                    {
-                      signal: stepController.signal,
-                      ...(resolvedThink !== undefined ? { think: resolvedThink, hideThinking: !resolvedThink } : {}),
-                    },
-                  )) {
-                    out += chunk;
-                    reporter?.onChunk(chunk.length);
-                    onOutputChunk?.(step.id, chunk);
-                  }
-
-                  if (stepController.signal.aborted) {
-                    throw new Error(
-                      signal?.aborted ? 'Execution cancelled' : 'Step timed out',
-                    );
-                  }
-
-                  return out.trim();
-                } finally {
-                  activeAdapters.delete(adapter);
-                }
+              output = await runStepWithTools({
+                context,
+                tools,
+                configs,
+                createAdapter,
+                stepId: step.id,
+                onOutputChunk,
+                reporter,
+                activeAdapters,
+                stepController,
+                signal,
+                resolvedThink,
+                workingDir,
               });
             } finally {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
@@ -195,6 +204,8 @@ export async function executeDAG(
             const result: StepResult = {
               id: step.id,
               agent: step.agent,
+              provider: agent.adapter,
+              model: agent.model,
               task: step.task,
               status: 'completed',
               outputType: agent.output.type,
@@ -240,24 +251,54 @@ export async function executeDAG(
 
             results.set(step.id, result);
             completed.add(step.id);
+            settled.add(step.id);
+            if (step.agent === 'result-judge' && result.output?.trim()) {
+              await persistLearningCandidate(step, result.output, knowledgeCwd);
+            }
             reporter?.dagStepComplete(step.id, step.agent, duration);
             lastError = undefined;
             break; // Success — exit retry loop
           } catch (err: unknown) {
-            lastError = err instanceof Error ? err.message : String(err);
+            if (isAbortError(err)) {
+              lastError = signal?.aborted
+                ? 'Execution cancelled'
+                : stepTimedOut
+                  ? `Step timed out during ${step.id} (${step.agent})`
+                  : `Operation aborted during ${step.id} (${step.agent})`;
+            } else {
+              lastError = err instanceof Error ? err.message : String(err);
+            }
             if (!isRetryable(err) || attempt >= maxRetries) {
               const duration = Date.now() - startedAt;
-              results.set(step.id, {
+              const baseFailure: StepResult = {
                 id: step.id,
                 agent: step.agent,
+                provider: agent.adapter,
+                model: agent.model,
                 task: step.task,
                 status: 'failed',
                 error: lastError,
                 duration,
                 attempts,
+                failureKind: classifyFailure(lastError),
+              };
+              const recoveryCreated = maybeScheduleRecovery({
+                step,
+                failure: baseFailure,
+                plan: mutablePlan,
+                allIds,
+                agents,
+                results,
+                settled,
+                recoveryRounds,
+                reporter,
               });
-              failed.add(step.id);
-              reporter?.dagStepFailed(step.id, step.agent, lastError);
+              results.set(step.id, recoveryCreated.result);
+              settled.add(step.id);
+              if (!recoveryCreated.scheduled) {
+                failed.add(step.id);
+                reporter?.dagStepFailed(step.id, step.agent, lastError);
+              }
               break; // Non-retryable or retries exhausted — exit retry loop
             }
           }
@@ -272,20 +313,353 @@ export async function executeDAG(
     signal?.removeEventListener('abort', abortActiveAdapters);
   }
 
-  const stepResults = plan.plan.map(
+  const stepResults = mutablePlan.plan.map(
     (step) =>
       results.get(step.id) ?? {
         id: step.id,
         agent: step.agent,
         task: step.task,
         status: 'pending' as StepStatus,
+        provider: agents.get(step.agent)?.adapter,
+        model: agents.get(step.agent)?.model,
       },
   );
+
+  for (const result of stepResults) {
+    if (result.status !== 'failed' || !result.replacementStepId) continue;
+    const replacement = results.get(result.replacementStepId);
+      if (replacement?.status === 'completed') {
+        result.status = 'recovered';
+        failed.delete(result.id);
+        void persistLearningCandidate(
+          {
+            id: result.id,
+            agent: result.agent,
+            task: result.task,
+          },
+          `Recovered failure: ${result.error ?? 'unknown'}\nReplacement step: ${result.replacementStepId}`,
+          knowledgeCwd,
+        );
+      }
+    }
 
   return {
     success: failed.size === 0,
     steps: stepResults,
+    plan: mutablePlan,
   };
+}
+
+async function persistLearningCandidate(
+  step: Pick<DAGPlan['plan'][number], 'id' | 'agent' | 'task'>,
+  output: string,
+  knowledgeCwd: string,
+): Promise<void> {
+  try {
+    await recordLearningCandidate({
+      cwd: knowledgeCwd,
+      title: `${step.agent} lesson from ${step.id}`,
+      lesson: output,
+      sourceTask: step.task,
+      confidence: 'medium',
+      freshnessHint: 'medium',
+    });
+  } catch {
+    // Learning writeback is best-effort.
+  }
+}
+
+function scheduleReadySteps(
+  ready: DAGPlan['plan'],
+  agents: Map<string, AgentDefinition>,
+): DAGPlan['plan'] {
+  const remoteReady: DAGPlan['plan'] = [];
+  const localGpuReady: DAGPlan['plan'] = [];
+
+  for (const step of ready) {
+    const agent = agents.get(step.agent);
+    if (agent?.adapter === 'ollama') {
+      localGpuReady.push(step);
+    } else {
+      remoteReady.push(step);
+    }
+  }
+
+  if (localGpuReady.length === 0) {
+    return remoteReady;
+  }
+
+  return [...remoteReady, localGpuReady[0]!];
+}
+
+interface RunStepWithToolsOptions {
+  context: string;
+  tools: ReturnType<typeof createToolRegistry>;
+  configs: AdapterConfig[];
+  createAdapter: AdapterFactory;
+  stepId: string;
+  onOutputChunk?: (stepId: string, chunk: string) => void;
+  reporter?: VerboseReporter;
+  activeAdapters: Set<AgentAdapter>;
+  stepController: AbortController;
+  signal?: AbortSignal;
+  resolvedThink?: boolean;
+  workingDir: string;
+}
+
+async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {
+  let prompt = options.context;
+
+  for (let toolRound = 0; toolRound <= MAX_TOOL_CALLS; toolRound += 1) {
+    const output = await runWithFailover(options.configs, options.createAdapter, async (adapter) => {
+      options.activeAdapters.add(adapter);
+      try {
+        let out = '';
+        for await (const chunk of adapter.run(
+          prompt,
+          {
+            signal: options.stepController.signal,
+            cwd: options.workingDir,
+            ...(options.resolvedThink !== undefined
+              ? { think: options.resolvedThink, hideThinking: !options.resolvedThink }
+              : {}),
+          },
+        )) {
+          out += chunk;
+          options.reporter?.onChunk(chunk.length);
+          options.onOutputChunk?.(options.stepId, chunk);
+        }
+
+        if (options.stepController.signal.aborted) {
+          throw new Error(options.signal?.aborted ? 'Execution cancelled' : 'Step timed out');
+        }
+
+        return out.trim();
+      } finally {
+        options.activeAdapters.delete(adapter);
+      }
+    });
+
+    const toolCall = extractToolCall(output);
+    if (!toolCall) {
+      return output;
+    }
+
+    const tool = options.tools.find((candidate) => candidate.name === toolCall.tool);
+    const toolResult = tool
+      ? await tool.execute(toolCall.params)
+      : { success: false, output: '', error: `Unknown tool "${toolCall.tool}"` };
+
+    prompt = [
+      options.context,
+      '',
+      '--- Tool request ---',
+      output,
+      '',
+      `Tool execution result for ${toolCall.tool}:`,
+      toolResult.success ? toolResult.output : `ERROR: ${toolResult.error ?? 'Tool failed'}`,
+      '',
+      'Continue the task. If more tool use is required, emit one JSON tool call. Otherwise, return the final answer.',
+    ].join('\n');
+  }
+
+  throw new Error(`Tool loop exceeded ${MAX_TOOL_CALLS} rounds`);
+}
+
+function extractToolCall(output: string): { tool: string; params: Record<string, unknown> } | null {
+  const trimmed = output.trim();
+  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i)?.[1]?.trim() ?? trimmed;
+  const candidates = sliceJsonObjects(fenced);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as { tool?: unknown; params?: unknown };
+      if (typeof parsed.tool !== 'string') continue;
+      return {
+        tool: parsed.tool,
+        params:
+          parsed.params && typeof parsed.params === 'object'
+            ? (parsed.params as Record<string, unknown>)
+            : {},
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function sliceJsonObjects(text: string): string[] {
+  const starts: number[] = [];
+  const candidates: string[] = [];
+  for (let index = text.indexOf('{'); index !== -1; index = text.indexOf('{', index + 1)) {
+    starts.push(index);
+  }
+
+  for (let i = starts.length - 1; i >= 0; i -= 1) {
+    const start = starts[i]!;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let cursor = start; cursor < text.length; cursor += 1) {
+      const char = text[cursor]!;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === '{') depth += 1;
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          candidates.push(text.slice(start, cursor + 1));
+          break;
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function classifyFailure(error?: string): StepResult['failureKind'] {
+  const normalized = error?.toLowerCase() ?? '';
+  if (/(test|assert|expect|vitest|jest)/.test(normalized)) return 'test';
+  if (/(typescript|compile|compil|type error|cannot find name|ts\d+)/.test(normalized)) {
+    return 'compile';
+  }
+  if (/(lint|eslint|prettier)/.test(normalized)) return 'lint';
+  if (/(build|bundle|webpack|vite|rollup)/.test(normalized)) return 'build';
+  if (/(toolchain|npm|pnpm|yarn|dependency)/.test(normalized)) return 'tooling';
+  if (normalized.length > 0) return 'runtime';
+  return 'unknown';
+}
+
+interface RecoveryOptions {
+  step: DAGPlan['plan'][number];
+  failure: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  recoveryRounds: Map<string, number>;
+  reporter?: VerboseReporter;
+}
+
+function maybeScheduleRecovery(options: RecoveryOptions): {
+  scheduled: boolean;
+  result: StepResult;
+} {
+  const rootId = options.step.parentStepId ?? options.step.id;
+  const round = (options.recoveryRounds.get(rootId) ?? 0) + 1;
+  if (round > MAX_RECOVERY_ROUNDS) {
+    return {
+      scheduled: false,
+      result: {
+        ...options.failure,
+        blockerKind: 'no-progress',
+      },
+    };
+  }
+
+  const helperAgent = selectRecoveryAgent(options.failure.failureKind, options.agents);
+  if (!helperAgent) {
+    return { scheduled: false, result: options.failure };
+  }
+
+  options.recoveryRounds.set(rootId, round);
+
+  const helperId = `${rootId}-recovery-${round}`;
+  const retryId = `${rootId}-retry-${round}`;
+  const retryDependsOn = [...new Set([helperId, ...options.step.dependsOn])];
+
+  options.plan.plan.push(
+    {
+      id: helperId,
+      agent: helperAgent,
+      task: buildRecoveryTask(options.step, options.failure),
+      dependsOn: [],
+      parentStepId: rootId,
+    } as DAGPlan['plan'][number],
+    {
+      id: retryId,
+      agent: options.step.agent,
+      task: options.step.task,
+      dependsOn: retryDependsOn,
+      parentStepId: rootId,
+    } as DAGPlan['plan'][number],
+  );
+  options.allIds.add(helperId);
+  options.allIds.add(retryId);
+
+  for (const candidate of options.plan.plan) {
+    if (candidate.id === options.step.id || options.settled.has(candidate.id)) continue;
+    candidate.dependsOn = candidate.dependsOn.map((dep) => (dep === options.step.id ? retryId : dep));
+  }
+
+  options.results.set(helperId, {
+    id: helperId,
+    agent: helperAgent,
+    task: buildRecoveryTask(options.step, options.failure),
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'recovery',
+    spawnedByAgent: options.step.agent,
+    failureKind: options.failure.failureKind,
+  });
+  options.results.set(retryId, {
+    id: retryId,
+    agent: options.step.agent,
+    task: options.step.task,
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'recovery',
+    failureKind: options.failure.failureKind,
+  });
+  options.reporter?.dagStepRetry(options.step.id, helperAgent, round, options.failure.error ?? 'unknown');
+
+  return {
+    scheduled: true,
+    result: {
+      ...options.failure,
+      replacementStepId: retryId,
+    },
+  };
+}
+
+function selectRecoveryAgent(
+  failureKind: StepResult['failureKind'],
+  agents: Map<string, AgentDefinition>,
+): string | null {
+  const preferences =
+    failureKind === 'compile' || failureKind === 'build' || failureKind === 'lint' || failureKind === 'tooling'
+      ? ['build-fixer', 'bug-debugger']
+      : failureKind === 'test'
+        ? ['test-stabilizer', 'bug-debugger', 'build-fixer']
+        : ['bug-debugger', 'build-fixer', 'test-stabilizer'];
+
+  return preferences.find((name) => agents.has(name)) ?? null;
+}
+
+function buildRecoveryTask(step: DAGPlan['plan'][number], failure: StepResult): string {
+  return [
+    `Fix the failed step "${step.id}" before it is retried.`,
+    `Original agent: ${step.agent}`,
+    `Original task: ${step.task}`,
+    `Failure kind: ${failure.failureKind ?? 'unknown'}`,
+    `Failure: ${failure.error ?? 'unknown error'}`,
+    'Return the concrete fix or stabilization needed so the retry can continue.',
+  ].join('\n');
 }
 
 function buildStepContext(

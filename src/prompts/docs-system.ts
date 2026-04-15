@@ -24,6 +24,7 @@ Rules:
 - Modify Markdown files only. Markdown files use the .md extension.
 - Do not create, edit, delete, rename, or format non-Markdown files.
 - If README.md exists, update it. If no README.md exists, create one.
+- Maintain module-level README.md files for major source directories when their behavior or interfaces change.
 - Document the actual implemented behavior, not aspirational features.
 - Include setup, usage, test commands, configuration, and known limitations when they apply.
 - Keep documentation concise and directly useful to a developer opening the generated project.

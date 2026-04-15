@@ -1,7 +1,7 @@
 // tests/types/dag.test.ts
 import { describe, it, expect } from 'vitest';
 import type { DAGPlan, DAGStep, StepResult, DAGNode, DAGEdge } from '../../src/types/dag.js';
-import { validateDAGPlan, topologicalSort, getReadySteps } from '../../src/types/dag.js';
+import { validateDAGPlan, topologicalSort, getReadySteps, buildDAGResult } from '../../src/types/dag.js';
 
 describe('DAG types', () => {
   const linearPlan: DAGPlan = {
@@ -109,6 +109,55 @@ describe('DAG types', () => {
       const completed = new Set(['step-1', 'step-2', 'step-3']);
       const ready = getReadySteps(parallelPlan, completed);
       expect(ready).toEqual([]);
+    });
+  });
+
+  describe('buildDAGResult', () => {
+    it('includes runtime recovery edges in addition to planned dependencies', () => {
+      const plan: DAGPlan = {
+        plan: [
+          { id: 'step-1', agent: 'implementation-coder', task: 'Implement', dependsOn: [] },
+          { id: 'step-1-recovery-1', agent: 'build-fixer', task: 'Fix compile', dependsOn: [] },
+          { id: 'step-1-retry-1', agent: 'implementation-coder', task: 'Retry', dependsOn: ['step-1-recovery-1'] },
+        ],
+      };
+      const results: StepResult[] = [
+        {
+          id: 'step-1',
+          agent: 'implementation-coder',
+          task: 'Implement',
+          status: 'recovered',
+          parentStepId: 'step-1',
+          replacementStepId: 'step-1-retry-1',
+        },
+        {
+          id: 'step-1-recovery-1',
+          agent: 'build-fixer',
+          task: 'Fix compile',
+          status: 'completed',
+          parentStepId: 'step-1',
+          edgeType: 'recovery',
+          spawnedByAgent: 'implementation-coder',
+        },
+        {
+          id: 'step-1-retry-1',
+          agent: 'implementation-coder',
+          task: 'Retry',
+          status: 'completed',
+          parentStepId: 'step-1',
+          edgeType: 'recovery',
+        },
+      ];
+
+      const dag = buildDAGResult(results, plan);
+      expect(dag.nodes).toHaveLength(3);
+      expect(dag.edges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ from: 'step-1-recovery-1', to: 'step-1-retry-1', type: 'planned' }),
+          expect.objectContaining({ from: 'step-1', to: 'step-1-recovery-1', type: 'recovery' }),
+          expect.objectContaining({ from: 'step-1', to: 'step-1-retry-1', type: 'recovery' }),
+        ]),
+      );
     });
   });
 });

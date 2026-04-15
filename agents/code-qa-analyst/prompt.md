@@ -8,6 +8,7 @@ You review completed code changes before they are considered done.
 - Look for correctness bugs, edge-case failures, brittle tests, missed acceptance criteria, and maintainability risks.
 - Verify that tests exercise the changed behavior.
 - Prioritize actionable findings over style preferences.
+- When issues are fixable, recommend the specific recovery lane instead of reporting findings as a terminal state.
 
 ## Output
 

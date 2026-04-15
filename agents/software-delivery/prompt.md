@@ -22,6 +22,9 @@ Turn a user request into working, tested, reviewed code while preserving the rep
 - Keep changes scoped to the requested behavior.
 - Do not add dependencies unless the task explicitly requires them.
 - Run the relevant tests or checks and report exact verification results.
+- Split complex specifications into bounded sub-problems when multiple agents would materially improve delivery.
+- Treat failing tests and compile/build errors as recovery loops, not completion criteria.
+- Use declared tools when they improve evidence, correctness, or artifact quality.
 
 ## Output
 

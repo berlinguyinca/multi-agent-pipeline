@@ -391,6 +391,7 @@ describe('runHeadless', () => {
   it('passes options.outputDir through to context when provided', async () => {
     const { loadConfig } = await import('../../src/config/loader.js');
     vi.mocked(loadConfig).mockResolvedValueOnce(defaultConfigMock);
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-custom-output-'));
 
     let capturedContext: PipelineContext | null = null;
     const mockActorFactory = (ctx: PipelineContext): PipelineActor => {
@@ -414,12 +415,13 @@ describe('runHeadless', () => {
       return actor;
     };
 
-    await runHeadless({ prompt: 'test', outputDir: '/custom/output' }, mockActorFactory);
+    await runHeadless({ prompt: 'test', outputDir }, mockActorFactory);
 
-    expect(capturedContext?.outputDir).toBe('/custom/output');
+    expect(capturedContext?.outputDir).toBe(outputDir);
+    await fs.rm(outputDir, { recursive: true, force: true });
   });
 
-  it('uses config outputDir when options.outputDir not provided', async () => {
+  it('defaults to current working directory when options.outputDir not provided', async () => {
     const { loadConfig } = await import('../../src/config/loader.js');
     vi.mocked(loadConfig).mockResolvedValueOnce({ ...defaultConfigMock, outputDir: '/from-config' });
 
@@ -446,7 +448,7 @@ describe('runHeadless', () => {
 
     await runHeadless({ prompt: 'test' }, mockActorFactory);
 
-    expect(capturedContext?.outputDir).toBe('/from-config');
+    expect(capturedContext?.outputDir).toBe(process.cwd());
   });
 
   it('runs the live headless pipeline end-to-end with adapter output', async () => {

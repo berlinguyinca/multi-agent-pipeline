@@ -8,9 +8,47 @@ import type { PromptHistoryEntry } from '../prompt-history.js';
 
 export interface WelcomeScreenData {
   availableBackends: string[];
+  initialPrompt?: string;
   initialGithubIssueUrl?: string;
   githubIssueError?: string;
   recentPrompts?: PromptHistoryEntry[];
+}
+
+function createCompactLogo(parent: blessed.Widgets.Node): ReturnType<typeof createLogo> {
+  const element = blessed.box({
+    parent,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    tags: true,
+    align: 'center',
+    style: {
+      fg: getTheme().colors.panelFg,
+      bg: getTheme().colors.panelBg,
+    },
+  });
+
+  function update(): void {
+    const theme = getTheme();
+    element.style = {
+      ...(element.style ?? {}),
+      fg: theme.colors.panelFg,
+      bg: theme.colors.panelBg,
+    };
+    element.setContent(
+      `${fgTag(theme.colors.accent)}{bold}MAP Pipeline{/bold}{/}\n${fgTag(theme.colors.muted)}Multi-agent delivery workspace{/}`,
+    );
+    element.screen?.render();
+  }
+
+  update();
+
+  return {
+    element: element as blessed.Widgets.BoxElement,
+    update,
+    destroy: () => element.destroy(),
+  };
 }
 
 export class WelcomeScreen extends BaseScreen {
@@ -25,6 +63,7 @@ export class WelcomeScreen extends BaseScreen {
   private historyPanel: blessed.Widgets.BoxElement | null = null;
   private historyList: blessed.Widgets.ListElement | null = null;
   private historyVisible = false;
+  private inlineHistoryIndex = -1;
 
   constructor(
     parent: blessed.Widgets.BoxElement,
@@ -82,7 +121,31 @@ export class WelcomeScreen extends BaseScreen {
     this.promptInput?.setValue(entry.prompt);
     this.urlInput?.setValue(entry.githubIssueUrl ?? '');
     this.validationError?.setContent('');
+    this.inlineHistoryIndex = (this.data.recentPrompts ?? []).findIndex(
+      (candidate) =>
+        candidate.prompt === entry.prompt && candidate.githubIssueUrl === entry.githubIssueUrl,
+    );
     this.hideHistoryPicker();
+  }
+
+  private cycleInlineHistory(direction: 1 | -1): void {
+    const history = this.data.recentPrompts ?? [];
+    if (history.length === 0 || this.historyVisible) return;
+
+    if (direction > 0) {
+      this.inlineHistoryIndex =
+        this.inlineHistoryIndex <= 0 ? history.length - 1 : this.inlineHistoryIndex - 1;
+    } else {
+      this.inlineHistoryIndex =
+        this.inlineHistoryIndex >= history.length - 1 ? 0 : this.inlineHistoryIndex + 1;
+    }
+
+    const entry = history[this.inlineHistoryIndex];
+    if (!entry) return;
+    this.promptInput?.setValue(entry.prompt);
+    this.urlInput?.setValue(entry.githubIssueUrl ?? '');
+    this.validationError?.setContent('');
+    this.parent.screen?.render();
   }
 
   refreshTheme(): void {
@@ -139,8 +202,16 @@ export class WelcomeScreen extends BaseScreen {
   }
 
   activate(): void {
+    const terminalHeight = Number(
+      this.parent.screen?.height ?? this.parent.screen?.program.rows ?? 24,
+    );
+    const compact = terminalHeight <= 26;
+    const theme = getTheme();
+
     // Logo
-    const logo = createLogo(this.parent);
+    const logo = compact
+      ? createCompactLogo(this.parent)
+      : createLogo(this.parent);
     this.logoWidget = logo;
     this.widgets.push(logo);
 
@@ -150,13 +221,14 @@ export class WelcomeScreen extends BaseScreen {
       ? backends.map((b) => `  ${fgTag(getTheme().colors.accent)}●{/} ${b}`).join('\n')
       : `  ${fgTag(getTheme().colors.muted)}No backends detected — install Claude, Codex, Ollama, or Hermes{/}`;
 
-    const theme = getTheme();
+    const backendsPanelTop = compact ? 2 : 9;
+    const backendsPanelHeight = backends.length + 3;
     const backendsPanel = blessed.box({
       parent: this.parent,
-      top: 9,
+      top: backendsPanelTop,
       left: 1,
       right: 1,
-      height: backends.length + 3,
+      height: backendsPanelHeight,
       border: { type: 'line' },
       tags: true,
       label: ` ${fgTag(theme.colors.accent)}{bold}Available Backends{/bold}{/} `,
@@ -171,7 +243,7 @@ export class WelcomeScreen extends BaseScreen {
     this.widgets.push({ destroy: () => backendsPanel.destroy() });
 
     // ── Task Prompt Panel ───────────────────────────────────
-    const promptPanelTop = 9 + backends.length + 3 + 1;
+    const promptPanelTop = backendsPanelTop + backendsPanelHeight + 1;
     const hasError = Boolean(this.data.githubIssueError);
     const promptPanelHeight = hasError ? 11 : 10;
 
@@ -305,7 +377,7 @@ export class WelcomeScreen extends BaseScreen {
       tags: true,
       height: 1,
       shrink: true,
-      content: `${fgTag(theme.colors.muted)}i: focus input  Esc: blur  Tab: cycle  Enter: continue  Ctrl+H: history{/}`,
+      content: `${fgTag(theme.colors.muted)}i: focus input  Esc: blur  Tab: cycle  Enter: continue  Ctrl+H: history  a: agents{/}`,
     });
 
     // Validation error box — hidden until needed
@@ -387,6 +459,10 @@ export class WelcomeScreen extends BaseScreen {
 
     }
 
+    if (this.data.initialPrompt) {
+      promptInput.setValue(this.data.initialPrompt);
+    }
+
     // Tab cycles focus between prompt and URL inputs
     const focusOrder: Array<blessed.Widgets.BlessedElement> = [promptInput, urlInput];
     let focusIdx = 0;
@@ -428,6 +504,10 @@ export class WelcomeScreen extends BaseScreen {
       screen.key('tab', tabHandler);
       screen.key('C-h', historyHandler);
       screen.key('backspace', historyHandler);
+      const upHandler = () => this.cycleInlineHistory(-1);
+      const downHandler = () => this.cycleInlineHistory(1);
+      promptInput.key('up', upHandler);
+      promptInput.key('down', downHandler);
 
       const globalEnterHandler = (_ch: string, key: { name?: string }) => {
         if (key.name !== 'enter') {
@@ -447,6 +527,8 @@ export class WelcomeScreen extends BaseScreen {
           screen.unkey('tab', tabHandler);
           screen.unkey('C-h', historyHandler);
           screen.unkey('backspace', historyHandler);
+          promptInput.unkey('up', upHandler);
+          promptInput.unkey('down', downHandler);
           screen.program.off('keypress', globalEnterHandler);
         },
       });

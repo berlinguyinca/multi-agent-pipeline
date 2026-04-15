@@ -29,9 +29,10 @@ import { WelcomeScreen } from './screens/welcome-screen.js';
 import { PipelineScreen } from './screens/pipeline-screen.js';
 import { FeedbackScreen } from './screens/feedback-screen.js';
 import { ExecuteScreen } from './screens/execute-screen.js';
-import { CompleteScreen } from './screens/complete-screen.js';
+import { CompleteScreen, type CompleteScreenData } from './screens/complete-screen.js';
 import { RouterPlanScreen } from './screens/router-plan-screen.js';
 import { DAGExecutionScreen } from './screens/dag-execution-screen.js';
+import { AgentManagerScreen } from './screens/agent-manager-screen.js';
 import type { PipelineBarData } from './widgets/pipeline-bar.js';
 import type { TestStatus } from './widgets/test-progress.js';
 import { createRawOutputPane } from './widgets/raw-output-pane.js';
@@ -49,6 +50,15 @@ import {
   type PromptHistoryEntry,
 } from './prompt-history.js';
 import { shouldUseResearchFlow } from '../utils/prompt-intent.js';
+import {
+  saveFinalReportMarkdown,
+  saveStageMarkdown,
+  saveStepMarkdown,
+} from '../output/markdown-artifacts.js';
+import { listInstalledOllamaModels, recommendOllamaModel, syncReferencedOllamaModels } from '../adapters/ollama-models.js';
+import { saveAgentYaml } from '../agents/files.js';
+import { generateAndWriteAgentFiles } from '../cli/agent-create-dialog.js';
+import { buildKnowledgeIndex, canonicalizeLearningCandidates } from '../knowledge/index.js';
 
 export interface TuiAppOptions {
   config: PipelineConfig;
@@ -97,6 +107,42 @@ const STATE_LABELS: Record<string, string> = {
   codeAssessing: 'Code QA',
   documenting: 'Documenting',
 };
+
+export interface ShellLayoutState {
+  hasRawOutput: boolean;
+  rawOutputFullscreen: boolean;
+  dockRawOutput?: boolean;
+}
+
+export interface ShellLayout {
+  contentBottom: number;
+  bottomRawOutputVisible: boolean;
+  fullscreenRawOutputVisible: boolean;
+}
+
+export function computeShellLayout(state: ShellLayoutState): ShellLayout {
+  if (!state.hasRawOutput || state.dockRawOutput === false) {
+    return {
+      contentBottom: 1,
+      bottomRawOutputVisible: false,
+      fullscreenRawOutputVisible: false,
+    };
+  }
+
+  if (state.rawOutputFullscreen) {
+    return {
+      contentBottom: 1,
+      bottomRawOutputVisible: false,
+      fullscreenRawOutputVisible: true,
+    };
+  }
+
+  return {
+    contentBottom: RAW_OUTPUT_HEIGHT + 1,
+    bottomRawOutputVisible: true,
+    fullscreenRawOutputVisible: false,
+  };
+}
 
 function computeBarStages(
   stateValue: string,
@@ -230,6 +276,23 @@ function isFocusedOnInput(screen: blessed.Widgets.Screen | null): boolean {
   return Boolean(focused && (focused as blessed.Widgets.TextboxElement).readInput);
 }
 
+type ScrollableFocusedElement = {
+  scroll?: (offset: number) => void;
+};
+
+export function scrollFocusedElement(
+  screen: Pick<blessed.Widgets.Screen, 'focused'> | null,
+  offset: number,
+): boolean {
+  const focused = screen?.focused as ScrollableFocusedElement | undefined;
+  if (!focused || typeof focused.scroll !== 'function') {
+    return false;
+  }
+
+  focused.scroll(offset);
+  return true;
+}
+
 function mapTestStatus(item: TestProgressItem): { name: string; status: TestStatus } {
   const statusMap: Record<string, TestStatus> = {
     writing: 'running',
@@ -237,6 +300,57 @@ function mapTestStatus(item: TestProgressItem): { name: string; status: TestStat
     failing: 'fail',
   };
   return { name: item.name, status: statusMap[item.status] ?? 'pending' };
+}
+
+function getFinalCompletedStep(steps: StepResult[]): StepResult | null {
+  const completedWithOutput = steps.filter(
+    (step) => step.status === 'completed' && step.output?.trim(),
+  );
+  return completedWithOutput.at(-1) ?? null;
+}
+
+function buildExecutionGraph(
+  plan: DAGPlan,
+  steps: StepResult[],
+): NonNullable<CompleteScreenData['executionGraph']> {
+  const resultMap = new Map(steps.map((step) => [step.id, step]));
+  const incomingEdges = new Map<string, Array<{ from: string; type: 'planned' | 'handoff' | 'recovery' | 'spawned' }>>();
+
+  for (const step of plan.plan) {
+    for (const dep of step.dependsOn) {
+      const bucket = incomingEdges.get(step.id) ?? [];
+      bucket.push({ from: dep, type: 'planned' });
+      incomingEdges.set(step.id, bucket);
+    }
+  }
+
+  for (const step of steps) {
+    if (step.parentStepId && step.parentStepId !== step.id) {
+      const bucket = incomingEdges.get(step.id) ?? [];
+      bucket.push({ from: step.parentStepId, type: step.edgeType ?? 'handoff' });
+      incomingEdges.set(step.id, bucket);
+    }
+    if (step.replacementStepId) {
+      const bucket = incomingEdges.get(step.replacementStepId) ?? [];
+      bucket.push({ from: step.id, type: 'recovery' });
+      incomingEdges.set(step.replacementStepId, bucket);
+    }
+  }
+
+  return plan.plan.map((step) => {
+    const result = resultMap.get(step.id);
+    return {
+      id: step.id,
+      agent: step.agent,
+      provider: result?.provider,
+      model: result?.model,
+      task: step.task,
+      status: result?.status ?? 'pending',
+      duration: result?.duration,
+      dependsOn: step.dependsOn,
+      edges: incomingEdges.get(step.id) ?? [],
+    };
+  });
 }
 
 export function createTuiApp(options: TuiAppOptions): TuiApp {
@@ -254,6 +368,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
   let rawOutputToast: blessed.Widgets.BoxElement | null = null;
   let rawOutputToastTimer: ReturnType<typeof setTimeout> | null = null;
   let rawOutputStore = createRawOutputStore();
+  let unsubscribeRawOutputLayout: (() => void) | null = null;
   let lastSessionLogPath: string | null = null;
   let sessionLogPrinted = false;
   let runner: PipelineRunner | null = null;
@@ -262,6 +377,31 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
   let lastRenderAt = 0;
   let renderPending = false;
   let rawOutputFullscreen = false;
+  let rawOutputDockEnabled = false;
+
+  function applyShellLayout(): void {
+    const layout = computeShellLayout({
+      hasRawOutput: rawOutputStore.getCurrent() !== null,
+      rawOutputFullscreen,
+      dockRawOutput: rawOutputDockEnabled,
+    });
+
+    if (contentBox) {
+      (contentBox as blessed.Widgets.BoxElement & { bottom: number }).bottom = layout.contentBottom;
+    }
+
+    if (layout.bottomRawOutputVisible) {
+      rawOutputBottomContainer?.show();
+    } else {
+      rawOutputBottomContainer?.hide();
+    }
+
+    if (layout.fullscreenRawOutputVisible) {
+      rawOutputFullscreenContainer?.show();
+    } else {
+      rawOutputFullscreenContainer?.hide();
+    }
+  }
 
   function applyThemeToShell(): void {
     const theme = getTheme();
@@ -310,6 +450,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
     rawOutputFullscreenPane = rawOutputFullscreenContainer
       ? createRawOutputPane(rawOutputFullscreenContainer, rawOutputStore)
       : null;
+    applyShellLayout();
     router?.current()?.refreshTheme();
     screen?.render();
   }
@@ -339,6 +480,8 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
     rawOutputPane = null;
     rawOutputFullscreenPane?.destroy();
     rawOutputFullscreenPane = null;
+    unsubscribeRawOutputLayout?.();
+    unsubscribeRawOutputLayout = null;
     if (rawOutputToastTimer) {
       clearTimeout(rawOutputToastTimer);
       rawOutputToastTimer = null;
@@ -380,7 +523,9 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
   }
 
   async function run(): Promise<void> {
-    const promptHistory: PromptHistoryEntry[] = await loadPromptHistory(process.cwd());
+    let promptHistory: PromptHistoryEntry[] = await loadPromptHistory(process.cwd());
+    await canonicalizeLearningCandidates({ cwd: process.cwd() });
+    await buildKnowledgeIndex({ cwd: process.cwd() });
 
     return new Promise<void>((resolve) => {
       const theme = getTheme();
@@ -435,7 +580,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
             fg: theme.colors.border,
           },
         },
-        hidden: false,
+        hidden: true,
       });
       rawOutputPane = createRawOutputPane(rawOutputBottomContainer, rawOutputStore);
 
@@ -461,10 +606,19 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         rawOutputStore,
       );
 
+      unsubscribeRawOutputLayout = rawOutputStore.subscribe(() => {
+        if (rawOutputStore.getCurrent() === null) {
+          rawOutputFullscreen = false;
+        }
+        applyShellLayout();
+        screen?.render();
+      });
+      applyShellLayout();
+
       statusLine = new StatusLine(screen);
       statusLine.applyTheme();
       statusLine.update('idle');
-      statusLine.setHints('i:insert  Esc:normal  j/k:scroll  f:fullscreen  q:quit  ^C:abort');
+      statusLine.setHints('i:insert  Esc:normal  q:quit  ^C:abort');
 
       const vim = new VimMode();
       vim.onModeChange((mode) => {
@@ -521,6 +675,13 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         toggleRawOutputFullscreen();
       });
 
+      keyboardManager.register('a', () => {
+        if (isFocusedOnInput(screen)) {
+          return;
+        }
+        void openAgentManager();
+      });
+
       keyboardManager.pushScope({
         escape: () => {
           if (isFocusedOnInput(screen)) {
@@ -537,12 +698,16 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         j: () => {
           if (rawOutputFullscreen) {
             rawOutputFullscreenPane?.element.scroll(1);
+            return;
           }
+          scrollFocusedElement(screen, 1);
         },
         k: () => {
           if (rawOutputFullscreen) {
             rawOutputFullscreenPane?.element.scroll(-1);
+            return;
           }
+          scrollFocusedElement(screen, -1);
         },
         y: () => {
           if (!rawOutputFullscreen) return;
@@ -578,11 +743,17 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       let currentTests: TestProgressItem[] = [];
       let currentGithubReport: GitHubReportResult | undefined;
       let autoStarted = false;
+      let lastPrompt = initialPrompt?.trim() ?? '';
+      let lastGithubIssueUrl = initialGithubIssueUrl?.trim() ?? '';
       let previousReviewedSpec = '';
       let currentV1RawOutputKey: string | null = null;
       let v2Plan: DAGPlan | null = null;
       let v2Agents: Map<string, AgentDefinition> | null = null;
       let v2MessageVisible = false;
+      let lastErrorMessage: string | undefined;
+      let markdownFiles: string[] = [];
+      let finalMarkdownSavedFor: string | null = null;
+      let agentManagerInstalledModels: string[] = detection.ollama.models;
 
       const securityConfig = {
         ...DEFAULT_SECURITY_CONFIG,
@@ -598,10 +769,12 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         });
 
       function setRawOutput(key: string, title: string, content: string, streaming: boolean): void {
+        rawOutputDockEnabled = true;
         rawOutputStore.setCurrent(key, title, content, streaming);
       }
 
       function appendRawOutput(key: string, title: string, chunk: string): void {
+        rawOutputDockEnabled = true;
         rawOutputStore.append(key, title, chunk);
       }
 
@@ -650,9 +823,9 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
       function showRawOutputFullscreen(): void {
         if (rawOutputFullscreen) return;
+        if (!rawOutputStore.getCurrent()) return;
         rawOutputFullscreen = true;
-        rawOutputBottomContainer?.hide();
-        rawOutputFullscreenContainer?.show();
+        applyShellLayout();
         rawOutputFullscreenPane?.element.focus();
         statusLine?.setHints('Esc:close raw output  f:toggle  j/k:scroll  y/C-y:copy  o:open log');
         screen?.render();
@@ -661,10 +834,9 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       function hideRawOutputFullscreen(): void {
         if (!rawOutputFullscreen) return;
         rawOutputFullscreen = false;
-        rawOutputFullscreenContainer?.hide();
-        rawOutputBottomContainer?.show();
+        applyShellLayout();
         contentBox?.focus();
-        statusLine?.setHints('f:fullscreen  q:quit');
+        statusLine?.setHints(rawOutputStore.getCurrent() ? 'f:fullscreen  q:quit' : 'q:quit');
         screen?.render();
       }
 
@@ -725,11 +897,18 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       if (detection.ollama.installed) availableBackends.push('ollama');
       if (detection.hermes.installed) availableBackends.push('hermes');
       async function startPipeline(prompt: string, githubIssueUrl?: string): Promise<void> {
+        lastPrompt = prompt;
+        lastGithubIssueUrl = githubIssueUrl?.trim() ?? '';
+        lastErrorMessage = undefined;
+        markdownFiles = [];
+        finalMarkdownSavedFor = null;
+
         try {
-          await recordPromptHistory(process.cwd(), {
+          promptHistory = await recordPromptHistory(process.cwd(), {
             prompt,
             githubIssueUrl,
           });
+          welcomeScreen.updateData({ recentPrompts: promptHistory });
         } catch {
           // Prompt history is best-effort only.
         }
@@ -781,6 +960,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       });
 
       const completeScreen = new CompleteScreen(contentBox, {
+        outcome: 'success',
         iterations: 0,
         testsTotal: 0,
         testsPassing: 0,
@@ -788,18 +968,42 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         duration: 0,
         outputDir: config.outputDir,
         onNewPipeline: () => {
-          destroy();
+          resetToWelcome();
         },
       });
 
       const routerPlanScreen = new RouterPlanScreen(contentBox, {
         plan: { plan: [] },
+        agentDetails: {},
         onApprove: () => { /* set on demand */ },
         onCancel: () => { /* set on demand */ },
       });
 
       const dagExecutionScreen = new DAGExecutionScreen(contentBox, {
         steps: [],
+      });
+
+      const agentManagerScreen = new AgentManagerScreen(contentBox, {
+        agents: new Map(),
+        installedOllamaModels: agentManagerInstalledModels,
+        onBack: () => {
+          resetToWelcome();
+        },
+        onGenerateAgent: () => {
+          void promptForAgentGeneration();
+        },
+        onPullModel: (agentName) => {
+          void pullAgentModel(agentName);
+        },
+        onSyncAllModels: () => {
+          void syncAllAgentModels();
+        },
+        onRecommendModel: (agentName) => {
+          void applyRecommendedModel(agentName);
+        },
+        onSaveAgent: (agentName, patch) => {
+          void updateAgentDefinition(agentName, patch);
+        },
       });
 
       const screenMap = new Map<string, BaseScreen>();
@@ -817,20 +1021,119 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       screenMap.set('v2-message', pipelineScreen);
       screenMap.set('router-plan', routerPlanScreen);
       screenMap.set('dag-executing', dagExecutionScreen);
+      screenMap.set('agent-manager', agentManagerScreen);
 
       router = new ScreenRouter(contentBox, screenMap);
 
       function resetToWelcome(): void {
+        welcomeScreen.updateData({
+          initialPrompt: lastPrompt,
+          initialGithubIssueUrl: lastGithubIssueUrl || undefined,
+          githubIssueError: lastErrorMessage,
+          recentPrompts: promptHistory,
+        });
         v2AbortController?.abort();
         v2AbortController = null;
         v2Plan = null;
         v2Agents = null;
         v2MessageVisible = false;
+        lastErrorMessage = undefined;
         stageOutput = '';
         statusLine?.stopTimer();
         statusLine?.update('idle');
-        statusLine?.setHints('i:insert  Esc:normal  j/k:scroll  f:fullscreen  q:quit  ^C:abort');
+        statusLine?.setHints('i:insert  Esc:normal  q:quit  ^C:abort');
+        rawOutputDockEnabled = false;
+        applyShellLayout();
         router?.transition('idle');
+      }
+
+      async function loadCurrentAgents(): Promise<Map<string, AgentDefinition>> {
+        const rawAgents = await loadAgentRegistry(path.join(process.cwd(), 'agents'));
+        for (const [name, overrides] of Object.entries(config.agentOverrides)) {
+          const base = rawAgents.get(name);
+          if (base) {
+            rawAgents.set(name, mergeWithOverrides(base, overrides));
+          }
+        }
+        return rawAgents;
+      }
+
+      async function openAgentManager(): Promise<void> {
+        const currentAgents = await loadCurrentAgents();
+        agentManagerInstalledModels = await listInstalledOllamaModels(config.ollama.host);
+        agentManagerScreen.updateData({
+          agents: currentAgents,
+          installedOllamaModels: agentManagerInstalledModels,
+        });
+        statusLine?.update('agent-manager', 'tui');
+        statusLine?.setHints('Esc:back  g:generate  t:toggle  r:recommend  p:pull  u:sync all');
+        router?.transition('agent-manager');
+      }
+
+      async function updateAgentDefinition(
+        agentName: string,
+        patch: { enabled?: boolean; model?: string },
+      ): Promise<void> {
+        await saveAgentYaml(path.join(process.cwd(), 'agents'), agentName, (parsed) => ({
+          ...parsed,
+          ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+          ...(patch.model !== undefined ? { model: patch.model } : {}),
+        }));
+        await openAgentManager();
+      }
+
+      async function applyRecommendedModel(agentName: string): Promise<void> {
+        const currentAgents = await loadCurrentAgents();
+        const agent = currentAgents.get(agentName);
+        if (!agent || agent.adapter !== 'ollama') return;
+        await updateAgentDefinition(agentName, { model: recommendOllamaModel(agent) });
+      }
+
+      async function pullAgentModel(agentName: string): Promise<void> {
+        const currentAgents = await loadCurrentAgents();
+        const agent = currentAgents.get(agentName);
+        if (!agent || agent.adapter !== 'ollama' || !agent.model) return;
+        await syncReferencedOllamaModels([agent], config.ollama.host);
+        await openAgentManager();
+      }
+
+      async function syncAllAgentModels(): Promise<void> {
+        const currentAgents = await loadCurrentAgents();
+        await syncReferencedOllamaModels(currentAgents.values(), config.ollama.host);
+        await openAgentManager();
+      }
+
+      async function promptForAgentGeneration(): Promise<void> {
+        if (!screen) return;
+        const prompt = blessed.prompt({
+          parent: screen,
+          border: 'line',
+          height: 8,
+          width: '70%',
+          top: 'center',
+          left: 'center',
+          label: ' Generate Agent ',
+          tags: false,
+        });
+        prompt.input('What should this agent do?', '', async (_err, value) => {
+          prompt.destroy();
+          if (!value?.trim()) {
+            screen?.render();
+            return;
+          }
+          try {
+            await generateAndWriteAgentFiles({
+              cwd: process.cwd(),
+              description: value.trim(),
+              adapter: config.agentCreation.adapter,
+              model: config.agentCreation.model,
+            });
+            await openAgentManager();
+          } catch (err: unknown) {
+            showRawOutputToast(err instanceof Error ? err.message : String(err));
+            screen?.render();
+          }
+        });
       }
 
       function showV2Message(
@@ -838,6 +1141,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         message: string,
         phase: 'complete' | 'failed' = 'failed',
       ): void {
+        lastErrorMessage = message;
         v2MessageVisible = true;
         pipelineScreen.updateData({
           stages: computeV2BarStages(phase),
@@ -944,13 +1248,84 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               maxStepRetries: config.router.maxStepRetries,
               retryDelayMs: config.router.retryDelayMs,
               adapterDefaults: config.adapterDefaults,
+              workingDir: config.outputDir,
+              knowledgeCwd: process.cwd(),
             },
           );
 
         dagExecutionScreen.updateData({ steps: result.steps });
         statusLine?.stopTimer();
         statusLine?.update(result.success ? 'complete' : 'failed', 'dag');
-        statusLine?.setHints('q:quit  f:fullscreen');
+        statusLine?.setHints('Enter:new pipeline  f:fullscreen');
+
+        rawOutputDockEnabled = false;
+        const finalStep = getFinalCompletedStep(result.steps);
+        const finalEntry = finalStep ? rawOutputStore.get(finalStep.id) : null;
+        const executionGraph = buildExecutionGraph(result.plan, result.steps);
+        const pipelineId = `v2-${result.plan.plan[0]?.id ?? 'run'}`;
+        try {
+          for (const [index, step] of result.steps.entries()) {
+            markdownFiles.push(
+              await saveStepMarkdown({
+                outputRoot: config.outputDir,
+                pipelineId,
+                order: index + 1,
+                stepId: step.id,
+                agent: step.agent,
+                task: step.task,
+                status: step.status,
+                content: step.output ?? step.error ?? step.reason ?? '',
+              }),
+            );
+          }
+          markdownFiles.push(
+            await saveFinalReportMarkdown({
+              outputRoot: config.outputDir,
+              pipelineId,
+              title: finalStep
+                ? `Generated Report - ${finalStep.id} [${finalStep.agent}]`
+                : 'Generated Report',
+              executionGraph,
+              content: finalStep?.output ?? '',
+              filesCreated: result.steps.flatMap((step) => step.filesCreated ?? []),
+              rawLogPath: finalEntry?.logPath,
+            }),
+          );
+        } catch {
+          // Markdown artifacts are best-effort; completion still renders in TUI.
+        }
+        const blocked = result.steps.some((step) => step.blockerKind);
+        completeScreen.updateData({
+          outcome: result.success ? 'success' : blocked ? 'blocked' : 'failed',
+          iterations: 1,
+          testsTotal: result.steps.length,
+          testsPassing: result.steps.filter((step) => step.status === 'completed' || step.status === 'recovered').length,
+          filesCreated: result.steps.flatMap((step) => step.filesCreated ?? []),
+          duration: result.steps.reduce((sum, step) => sum + (step.duration ?? 0), 0),
+          outputDir: config.outputDir,
+          securitySummary: securityConfig.enabled
+            ? 'enabled for all eligible outputs'
+            : 'disabled',
+          finalReport:
+            finalStep?.output?.trim() || blocked
+              ? {
+                  title: finalStep
+                    ? `Generated Report — ${finalStep.id} [${finalStep.agent}]`
+                    : 'Generated Report',
+                  content:
+                    finalStep?.output ??
+                    result.steps
+                      .filter((step) => step.blockerKind || step.error)
+                      .map((step) => `${step.id}: ${step.error ?? step.reason ?? step.blockerKind}`)
+                      .join('\n'),
+                  logPath: finalEntry?.logPath,
+                }
+              : undefined,
+          executionGraph,
+          markdownFiles,
+        });
+        applyShellLayout();
+        router?.transition('complete');
       }
 
       async function startV2Flow(prompt: string, githubIssueUrl?: string): Promise<void> {
@@ -962,6 +1337,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           v2MessageVisible = false;
           stageOutput = '';
           currentGithubReport = undefined;
+          markdownFiles = [];
 
           const routerRawKey = 'router';
           setRawOutput(routerRawKey, 'Router', '', true);
@@ -1038,8 +1414,28 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           }
 
           v2Plan = decision.plan;
+          try {
+            markdownFiles.push(
+              await saveStageMarkdown({
+                outputRoot: config.outputDir,
+                pipelineId: `v2-${v2Plan.plan[0]?.id ?? 'run'}`,
+                iteration: 1,
+                stage: 'router-plan',
+                title: 'Router Plan',
+                content: JSON.stringify(v2Plan, null, 2),
+              }),
+            );
+          } catch {
+            // Markdown artifacts are best-effort; keep routing usable.
+          }
           routerPlanScreen.updateData({
             plan: v2Plan,
+            agentDetails: Object.fromEntries(
+              [...enabledAgents.entries()].map(([name, agent]) => [
+                name,
+                { adapter: agent.adapter, model: agent.model },
+              ]),
+            ),
             onApprove: () => {
               void startV2Execution();
             },
@@ -1087,6 +1483,21 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
             const barStages = computeBarStages(state, agents);
 
+            if (state === 'failed') {
+              lastErrorMessage = context.error ?? 'Pipeline failed';
+              welcomeScreen.updateData({
+                initialPrompt: lastPrompt,
+                initialGithubIssueUrl: lastGithubIssueUrl || undefined,
+                githubIssueError: lastErrorMessage,
+              });
+              statusLine?.stopTimer();
+              statusLine?.update('failed');
+              statusLine?.setHints('Esc:back to prompt  q:quit');
+              router?.transition('idle');
+              screen?.render();
+              return;
+            }
+
             if (PIPELINE_SCREEN_STATES.has(state)) {
               pipelineScreen.updateData({
                 stages: barStages,
@@ -1127,7 +1538,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
             if (state === 'complete') {
               const result = context.executionResult;
-              completeScreen.updateData({
+              const completionData = {
                 iterations: context.iteration,
                 testsTotal: result?.testsTotal ?? 0,
                 testsPassing: result?.testsPassing ?? 0,
@@ -1140,7 +1551,28 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
                 qaAssessments: context.qaAssessments,
                 documentationResult: context.documentationResult,
                 githubReport: currentGithubReport,
+                markdownFiles,
+              };
+              completeScreen.updateData({
+                ...completionData,
               });
+              if (finalMarkdownSavedFor !== context.pipelineId) {
+                finalMarkdownSavedFor = context.pipelineId;
+                void saveFinalReportMarkdown({
+                  outputRoot: config.outputDir,
+                  pipelineId: context.pipelineId,
+                  title: 'Final Pipeline Report',
+                  executionGraph: [],
+                  content: context.documentationResult?.rawOutput ?? context.reviewedSpec?.content ?? '',
+                  filesCreated: result?.filesCreated ?? [],
+                }).then((filePath) => {
+                  markdownFiles.push(filePath);
+                  completeScreen.updateData({ ...completionData, markdownFiles });
+                  screen?.render();
+                }).catch(() => {
+                  // Markdown artifacts are best-effort.
+                });
+              }
             }
 
             router?.transition(state);
@@ -1175,6 +1607,10 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           onGithubReport(report: GitHubReportResult) {
             currentGithubReport = report;
             screen?.render();
+          },
+
+          onMarkdownFile(filePath: string) {
+            markdownFiles.push(filePath);
           },
 
           onError(error: string) {
@@ -1212,6 +1648,8 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         runner = null;
         rawOutputPane?.destroy();
         rawOutputPane = null;
+        unsubscribeRawOutputLayout?.();
+        unsubscribeRawOutputLayout = null;
         statusLine?.destroy();
         resolve();
       });

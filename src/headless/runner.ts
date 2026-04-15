@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'node:fs/promises';
 import { loadConfig } from '../config/loader.js';
 import { detectAllAdapters } from '../adapters/detect.js';
 import { createAdapter } from '../adapters/adapter-factory.js';
@@ -60,6 +61,12 @@ import { buildAdapterChain, runWithFailover } from '../adapters/failover-runner.
 import { createReporter, type VerboseReporter } from '../utils/verbose-reporter.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import type { SecurityConfig } from '../security/types.js';
+import { isAbortError } from '../utils/error.js';
+import {
+  saveFinalReportMarkdown,
+  saveStageMarkdown,
+  saveStepMarkdown,
+} from '../output/markdown-artifacts.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -209,7 +216,8 @@ async function runHeadlessWithActor(
 
   try {
     const config = await loadConfigFn(options.configPath);
-    const outputDir = options.outputDir ?? config.outputDir;
+    const outputDir = path.resolve(options.outputDir ?? process.cwd());
+    await fs.mkdir(outputDir, { recursive: true });
 
     const context = createPipelineContext({
       prompt: options.prompt,
@@ -233,7 +241,7 @@ async function runHeadlessWithActor(
       success: false,
       spec: '',
       filesCreated: [],
-      outputDir: options.outputDir ?? './output',
+      outputDir: path.resolve(options.outputDir ?? process.cwd()),
       testsTotal: 0,
       testsPassing: 0,
       testsFailing: 0,
@@ -251,8 +259,26 @@ async function runHeadlessLive(
   const reporter = createReporter(options.verbose ?? false);
   let issueContext: GitHubIssueContext | undefined;
   let githubToken: string | undefined;
+  const outputDir = path.resolve(options.outputDir ?? process.cwd());
+  const markdownFiles: string[] = [];
 
   async function finish(result: HeadlessResult): Promise<HeadlessResult> {
+    try {
+      markdownFiles.push(
+        await saveFinalReportMarkdown({
+          outputRoot: result.outputDir || outputDir,
+          pipelineId: `v1-${startTime}`,
+          title: 'Final Pipeline Report',
+          executionGraph: [],
+          content: result.documentationResult?.rawOutput ?? result.spec,
+          filesCreated: result.filesCreated,
+        }),
+      );
+      result = { ...result, markdownFiles };
+    } catch {
+      result = { ...result, markdownFiles };
+    }
+
     reporter.pipelineComplete(result.success, result.duration);
     reporter.dispose();
 
@@ -273,7 +299,7 @@ async function runHeadlessLive(
   try {
     const config = await dependencies.loadConfigFn(options.configPath);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
-    const outputDir = options.outputDir ?? config.outputDir;
+    await fs.mkdir(outputDir, { recursive: true });
     const prompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
       issueContext = context;
       githubToken = token;
@@ -458,7 +484,7 @@ async function runHeadlessLive(
       success: false,
       spec: '',
       filesCreated: [],
-      outputDir: options.outputDir ?? './output',
+      outputDir,
       testsTotal: 0,
       testsPassing: 0,
       testsFailing: 0,
@@ -915,6 +941,10 @@ async function collectAdapterOutput(
       }
 
       if (event.type === 'error') {
+        if (isAbortError(event.error)) {
+          throwIfTimedOut(options.runtimeState, options.runtimeConfig, options.stage, controller, adapter);
+          throw new Error(`Operation aborted during ${options.stage}`);
+        }
         throw event.error;
       }
 
@@ -977,8 +1007,11 @@ export async function runHeadlessV2(
 ): Promise<HeadlessResultV2> {
   const startTime = Date.now();
   const reporter = createReporter(options.verbose ?? false);
+  const outputDir = path.resolve(options.outputDir ?? process.cwd());
+  const markdownFiles: string[] = [];
 
   try {
+    await fs.mkdir(outputDir, { recursive: true });
     const config = await dependencies.loadConfigFn(options.configPath);
     const securityConfig = resolveSecurityConfig(config);
 
@@ -996,18 +1029,28 @@ export async function runHeadlessV2(
 
     if (agents.size === 0) {
       reporter.dispose();
-      return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, 'No agents available');
+      return buildHeadlessResultV2(
+        { plan: [] },
+        [],
+        Date.now() - startTime,
+        'No agents available',
+        { outputDir, markdownFiles },
+      );
     }
 
     reporter.pipelineStart(options.prompt);
 
     reporter.dagRoutingStart();
     const routeStart = Date.now();
+    const routerConfig = {
+      ...config.router,
+      timeoutMs: options.routerTimeoutMs ?? config.router.timeoutMs,
+    };
     const routerAdapter = dependencies.createAdapterFn({
       type: config.router.adapter,
       model: config.router.model,
     });
-    const decision = await routeTask(options.prompt, agents, routerAdapter, config.router);
+    const decision = await routeTask(options.prompt, agents, routerAdapter, routerConfig);
     if (decision.kind === 'no-match') {
       reporter.dispose();
       return buildHeadlessResultV2(
@@ -1015,10 +1058,21 @@ export async function runHeadlessV2(
         [],
         Date.now() - startTime,
         formatRouterNoMatch(decision),
+        { outputDir, markdownFiles },
       );
     }
 
     const plan = decision.plan;
+    markdownFiles.push(
+      await saveStageMarkdown({
+        outputRoot: outputDir,
+        pipelineId: `v2-${startTime}`,
+        iteration: 1,
+        stage: 'router-plan',
+        title: 'Router Plan',
+        content: JSON.stringify(plan, null, 2),
+      }),
+    );
     reporter.dagRoutingComplete(plan.plan.length, Date.now() - routeStart);
 
     const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn, reporter, {
@@ -1034,16 +1088,64 @@ export async function runHeadlessV2(
       maxStepRetries: config.router.maxStepRetries,
       retryDelayMs: config.router.retryDelayMs,
       adapterDefaults: config.adapterDefaults,
+      workingDir: outputDir,
+      knowledgeCwd: process.cwd(),
     });
 
     const duration = Date.now() - startTime;
+    const pipelineId = `v2-${startTime}`;
+    for (const [index, step] of dagResult.steps.entries()) {
+      markdownFiles.push(
+        await saveStepMarkdown({
+          outputRoot: outputDir,
+          pipelineId,
+          order: index + 1,
+          stepId: step.id,
+          agent: step.agent,
+          task: step.task,
+          status: step.status,
+          content: step.output ?? step.error ?? step.reason ?? '',
+        }),
+      );
+    }
+    const finalStep = [...dagResult.steps]
+      .reverse()
+      .find((step) => step.status === 'completed' && step.output?.trim());
+    markdownFiles.push(
+      await saveFinalReportMarkdown({
+        outputRoot: outputDir,
+        pipelineId,
+        title: finalStep ? `Generated Report - ${finalStep.id} [${finalStep.agent}]` : 'Generated Report',
+        executionGraph: plan.plan.map((step) => {
+          const result = dagResult.steps.find((candidate) => candidate.id === step.id);
+          return {
+            id: step.id,
+            agent: step.agent,
+            provider: result?.provider,
+            model: result?.model,
+            task: step.task,
+            status: result?.status ?? 'pending',
+            duration: result?.duration,
+            dependsOn: step.dependsOn,
+          };
+        }),
+        content: finalStep?.output ?? '',
+        filesCreated: dagResult.steps.flatMap((step) => step.filesCreated ?? []),
+      }),
+    );
     reporter.dagComplete(dagResult.success, duration);
     reporter.dispose();
-    return buildHeadlessResultV2(plan, dagResult.steps, duration);
+    return buildHeadlessResultV2(plan, dagResult.steps, duration, undefined, {
+      outputDir,
+      markdownFiles,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     reporter.dispose();
-    return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message);
+    return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
+      outputDir,
+      markdownFiles,
+    });
   }
 }
 

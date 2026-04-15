@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { runHeadless } from './headless/runner.js';
 import { createTuiApp } from './tui/tui-app.js';
 import { loadConfig } from './config/loader.js';
@@ -28,11 +30,12 @@ Options:
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
   --headless             Run without TUI, print JSON result to stdout
-  --output-dir <path>    Output directory (headless mode)
+  --output-dir <path>    Output directory for generated files and Markdown artifacts
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
+  --router-timeout <dur> Router planning timeout, e.g. 300s
   --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
@@ -87,6 +90,7 @@ Commands:
     const totalTimeout = extractFlag(args, '--total-timeout');
     const inactivityTimeout = extractFlag(args, '--inactivity-timeout');
     const pollInterval = extractFlag(args, '--poll-interval');
+    const routerTimeout = extractFlag(args, '--router-timeout');
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
 
@@ -104,6 +108,8 @@ Commands:
         configPath,
         personality,
         verbose,
+        routerTimeoutMs:
+          routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
       process.stdout.write(JSON.stringify(result) + '\n');
       process.exit(result.success ? 0 : 1);
@@ -116,6 +122,8 @@ Commands:
       configPath,
       personality,
       verbose,
+      routerTimeoutMs:
+        routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       totalTimeoutMs:
         totalTimeout !== undefined
           ? parseDuration(totalTimeout, '--total-timeout')
@@ -135,7 +143,17 @@ Commands:
   const useV2 = args.includes('--v2');
   const initialPrompt = extractPrompt(args);
   const initialGithubIssueUrl = extractFlag(args, '--github-issue');
+  const outputDir = extractFlag(args, '--output-dir');
   const config = await loadConfig(configPath);
+  config.outputDir = path.resolve(outputDir ?? process.cwd());
+  await fs.mkdir(config.outputDir, { recursive: true });
+  const routerTimeout = extractFlag(args, '--router-timeout');
+  if (routerTimeout !== undefined) {
+    config.router = {
+      ...config.router,
+      timeoutMs: parseDuration(routerTimeout, '--router-timeout'),
+    };
+  }
   const detection = await detectAllAdapters(config.ollama.host);
 
   const app = createTuiApp({

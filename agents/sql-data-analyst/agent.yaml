@@ -1,0 +1,18 @@
+name: sql-data-analyst
+description: "Builds SQL analyses, reporting queries, and data interpretations grounded in defensible assumptions"
+adapter: ollama
+model: deepseek-coder:latest
+prompt: prompt.md
+pipeline:
+  - name: inspect-question
+  - name: analyze-data
+handles: "sql analysis, reporting queries, data exploration, aggregation, cohort analysis, metric interpretation"
+output:
+  type: data
+tools:
+  - type: builtin
+    name: knowledge-search
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5

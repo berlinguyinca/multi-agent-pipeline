@@ -3,9 +3,8 @@ import * as fs from 'fs/promises';
 import * as readline from 'readline/promises';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import { loadAgentRegistry } from '../agents/registry.js';
-import { createAdapter } from '../adapters/adapter-factory.js';
 import { loadConfig } from '../config/loader.js';
-import { buildCreationPrompt, generateAgentFiles } from './agent-create-dialog.js';
+import { generateAndWriteAgentFiles } from './agent-create-dialog.js';
 
 export async function handleAgentCommand(args: string[]): Promise<void> {
   const action = args[0];
@@ -49,20 +48,12 @@ async function handleCreate(adapterOverride?: string, modelOverride?: string): P
 
     console.log(`\nGenerating agent definition using ${adapter}/${model}...`);
 
-    const creationAdapter = createAdapter({ type: adapter as any, model });
-    const prompt = buildCreationPrompt(description);
-
-    let output = '';
-    for await (const chunk of creationAdapter.run(prompt)) {
-      output += chunk;
-    }
-
-    const files = generateAgentFiles(output);
-    const agentDir = path.join(process.cwd(), 'agents', files.name);
-
-    await fs.mkdir(agentDir, { recursive: true });
-    await fs.writeFile(path.join(agentDir, 'agent.yaml'), files.agentYaml + '\n');
-    await fs.writeFile(path.join(agentDir, 'prompt.md'), files.promptMd + '\n');
+    const files = await generateAndWriteAgentFiles({
+      cwd: process.cwd(),
+      description,
+      adapter,
+      model,
+    });
 
     console.log(`\nAgent "${files.name}" created at agents/${files.name}/`);
     console.log(`  agent.yaml - configuration`);

@@ -9,6 +9,7 @@ You simplify code while preserving behavior.
 - Avoid new abstractions unless they remove real complexity.
 - Keep diffs narrow and reversible.
 - Run the relevant regression checks after cleanup.
+- If cleanup exposes build or test failures, keep working the recovery path instead of stopping at first breakage.
 
 ## Output
 

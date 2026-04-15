@@ -7,6 +7,7 @@ export interface DAGStep {
   agent: string;
   task: string;
   dependsOn: string[];
+  parentStepId?: string;
 }
 
 export interface DAGPlan {
@@ -14,13 +15,17 @@ export interface DAGPlan {
 }
 
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+export type StepTerminalOutcome = 'success' | 'blocked' | 'failed' | 'cancelled';
+export type DAGEdgeType = 'planned' | 'handoff' | 'recovery' | 'spawned';
 
 export interface StepResult {
   id: string;
   agent: string;
+  provider?: string;
+  model?: string;
   task: string;
-  status: StepStatus;
-  outputType?: 'answer' | 'data' | 'files';
+  status: StepStatus | 'recovered';
+  outputType?: 'answer' | 'data' | 'files' | 'presentation';
   output?: string;
   filesCreated?: string[];
   pipeline?: Array<{ stage: string; status: string; duration: number }>;
@@ -30,11 +35,19 @@ export interface StepResult {
   securityFindings?: SecurityFinding[];
   securityPassed?: boolean;
   attempts?: number;
+  parentStepId?: string;
+  edgeType?: DAGEdgeType;
+  spawnedByAgent?: string;
+  failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'unknown';
+  blockerKind?: 'credentials' | 'external-service' | 'user-decision' | 'repo-state' | 'no-progress' | 'unknown';
+  replacementStepId?: string;
 }
 
 export interface DAGNode {
   id: string;
   agent: string;
+  provider?: string;
+  model?: string;
   status: string;
   duration: number;
 }
@@ -42,6 +55,7 @@ export interface DAGNode {
 export interface DAGEdge {
   from: string;
   to: string;
+  type: DAGEdgeType;
 }
 
 export interface DAGResult {
@@ -159,6 +173,8 @@ export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult 
     return {
       id: step.id,
       agent: step.agent,
+      provider: result?.provider,
+      model: result?.model,
       status: result?.status ?? 'pending',
       duration: result?.duration ?? 0,
     };
@@ -167,7 +183,24 @@ export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult 
   const edges: DAGEdge[] = [];
   for (const step of plan.plan) {
     for (const dep of step.dependsOn) {
-      edges.push({ from: dep, to: step.id });
+      edges.push({ from: dep, to: step.id, type: 'planned' });
+    }
+  }
+
+  for (const result of results) {
+    if (result.parentStepId && result.parentStepId !== result.id) {
+      edges.push({
+        from: result.parentStepId,
+        to: result.id,
+        type: result.edgeType ?? 'handoff',
+      });
+    }
+    if (result.replacementStepId) {
+      edges.push({
+        from: result.id,
+        to: result.replacementStepId,
+        type: 'recovery',
+      });
     }
   }
 

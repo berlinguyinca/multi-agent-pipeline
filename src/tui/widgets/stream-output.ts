@@ -1,7 +1,7 @@
 import blessed from 'neo-blessed';
 import type { WidgetController } from './types.js';
 import { getTheme, fgTag } from '../theme.js';
-import { normalizeTerminalText } from '../../utils/terminal-text.js';
+import { renderModelOutput } from '../output-renderer.js';
 
 export interface StreamOutputData {
   content: string;
@@ -14,11 +14,10 @@ export function createStreamOutput(parent: blessed.Widgets.Node): WidgetControll
     tags: true,
     left: 0,
     right: 0,
-    width: '100%',
     wrap: true,
     scrollable: true,
     alwaysScroll: true,
-    mouse: false,
+    mouse: true,
     keys: true,
     vi: true,
     scrollbar: {
@@ -61,7 +60,7 @@ export function createStreamOutput(parent: blessed.Widgets.Node): WidgetControll
       bg: theme.colors.panelBg,
     };
     const suffix = data.streaming ? `\n${fgTag(theme.colors.accent)}▊{/} ${fgTag(theme.colors.muted)}streaming...{/}` : '';
-    element.setContent(`${normalizeTerminalText(data.content)}${suffix}`);
+    element.setContent(`${renderModelOutput(data.content)}${suffix}`);
 
     if (autoScroll) {
       element.setScrollPerc(100);

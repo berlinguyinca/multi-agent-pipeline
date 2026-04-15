@@ -1,35 +1,10 @@
 import blessed from 'neo-blessed';
 import type { WidgetController } from './types.js';
-import { getTheme, fgTag } from '../theme.js';
-import { normalizeTerminalText } from '../../utils/terminal-text.js';
+import { getTheme } from '../theme.js';
+import { renderModelOutput } from '../output-renderer.js';
 
 export interface SpecViewerData {
   content: string;
-}
-
-function renderLine(line: string): string {
-  // H1/H2/H3 headers
-  if (/^#{1,3} /.test(line)) {
-    const text = line.replace(/^#{1,3} /, '');
-    return `{bold}${text}{/bold}`;
-  }
-  // Checkbox checked
-  if (/^- \[x\] /i.test(line)) {
-    const text = line.replace(/^- \[x\] /i, '');
-    const theme = getTheme();
-    return `{green-fg}☑{/} ${fgTag(theme.colors.muted)}${text}{/}`;
-  }
-  // Checkbox unchecked
-  if (/^- \[ \] /.test(line)) {
-    const text = line.replace(/^- \[ \] /, '');
-    return `☐ ${text}`;
-  }
-  // Bullet list
-  if (/^- /.test(line)) {
-    const text = line.replace(/^- /, '');
-    return `${fgTag(getTheme().colors.muted)}•{/} ${text}`;
-  }
-  return line;
 }
 
 export function createSpecViewer(parent: blessed.Widgets.Node): WidgetController<SpecViewerData> {
@@ -44,7 +19,7 @@ export function createSpecViewer(parent: blessed.Widgets.Node): WidgetController
     alwaysScroll: true,
     keys: true,
     vi: true,
-    mouse: false,
+    mouse: true,
     scrollbar: {
       ch: '│',
       style: { fg: getTheme().colors.accent },
@@ -63,10 +38,7 @@ export function createSpecViewer(parent: blessed.Widgets.Node): WidgetController
       fg: theme.colors.panelFg,
       bg: theme.colors.panelBg,
     };
-    const rendered = normalizeTerminalText(data.content)
-      .split('\n')
-      .map(renderLine)
-      .join('\n');
+    const rendered = renderModelOutput(data.content);
     element.setContent(rendered);
     element.screen?.render();
   }

@@ -4,6 +4,7 @@ import type { AgentDefinition } from '../types/agent-definition.js';
 import type { DAGPlan } from '../types/dag.js';
 import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
+import { isAbortError } from '../utils/error.js';
 
 interface RouterConfig {
   maxSteps: number;
@@ -40,7 +41,11 @@ export async function routeTask(
 
   let output = '';
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, config.timeoutMs);
   const abortExternal = () => controller.abort();
   signal?.addEventListener('abort', abortExternal);
   const runOptions =
@@ -64,6 +69,17 @@ export async function routeTask(
       output += chunk;
       onChunk?.(chunk);
     }
+  } catch (err: unknown) {
+    if (isAbortError(err)) {
+      throw new Error(
+        timedOut
+          ? `Router timed out after ${config.timeoutMs}ms`
+          : signal?.aborted
+            ? 'Router was cancelled'
+            : 'Router operation was aborted',
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener('abort', abortExternal);

@@ -1,0 +1,18 @@
+name: dba-agent
+description: "Designs schemas, indexing strategies, migrations, and operational database guidance"
+adapter: ollama
+model: deepseek-coder:latest
+prompt: prompt.md
+pipeline:
+  - name: inspect-data-model
+  - name: design-database
+handles: "database administration, schema design, migrations, indexes, query planning, backup and operational database concerns"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: knowledge-search
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5

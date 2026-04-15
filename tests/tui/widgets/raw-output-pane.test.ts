@@ -14,15 +14,22 @@ afterEach(() => {
 });
 
 describe('createRawOutputPane', () => {
-  it('strips terminal control sequences from visible output', () => {
+  it('pretty prints json output and strips terminal control sequences', () => {
     screen = createTestScreen();
     const parent = createParentBox(screen);
     const store = createRawOutputStore();
     const pane = createRawOutputPane(parent, store);
 
-    store.setCurrent('router', 'Router', 'Thinking...\u001b[9D\u001b[K{"plan":[]}', true);
+    store.setCurrent(
+      'router',
+      'Router',
+      'Thinking...\u001b[9D\u001b[K{"plan":[{"id":"step-1","agent":"codex"}]}',
+      true,
+    );
 
     expect(getBoxContent(pane.element)).not.toContain('␛');
-    expect(getBoxContent(pane.element)).toContain('{"plan":[]}');
+    expect(getBoxContent(pane.element)).toContain('"plan": [');
+    expect(getBoxContent(pane.element)).toContain('"id": "step-1"');
+    expect(getBoxContent(pane.element)).not.toContain('{"plan":[{"id":"step-1","agent":"codex"}]}');
   });
 });

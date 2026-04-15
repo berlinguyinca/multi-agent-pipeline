@@ -32,6 +32,18 @@ function findTextboxes(root: blessed.Widgets.Node): blessed.Widgets.TextboxEleme
   return results;
 }
 
+function findBoxByLabel(root: blessed.Widgets.Node, label: string): blessed.Widgets.BoxElement | null {
+  for (const child of root.children) {
+    const box = child as blessed.Widgets.BoxElement & { options?: { label?: string } };
+    if (String(box.options?.label ?? '').includes(label)) {
+      return box;
+    }
+    const nested = findBoxByLabel(child, label);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 describe('WelcomeScreen', () => {
   it('activates without errors', () => {
     screen = createTestScreen();
@@ -177,6 +189,23 @@ describe('WelcomeScreen', () => {
     expect(collectContent(parent)).toContain('GitHub issue URL');
   });
 
+  it('prefills the prompt when initialPrompt is provided', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const ws = new WelcomeScreen(
+      parent,
+      {
+        availableBackends,
+        initialPrompt: 'Refactor the routing flow',
+      },
+      vi.fn(),
+    );
+    ws.activate();
+
+    const textboxes = findTextboxes(parent);
+    expect(textboxes[0]?.getValue()).toBe('Refactor the routing flow');
+  });
+
   it('can activate then deactivate then activate again', () => {
     screen = createTestScreen();
     const parent = createParentBox(screen);
@@ -207,6 +236,21 @@ describe('WelcomeScreen', () => {
     expect(content).toContain('Tab');
     expect(content).toContain('Enter');
     expect(content).toContain('Esc');
+  });
+
+  it('keeps the start panel visible on a 24-row terminal with all backends', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const ws = new WelcomeScreen(
+      parent,
+      { availableBackends: ['claude', 'codex', 'ollama', 'hermes'] },
+      vi.fn(),
+    );
+    ws.activate();
+
+    const startPanel = findBoxByLabel(parent, 'Start Here');
+    expect(startPanel).not.toBeNull();
+    expect(Number(startPanel?.top) + Number(startPanel?.height)).toBeLessThanOrEqual(23);
   });
 
   it('opens prompt history with Ctrl+H', () => {
@@ -261,6 +305,43 @@ describe('WelcomeScreen', () => {
       'Rework the parser',
       'https://github.com/org/repo/issues/7',
     );
+  });
+
+  it('cycles recent prompts inline with up/down on the prompt input', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const ws = new WelcomeScreen(
+      parent,
+      {
+        availableBackends,
+        recentPrompts: [
+          {
+            prompt: 'Second prompt',
+            githubIssueUrl: 'https://github.com/org/repo/issues/2',
+            timestamp: new Date().toISOString(),
+          },
+          {
+            prompt: 'First prompt',
+            githubIssueUrl: 'https://github.com/org/repo/issues/1',
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      vi.fn(),
+    );
+    ws.activate();
+
+    const textboxes = findTextboxes(parent);
+    const promptInput = textboxes[0];
+    promptInput?.focus();
+
+    simulateKey(screen!, 'down');
+    expect(textboxes[0]?.getValue()).toBe('First prompt');
+    expect(textboxes[1]?.getValue()).toBe('https://github.com/org/repo/issues/1');
+
+    simulateKey(screen!, 'up');
+    expect(textboxes[0]?.getValue()).toBe('Second prompt');
+    expect(textboxes[1]?.getValue()).toBe('https://github.com/org/repo/issues/2');
   });
 
   it('shows fallback message when no backends detected', () => {

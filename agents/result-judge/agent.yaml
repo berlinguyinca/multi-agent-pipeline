@@ -1,0 +1,19 @@
+name: result-judge
+description: "Compares multiple candidate outputs, researches domain criteria when needed, and selects the best result using an explicit rubric"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: define-rubric
+  - name: compare-candidates
+  - name: select-winner
+handles: "result comparison, candidate judging, best-result selection, rubric design, risk-aware evaluation, competitive output review"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search

@@ -1,0 +1,20 @@
+{
+  "name": "string-case-converter",
+  "version": "1.0.0",
+  "description": "A Node.js CLI that converts an input string between naming conventions",
+  "main": "src/convert.js",
+  "bin": {
+    "string-case-converter": "src/cli.js"
+  },
+  "scripts": {
+    "test": "jest --config jest.config.cjs --verbose"
+  },
+  "engines": {
+    "node": ">= 18.0.0"
+  },
+  "keywords": ["cli", "string", "case", "converter", "kebab", "snake", "camel", "pascal"],
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

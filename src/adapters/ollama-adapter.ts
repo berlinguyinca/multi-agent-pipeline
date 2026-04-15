@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import type { AdapterType, RunOptions, OllamaDetectInfo } from '../types/adapter.js';
 import { BaseAdapter, AdapterError } from './base-adapter.js';
 import { ensureOllamaReadyForConfigs } from './ollama-runtime.js';
+import { isAbortError } from '../utils/error.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -78,22 +79,33 @@ export class OllamaAdapter extends BaseAdapter {
     const baseUrl = new URL(this.host ?? process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434');
     const url = new URL('/api/chat', baseUrl);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: options?.signal,
-      body: JSON.stringify({
-        model: this.model,
-        messages: buildChatMessages(prompt),
-        stream: false,
-        format: ROUTER_OUTPUT_SCHEMA,
-        options: {
-          temperature: 0,
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    });
+        signal: options?.signal,
+        body: JSON.stringify({
+          model: this.model,
+          messages: buildChatMessages(prompt),
+          stream: false,
+          format: ROUTER_OUTPUT_SCHEMA,
+          options: {
+            temperature: 0,
+          },
+        }),
+      });
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
+        throw new AdapterError(
+          `Ollama request was aborted while generating output for model "${this.model}"`,
+          this.type,
+        );
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       throw new AdapterError(

@@ -76,4 +76,18 @@ describe('buildRouterPrompt', () => {
     const prompt = buildRouterPrompt(agents, 'test', 5);
     expect(prompt).toContain('5');
   });
+
+  it('describes adaptive bounded planning for complex tasks', () => {
+    const prompt = buildRouterPrompt(agents, 'Design a platform and launch materials');
+    expect(prompt).toContain('complex');
+    expect(prompt).toContain('parallel');
+    expect(prompt).toContain('bounded');
+  });
+
+  it('mentions research, presentation, and visualization routing cues', () => {
+    const prompt = buildRouterPrompt(agents, 'Research a market and build a deck');
+    expect(prompt).toContain('web research');
+    expect(prompt).toContain('presentation');
+    expect(prompt).toContain('visualization');
+  });
 });

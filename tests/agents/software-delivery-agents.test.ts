@@ -23,6 +23,8 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'refactor-cleaner',
   'docs-maintainer',
   'release-readiness-reviewer',
+  'presentation-designer',
+  'visualization-builder',
 ] as const;
 
 describe('software delivery agent bundle', () => {

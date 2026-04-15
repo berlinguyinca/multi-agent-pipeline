@@ -1,0 +1,8 @@
+{
+  "name": "string-case-converter",
+  "version": "1.0.0",
+  "description": "CLI tool to convert strings to kebab-case or snake_case",
+  "scripts": {
+    "test": "node --test *.test.js"
+  }
+}

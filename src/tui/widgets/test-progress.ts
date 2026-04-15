@@ -28,7 +28,7 @@ export function createTestProgress(parent: blessed.Widgets.Node): WidgetControll
     tags: true,
     left: 0,
     right: 0,
-    width: '100%',
+    wrap: true,
     scrollable: true,
     alwaysScroll: true,
     keys: true,

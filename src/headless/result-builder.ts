@@ -7,16 +7,29 @@ export function buildHeadlessResultV2(
   steps: StepResult[],
   duration: number,
   error?: string,
+  artifacts: { outputDir?: string; markdownFiles?: string[] } = {},
 ): HeadlessResultV2 {
   const dag = buildDAGResult(steps, plan);
-  const allCompleted = steps.length > 0 && steps.every((s) => s.status === 'completed');
+  const successfulStatuses = new Set(['completed', 'recovered']);
+  const allCompleted =
+    steps.length > 0 && steps.every((s) => successfulStatuses.has(s.status));
   const success = error === undefined && allCompleted;
+  const outcome = error
+    ? 'failed'
+    : steps.some((step) => step.blockerKind)
+      ? 'blocked'
+      : success
+        ? 'success'
+        : 'failed';
 
   return {
     version: 2,
     success,
+    outcome,
     dag,
     steps,
+    outputDir: artifacts.outputDir ?? process.cwd(),
+    markdownFiles: artifacts.markdownFiles ?? [],
     duration,
     error: error ?? null,
   };

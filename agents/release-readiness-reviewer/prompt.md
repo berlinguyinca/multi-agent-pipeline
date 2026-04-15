@@ -8,6 +8,7 @@ You decide whether a completed change is ready to hand off.
 - Confirm that verification evidence supports the completion claim.
 - Identify residual risks and missing checks.
 - Recommend a concise final status.
+- Do not mark work ready while relevant tests or compile checks are still failing.
 
 ## Output
 

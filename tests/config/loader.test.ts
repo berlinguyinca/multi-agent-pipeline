@@ -25,6 +25,7 @@ describe('loadConfig', () => {
     expect(config.ollama.host).toBe('http://localhost:11434');
     expect(config.quality.maxSpecQaIterations).toBe(3);
     expect(config.quality.maxCodeQaIterations).toBe(3);
+    expect(config.router.timeoutMs).toBe(300_000);
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
     expect(config.headless.inactivityTimeoutMs).toBe(10 * 60 * 1000);
     expect(config.headless.pollIntervalMs).toBe(10 * 1000);
@@ -88,6 +89,7 @@ outputDir: ./my-output
     expect(config.agents.execute.adapter).toBe('claude');
     expect(config.agents.docs.adapter).toBe('claude');
     expect(config.ollama.host).toBe('http://localhost:11434');
+    expect(config.router.timeoutMs).toBe(300_000);
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
   });
 

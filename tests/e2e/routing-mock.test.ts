@@ -118,6 +118,6 @@ describe('end-to-end routing flow (mocked adapters)', () => {
     expect(result.steps).toHaveLength(2);
     expect(result.steps[0].outputType).toBe('answer');
     expect(result.steps[1].outputType).toBe('files');
-    expect(result.dag.edges).toEqual([{ from: 'step-1', to: 'step-2' }]);
+    expect(result.dag.edges).toEqual([{ from: 'step-1', to: 'step-2', type: 'planned' }]);
   });
 });

@@ -104,6 +104,24 @@ describe('routeTask', () => {
     ).rejects.toThrow('unknown agent');
   });
 
+  it('reports router timeouts instead of raw abort errors', async () => {
+    const adapter = {
+      ...mockAdapter(''),
+      async *run(_prompt: string, options?: { signal?: AbortSignal }) {
+        await new Promise<void>((resolve) => {
+          options?.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        const err = new Error('This operation was aborted.');
+        (err as Error & { name: string }).name = 'AbortError';
+        throw err;
+      },
+    } satisfies AgentAdapter;
+
+    await expect(
+      routeTask('test', agents, adapter, { ...routerConfig, timeoutMs: 1 }),
+    ).rejects.toThrow('Router timed out after 1ms');
+  });
+
   it('strips markdown fences from response', async () => {
     const json = '```json\n{"plan":[{"id":"step-1","agent":"researcher","task":"test","dependsOn":[]}]}\n```';
     const adapter = mockAdapter(json);

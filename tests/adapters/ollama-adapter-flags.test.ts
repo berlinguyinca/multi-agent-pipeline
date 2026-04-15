@@ -80,6 +80,18 @@ describe('OllamaAdapter run behavior', () => {
     });
   });
 
+  it('surfaces a friendly abort error for structured API requests', async () => {
+    const abortErr = new Error('This operation was aborted.');
+    (abortErr as Error & { name: string }).name = 'AbortError';
+    mocks.fetch.mockRejectedValue(abortErr);
+
+    const adapter = new OllamaAdapter('gemma4');
+
+    await expect(
+      adapter.run('route this task', { responseFormat: 'json' }).next(),
+    ).rejects.toThrow('aborted while generating output');
+  });
+
   it('still uses the CLI stream for non-JSON requests', async () => {
     const closeHandlers: Array<(code: number | null) => void> = [];
 

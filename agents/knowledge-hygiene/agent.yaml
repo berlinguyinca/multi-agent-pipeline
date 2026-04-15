@@ -1,0 +1,17 @@
+name: knowledge-hygiene
+description: "Optimizes the shared 2nd brain, deduplicates entries, maintains indexes, and promotes high-signal learning candidates"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-knowledge
+  - name: canonicalize
+  - name: refresh-index
+handles: "knowledge hygiene, second brain maintenance, deduplication, indexing, freshness review, learning candidate promotion"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
+  - type: builtin
+    name: knowledge-search

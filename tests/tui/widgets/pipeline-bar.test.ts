@@ -57,6 +57,25 @@ describe('createPipelineBar', () => {
     expect(content).toContain('3');
   });
 
+  it('truncates wide labels on narrow screens', () => {
+    screen = createTestScreen();
+    screen.program.cols = 32;
+    const parent = createParentBox(screen);
+    const widget = createPipelineBar(parent);
+    widget.update({
+      stages: [
+        { name: 'Specification Generation', status: 'complete', agent: 'very-long-agent-name' },
+        { name: 'Review and Assessment', status: 'active', agent: 'another-long-agent-name' },
+      ],
+      iteration: 12,
+    });
+
+    const content = getBoxContent(widget.element);
+    expect(content).toContain('…');
+    expect(content).not.toContain('Specification Generation');
+    expect(content).not.toContain('another-long-agent-name');
+  });
+
   it('shows status icons', () => {
     screen = createTestScreen();
     const parent = createParentBox(screen);

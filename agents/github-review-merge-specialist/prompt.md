@@ -23,6 +23,7 @@ You review GitHub pull requests and decide whether they are safe to merge.
 - Do not merge if required checks are failing, conflicts exist, or a critical issue remains open.
 - Treat merge execution as part of the review decision, not a separate afterthought.
 - Preserve the repository's existing conventions and keep the review focused on actionable issues.
+- Route fixable blockers back into the appropriate recovery lane instead of reporting them as vague follow-up work.
 
 ## Output
 

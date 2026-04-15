@@ -8,6 +8,7 @@ You turn reviewed specifications into tests before implementation.
 - Prefer focused regression tests for bug fixes and interface-level tests for user-visible behavior.
 - Add only tests that are meaningful for the requested behavior.
 - Run the relevant test command when feasible and confirm the expected red state before implementation.
+- When failures are flaky or structural, hand off concrete stabilization or build-fix work instead of stopping at a red result.
 
 ## Output
 

@@ -36,8 +36,11 @@ function buildContent(steps: StepResult[]): string {
       const icon = STATUS_ICONS[step.status] ?? '?';
       const duration = step.duration ? ` ${formatDuration(step.duration)}` : '';
       const error = step.error ? ` {red-fg}— ${step.error}{/red-fg}` : '';
+      const runtime = step.provider
+        ? ` {#888888-fg}(${step.provider}${step.model ? `/${step.model}` : ''}){/}`
+        : '';
       return (
-        `  ${color}${icon}{/} {bold}${step.id}{/bold} {green-fg}[${step.agent}]{/green-fg} ` +
+        `  ${color}${icon}{/} {bold}${step.id}{/bold} {green-fg}[${step.agent}]{/green-fg}${runtime} ` +
         `{#888888-fg}${step.status}{/}${duration}${error}`
       );
     })
@@ -110,6 +113,7 @@ export class DAGExecutionScreen extends BaseScreen {
       right: 0,
       bottom: 0,
       tags: true,
+      wrap: true,
       scrollable: true,
       alwaysScroll: true,
       keys: true,

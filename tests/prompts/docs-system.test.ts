@@ -30,6 +30,7 @@ describe('buildDocsPrompt', () => {
 
     expect(prompt).toContain('Modify Markdown files only');
     expect(prompt).toContain('README.md');
+    expect(prompt).toContain('module-level README.md files');
     expect(prompt).toContain('actual implemented behavior');
     expect(prompt).toContain('package.json, src/index.ts');
     expect(prompt).toContain('Code QA: passed: Code is ready');

@@ -15,16 +15,21 @@ describe('buildHeadlessResultV2', () => {
       { id: 'step-2', agent: 'coder', task: 'Build', status: 'completed', outputType: 'files', output: 'Built it', filesCreated: ['src/app.ts'], duration: 10000 },
     ];
 
-    const result = buildHeadlessResultV2(plan, steps, 15000);
+    const result = buildHeadlessResultV2(plan, steps, 15000, undefined, {
+      outputDir: '/tmp/out',
+      markdownFiles: ['/tmp/out/map-output/pipe/final-report.md'],
+    });
 
     expect(result.version).toBe(2);
     expect(result.success).toBe(true);
     expect(result.dag.nodes).toHaveLength(2);
     expect(result.dag.edges).toHaveLength(1);
-    expect(result.dag.edges[0]).toEqual({ from: 'step-1', to: 'step-2' });
+    expect(result.dag.edges[0]).toEqual({ from: 'step-1', to: 'step-2', type: 'planned' });
     expect(result.steps).toEqual(steps);
     expect(result.duration).toBe(15000);
     expect(result.error).toBeNull();
+    expect(result.outputDir).toBe('/tmp/out');
+    expect(result.markdownFiles).toEqual(['/tmp/out/map-output/pipe/final-report.md']);
   });
 
   it('builds failure result with error', () => {
@@ -49,5 +54,44 @@ describe('buildHeadlessResultV2', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Router failed');
+  });
+
+  it('treats recovered steps as successful terminal output', () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-1-recovery-1', agent: 'build-fixer', task: 'Fix compile failure', dependsOn: ['step-1'] },
+        { id: 'step-1-retry-1', agent: 'implementation-coder', task: 'Retry feature', dependsOn: ['step-1-recovery-1'] },
+      ],
+    };
+    const steps: StepResult[] = [
+      {
+        id: 'step-1',
+        agent: 'implementation-coder',
+        task: 'Implement feature',
+        status: 'recovered',
+        error: 'TypeScript compile failed',
+        replacementStepId: 'step-1-retry-1',
+      },
+      {
+        id: 'step-1-recovery-1',
+        agent: 'build-fixer',
+        task: 'Fix compile failure',
+        status: 'completed',
+        outputType: 'files',
+        output: 'Fixed imports',
+      },
+      {
+        id: 'step-1-retry-1',
+        agent: 'implementation-coder',
+        task: 'Retry feature',
+        status: 'completed',
+        outputType: 'files',
+        output: 'Implemented feature',
+      },
+    ];
+
+    const result = buildHeadlessResultV2(plan, steps, 1200);
+    expect(result.success).toBe(true);
   });
 });

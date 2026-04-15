@@ -28,10 +28,10 @@ export const DEFAULT_CONFIG: PipelineConfig = {
   router: {
     adapter: 'ollama' as AdapterType,
     model: 'gemma4',
-    maxSteps: 10,
-    timeoutMs: 30_000,
+    maxSteps: 24,
+    timeoutMs: 300_000,
     stepTimeoutMs: 5 * 60 * 1000,
-    maxStepRetries: 2,
+    maxStepRetries: 4,
     retryDelayMs: 3_000,
   },
   agentCreation: {

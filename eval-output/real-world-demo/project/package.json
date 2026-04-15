@@ -1,0 +1,14 @@
+{
+  "name": "empty-request-handler",
+  "version": "1.0.0",
+  "description": "Detects empty specification requests and prompts users for missing input",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.1"
+  }
+}

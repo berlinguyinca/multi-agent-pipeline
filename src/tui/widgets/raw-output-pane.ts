@@ -2,7 +2,7 @@ import blessed from 'neo-blessed';
 import type { WidgetController } from './types.js';
 import type { RawOutputStore, RawOutputEntry } from '../raw-output-store.js';
 import { getTheme } from '../theme.js';
-import { normalizeTerminalText } from '../../utils/terminal-text.js';
+import { renderModelOutput } from '../output-renderer.js';
 
 type ScrollableBox = blessed.Widgets.BoxElement & {
   getScrollHeight(): number;
@@ -29,7 +29,8 @@ function renderEntry(element: ScrollableBox, entry: RawOutputEntry | null): void
 
   const header = `Raw Output — ${entry.title}${entry.streaming ? ' (streaming)' : ''}`;
   const separator = '─'.repeat(Math.max(0, header.length));
-  element.setContent(`${header}\n${separator}\n${normalizeTerminalText(entry.content)}`);
+  const body = renderModelOutput(entry.content);
+  element.setContent(`${header}\n${separator}${body ? `\n${body}` : ''}`);
 
   if (entry.autoScroll) {
     element.setScroll(0);
@@ -51,7 +52,6 @@ export function createRawOutputPane(
     label: ' Raw Output ',
     left: 0,
     right: 0,
-    width: '100%',
     wrap: true,
     scrollable: true,
     alwaysScroll: true,

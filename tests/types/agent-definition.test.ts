@@ -45,6 +45,24 @@ describe('AgentDefinition types', () => {
     expect(isValidAgentDefinition(agent)).toBe(true);
   });
 
+  it('validates presentation output agents', () => {
+    const agent: AgentDefinition = {
+      name: 'presentation-designer',
+      description: 'Builds slide decks and supporting assets',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You create polished presentations.',
+      pipeline: [{ name: 'plan-deck' }, { name: 'build-deck' }],
+      handles: 'powerpoint decks, executive presentations, visuals',
+      output: { type: 'presentation' },
+      tools: [
+        { type: 'builtin', name: 'shell' },
+        { type: 'builtin', name: 'web-search' },
+      ],
+    };
+    expect(isValidAgentDefinition(agent)).toBe(true);
+  });
+
   it('rejects agent without name', () => {
     const agent = {
       description: 'test',

@@ -1,0 +1,19 @@
+name: presentation-designer
+description: "Designs and generates PowerPoint decks plus supporting presentation assets"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: plan-deck
+  - name: gather-evidence
+  - name: build-presentation
+handles: "powerpoint decks, executive presentations, slide narratives, briefing documents, pitch decks"
+output:
+  type: presentation
+tools:
+  - type: builtin
+    name: shell
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5

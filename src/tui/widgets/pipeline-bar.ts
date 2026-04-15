@@ -1,6 +1,7 @@
 import blessed from 'neo-blessed';
 import type { WidgetController } from './types.js';
-import { getTheme, fgTag } from '../theme.js';
+import { getTheme } from '../theme.js';
+import { truncateText } from '../../utils/terminal-text.js';
 
 export interface PipelineBarData {
   stages: Array<{ name: string; status: 'waiting' | 'active' | 'complete'; agent: string }>;
@@ -13,12 +14,6 @@ const STATUS_ICONS: Record<string, string> = {
   complete: '✓',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  waiting: '{#585858-fg}',
-  active: '{#ff8700-fg}',
-  complete: '{#d75f00-fg}',
-};
-
 export function createPipelineBar(parent: blessed.Widgets.Node): WidgetController<PipelineBarData> {
   const element = blessed.box({
     parent,
@@ -26,29 +21,32 @@ export function createPipelineBar(parent: blessed.Widgets.Node): WidgetControlle
     height: 3,
     left: 0,
     right: 0,
-    width: '100%',
   });
 
   function update(data: PipelineBarData): void {
     const theme = getTheme();
+    const width = Math.max(20, Number(element.screen?.width ?? 80) - 2);
+    const stageCount = Math.max(1, data.stages.length);
+    const stageWidth = Math.max(8, Math.floor((width - (stageCount - 1) * 4) / stageCount) - 1);
     element.style = {
       ...(element.style ?? {}),
       fg: theme.colors.panelFg,
       bg: theme.colors.panelBg,
     };
 
-    const header = `{bold}MAP Pipeline{/bold} ${fgTag(theme.colors.muted)}Iteration ${data.iteration}{/}`;
+    const headerText = truncateText(`MAP Pipeline Iteration ${data.iteration}`, width);
+    const header = `{bold}${headerText}{/bold}`;
 
     const stageParts = data.stages.map((stage) => {
-      const color = STATUS_COLORS[stage.status] ?? fgTag(theme.colors.panelFg);
       const icon = STATUS_ICONS[stage.status] ?? '?';
-      return `${color}${icon} ${stage.name}{/}`;
+      const name = truncateText(stage.name, stageWidth);
+      return `${icon} ${name}`;
     });
 
-    const stageRow = stageParts.join(`  ${fgTag(theme.colors.muted)}━━{/}  `);
+    const stageRow = truncateText(stageParts.join('  →  '), width);
 
     const agentRow = data.stages
-      .map((s) => `${fgTag(theme.colors.muted)}${s.agent.padEnd(s.name.length + 2)}{/}`)
+      .map((s) => truncateText(s.agent, stageWidth))
       .join('       ');
 
     element.setContent(`${header}\n${stageRow}\n${agentRow}`);

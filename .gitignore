@@ -1,8 +1,14 @@
+# Build artifacts and directories
+build*/
 node_modules/
 dist/
+.map/
 .omc/
 .codesight/
 *.tsbuildinfo
 coverage/
-.map/
 .omx/
+
+# Generated agents (will be git-tracked as templates)
+agents/*/agent.yaml
+agents/*/prompt.md
