@@ -33,7 +33,12 @@ import {
   prepareStageWorkspace,
 } from '../tui/runtime.js';
 import { createSpec } from '../types/spec.js';
-import type { HeadlessRuntimeConfig, PipelineConfig, StageName } from '../types/config.js';
+import type {
+  AgentAssignment,
+  HeadlessRuntimeConfig,
+  PipelineConfig,
+  StageName,
+} from '../types/config.js';
 import type { DetectionResult, AgentAdapter } from '../types/adapter.js';
 import type { GitHubIssueContext } from '../types/github.js';
 import { validateDurationRelationship } from '../utils/duration.js';
@@ -53,6 +58,8 @@ import {
 import { resolveGitHubToken } from '../github/token.js';
 import { buildAdapterChain, runWithFailover } from '../adapters/failover-runner.js';
 import { createReporter, type VerboseReporter } from '../utils/verbose-reporter.js';
+import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
+import type { SecurityConfig } from '../security/types.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -488,11 +495,22 @@ function assertConfiguredAdaptersInstalled(
   config: PipelineConfig,
   detection: DetectionResult,
 ): void {
+  const securityConfig = resolveSecurityConfig(config);
   assertAdapterInstalled(config.agents.spec, detection);
   assertAdapterInstalled(config.agents.review, detection);
   assertAdapterInstalled(config.agents.qa, detection);
   assertAdapterInstalled(config.agents.execute, detection);
   assertAdapterInstalled(config.agents.docs, detection);
+  if (securityConfig.enabled && securityConfig.llmReviewEnabled) {
+    assertAdapterInstalled({ adapter: securityConfig.adapter } as AgentAssignment, detection);
+  }
+}
+
+function resolveSecurityConfig(config: PipelineConfig): SecurityConfig {
+  return {
+    ...DEFAULT_SECURITY_CONFIG,
+    ...(config.security ?? {}),
+  };
 }
 
 function resolveHeadlessRuntimeConfig(
@@ -962,6 +980,7 @@ export async function runHeadlessV2(
 
   try {
     const config = await dependencies.loadConfigFn(options.configPath);
+    const securityConfig = resolveSecurityConfig(config);
 
     const agentsDir = path.join(process.cwd(), 'agents');
     const rawAgents = await loadAgentRegistry(agentsDir);
@@ -988,10 +1007,34 @@ export async function runHeadlessV2(
       type: config.router.adapter,
       model: config.router.model,
     });
-    const plan = await routeTask(options.prompt, agents, routerAdapter, config.router);
+    const decision = await routeTask(options.prompt, agents, routerAdapter, config.router);
+    if (decision.kind === 'no-match') {
+      reporter.dispose();
+      return buildHeadlessResultV2(
+        { plan: [] },
+        [],
+        Date.now() - startTime,
+        formatRouterNoMatch(decision),
+      );
+    }
+
+    const plan = decision.plan;
     reporter.dagRoutingComplete(plan.plan.length, Date.now() - routeStart);
 
-    const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn, reporter);
+    const dagResult = await executeDAG(plan, agents, dependencies.createAdapterFn, reporter, {
+      config: securityConfig,
+      createReviewAdapter: () =>
+        dependencies.createAdapterFn({
+          type: securityConfig.adapter,
+          model: securityConfig.model,
+          ...(securityConfig.adapter === 'ollama' ? { host: config.ollama.host } : {}),
+        }),
+    }, undefined, undefined, {
+      stepTimeoutMs: config.router.stepTimeoutMs,
+      maxStepRetries: config.router.maxStepRetries,
+      retryDelayMs: config.router.retryDelayMs,
+      adapterDefaults: config.adapterDefaults,
+    });
 
     const duration = Date.now() - startTime;
     reporter.dagComplete(dagResult.success, duration);
@@ -1002,4 +1045,15 @@ export async function runHeadlessV2(
     reporter.dispose();
     return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message);
   }
+}
+
+function formatRouterNoMatch(decision: {
+  reason: string;
+  suggestedAgent?: { name: string; description: string };
+}): string {
+  const reason = decision.reason.trim().replace(/[.]+$/, '');
+  const suggestion = decision.suggestedAgent
+    ? ` Suggested agent: ${decision.suggestedAgent.name} — ${decision.suggestedAgent.description}.`
+    : '';
+  return `No suitable agent available. ${reason}.${suggestion} Create one with: map agent create`;
 }

@@ -1,0 +1,12 @@
+name: security-advisor
+description: "Reviews generated code and command output for security vulnerabilities and malicious patterns"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+enabled: false
+pipeline:
+  - name: review
+handles: "security review, vulnerability detection, prompt injection, malicious code, unsafe shell commands"
+output:
+  type: answer
+tools: []

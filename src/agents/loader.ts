@@ -17,6 +17,7 @@ interface RawAgentYaml {
   tools: Array<Record<string, unknown>>;
   enabled?: boolean;
   fallbacks?: Array<{ adapter: string; model?: string }>;
+  think?: boolean;
 }
 
 export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDefinition> {
@@ -67,6 +68,7 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
     tools,
     enabled: raw.enabled,
     ...(fallbacks && fallbacks.length > 0 ? { fallbacks } : {}),
+    ...(raw.think !== undefined ? { think: raw.think } : {}),
   };
 
   if (!isValidAgentDefinition(agent)) {

@@ -7,6 +7,7 @@ import type {
   QualityConfig,
   RouterConfig,
   AgentCreationConfig,
+  AdapterDefaultsMap,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
@@ -241,6 +242,24 @@ function validateRouterConfig(value: unknown): Partial<RouterConfig> {
     router.timeoutMs = parseDuration(obj['timeoutMs'], 'router.timeoutMs');
   }
 
+  if (obj['stepTimeoutMs'] !== undefined) {
+    if (typeof obj['stepTimeoutMs'] !== 'string' && typeof obj['stepTimeoutMs'] !== 'number') {
+      throw new Error('router.stepTimeoutMs must be a string or number');
+    }
+    router.stepTimeoutMs = parseDuration(obj['stepTimeoutMs'], 'router.stepTimeoutMs');
+  }
+
+  if (obj['maxStepRetries'] !== undefined) {
+    router.maxStepRetries = validatePositiveInteger(obj['maxStepRetries'], 'router.maxStepRetries');
+  }
+
+  if (obj['retryDelayMs'] !== undefined) {
+    if (typeof obj['retryDelayMs'] !== 'string' && typeof obj['retryDelayMs'] !== 'number') {
+      throw new Error('router.retryDelayMs must be a string or number');
+    }
+    router.retryDelayMs = parseDuration(obj['retryDelayMs'], 'router.retryDelayMs');
+  }
+
   return router;
 }
 
@@ -269,6 +288,37 @@ function validateAgentCreationConfig(value: unknown): Partial<AgentCreationConfi
   }
 
   return agentCreation;
+}
+
+function validateAdapterDefaults(value: unknown): AdapterDefaultsMap {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('adapterDefaults must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const result: AdapterDefaultsMap = {};
+
+  for (const [key, entry] of Object.entries(obj)) {
+    if (!isValidAdapter(key)) {
+      throw new Error(
+        `adapterDefaults key must be one of: ${VALID_ADAPTERS.join(', ')}; got "${key}"`,
+      );
+    }
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`adapterDefaults.${key} must be an object`);
+    }
+    const entryObj = entry as Record<string, unknown>;
+    const defaults: { think?: boolean } = {};
+    if (entryObj['think'] !== undefined) {
+      if (typeof entryObj['think'] !== 'boolean') {
+        throw new Error(`adapterDefaults.${key}.think must be a boolean`);
+      }
+      defaults.think = entryObj['think'];
+    }
+    result[key as keyof AdapterDefaultsMap] = defaults;
+  }
+
+  return result;
 }
 
 function validateAgentOverrides(
@@ -391,6 +441,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     agentCreation = validateAgentCreationConfig(obj['agentCreation']);
   }
 
+  let adapterDefaults: AdapterDefaultsMap | undefined;
+  if (obj['adapterDefaults'] !== undefined) {
+    adapterDefaults = validateAdapterDefaults(obj['adapterDefaults']);
+  }
+
   let agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> | undefined;
   if (obj['agentOverrides'] !== undefined) {
     agentOverrides = validateAgentOverrides(obj['agentOverrides']);
@@ -406,6 +461,7 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(headless !== undefined ? { headless } : {}),
     ...(router !== undefined ? { router } : {}),
     ...(agentCreation !== undefined ? { agentCreation } : {}),
+    ...(adapterDefaults !== undefined ? { adapterDefaults } : {}),
     ...(agentOverrides !== undefined ? { agentOverrides } : {}),
   } as PipelineConfig;
 }

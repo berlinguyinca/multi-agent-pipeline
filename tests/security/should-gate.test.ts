@@ -17,14 +17,22 @@ function makeAgent(overrides: Partial<AgentDefinition>): AgentDefinition {
 }
 
 describe('shouldGateStep', () => {
-  it('gates agents with output.type=files', () => {
+  it('gates file-output agents', () => {
     expect(shouldGateStep(makeAgent({ output: { type: 'files' } }))).toBe(true);
   });
 
-  it('gates agents with shell tools', () => {
+  it('gates shell-tool agents', () => {
     expect(shouldGateStep(makeAgent({
       tools: [{ type: 'builtin', name: 'shell' }],
     }))).toBe(true);
+  });
+
+  it('gates answer-only agents', () => {
+    expect(shouldGateStep(makeAgent({ output: { type: 'answer' } }))).toBe(true);
+  });
+
+  it('gates data-only agents', () => {
+    expect(shouldGateStep(makeAgent({ output: { type: 'data' } }))).toBe(true);
   });
 
   it('gates agents with both files and shell', () => {
@@ -34,23 +42,15 @@ describe('shouldGateStep', () => {
     }))).toBe(true);
   });
 
-  it('skips answer-only agents without shell', () => {
-    expect(shouldGateStep(makeAgent({ output: { type: 'answer' } }))).toBe(false);
-  });
-
-  it('skips data-only agents without shell', () => {
-    expect(shouldGateStep(makeAgent({ output: { type: 'data' } }))).toBe(false);
-  });
-
-  it('skips agents with only file-read tools', () => {
+  it('gates agents with only file-read tools', () => {
     expect(shouldGateStep(makeAgent({
       tools: [{ type: 'builtin', name: 'file-read' }],
-    }))).toBe(false);
+    }))).toBe(true);
   });
 
-  it('skips agents with only MCP tools', () => {
+  it('gates agents with only MCP tools', () => {
     expect(shouldGateStep(makeAgent({
       tools: [{ type: 'mcp', uri: 'http://example.com' }],
-    }))).toBe(false);
+    }))).toBe(true);
   });
 });

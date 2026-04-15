@@ -44,6 +44,18 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('Build a REST API');
   });
 
+  it('strips terminal chrome from the user task before embedding it', () => {
+    const prompt = buildRouterPrompt(
+      agents,
+      '╭────────────────╮\n│ Hello world │\n╰────────────────╯',
+    );
+
+    expect(prompt).toContain('Hello world');
+    expect(prompt).not.toContain('╭');
+    expect(prompt).not.toContain('╰');
+    expect(prompt).not.toContain('│');
+  });
+
   it('requests JSON output with plan array', () => {
     const prompt = buildRouterPrompt(agents, 'test');
     expect(prompt).toContain('"plan"');
@@ -51,6 +63,13 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('"agent"');
     expect(prompt).toContain('"task"');
     expect(prompt).toContain('"dependsOn"');
+  });
+
+  it('allows the router to return a no-match result', () => {
+    const prompt = buildRouterPrompt(agents, 'test');
+    expect(prompt).toContain('"kind":"no-match"');
+    expect(prompt).toContain('"reason"');
+    expect(prompt).toContain('"suggestedAgent"');
   });
 
   it('enforces maxSteps', () => {

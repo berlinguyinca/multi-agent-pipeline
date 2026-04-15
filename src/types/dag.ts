@@ -29,6 +29,7 @@ export interface StepResult {
   reason?: string;
   securityFindings?: SecurityFinding[];
   securityPassed?: boolean;
+  attempts?: number;
 }
 
 export interface DAGNode {

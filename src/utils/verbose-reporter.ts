@@ -1,4 +1,5 @@
 import type { StageName } from '../types/config.js';
+import { normalizeTerminalText, truncateText, wrapWithPrefix } from './terminal-text.js';
 
 const STAGE_LABELS: Record<StageName, string> = {
   spec: 'Specification',
@@ -70,7 +71,9 @@ export class VerboseReporter {
   private log(icon: string, message: string): void {
     this.stopSpinner();
     this.writer.clearLine();
-    this.writer.write(`[${this.elapsed()}] ${icon} ${message}\n`);
+    const prefix = `[${this.elapsed()}] ${icon} `;
+    const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
+    this.writer.write(`${wrapWithPrefix(prefix, normalizeTerminalText(message), width)}\n`);
   }
 
   private startSpinner(label: string): void {
@@ -103,14 +106,16 @@ export class VerboseReporter {
   // ── Pipeline lifecycle ───────────────────────────────────────────────
 
   pipelineStart(prompt: string): void {
-    const truncated = prompt.length > 80 ? prompt.slice(0, 77) + '...' : prompt;
+    const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
+    const cleaned = normalizeTerminalText(prompt).replace(/\s+/g, ' ').trim();
+    const truncated = truncateText(cleaned, Math.max(20, width - 28));
     this.log('▶', `Pipeline started: "${truncated}"`);
   }
 
   pipelineComplete(success: boolean, duration: number): void {
     this.stopSpinner();
     const icon = success ? '✔' : '✘';
-    const label = success ? 'Pipeline completed successfully' : 'Pipeline failed';
+    const label = success ? 'Task finished successfully' : 'Task finished with errors';
     this.log(icon, `${label} (${formatElapsed(duration)} total)`);
   }
 
@@ -181,7 +186,9 @@ export class VerboseReporter {
   dagStepStart(stepId: string, agent: string, task: string): void {
     this.stageStartedAt = Date.now();
     this.stageBytes = 0;
-    const truncated = task.length > 60 ? task.slice(0, 57) + '...' : task;
+    const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
+    const cleaned = normalizeTerminalText(task).replace(/\s+/g, ' ').trim();
+    const truncated = truncateText(cleaned, Math.max(20, width - 34));
     this.log('▶', `Step ${stepId} [${agent}] — ${truncated}`);
     this.startSpinner(`Step ${stepId} [${agent}]`);
   }
@@ -194,14 +201,33 @@ export class VerboseReporter {
     this.log('✘', `Step ${stepId} [${agent}] failed: ${error}`);
   }
 
+  dagStepRetry(stepId: string, agent: string, attempt: number, error: string): void {
+    this.log('↻', `Step ${stepId} [${agent}] retry ${attempt} (was: ${error})`);
+  }
+
   dagStepSkipped(stepId: string, reason: string): void {
     this.log('⊘', `Step ${stepId} skipped: ${reason}`);
+  }
+
+  securityGateStart(stepId: string, agent: string): void {
+    this.log('◊', `Security gate — reviewing ${agent} output for ${stepId}`);
+  }
+
+  securityGatePassed(stepId: string, duration: number): void {
+    this.log('◊', `Security gate passed for ${stepId} (${formatElapsed(duration)})`);
+  }
+
+  securityGateFailed(stepId: string, findingCount: number): void {
+    this.log(
+      '✘',
+      `Security gate failed for ${stepId} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+    );
   }
 
   dagComplete(success: boolean, duration: number): void {
     this.stopSpinner();
     const icon = success ? '✔' : '✘';
-    const label = success ? 'DAG execution completed' : 'DAG execution failed';
+    const label = success ? 'Task finished successfully' : 'Task finished with errors';
     this.log(icon, `${label} (${formatElapsed(duration)} total)`);
   }
 
@@ -231,7 +257,11 @@ export class SilentReporter extends VerboseReporter {
   override dagStepStart(): void {}
   override dagStepComplete(): void {}
   override dagStepFailed(): void {}
+  override dagStepRetry(): void {}
   override dagStepSkipped(): void {}
+  override securityGateStart(): void {}
+  override securityGatePassed(): void {}
+  override securityGateFailed(): void {}
   override dagComplete(): void {}
   override dispose(): void {}
 }

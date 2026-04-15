@@ -30,10 +30,16 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     model: 'gemma4',
     maxSteps: 10,
     timeoutMs: 30_000,
+    stepTimeoutMs: 5 * 60 * 1000,
+    maxStepRetries: 2,
+    retryDelayMs: 3_000,
   },
   agentCreation: {
     adapter: 'ollama' as AdapterType,
     model: 'gemma4',
+  },
+  adapterDefaults: {
+    ollama: { think: false },
   },
   agentOverrides: {},
   security: DEFAULT_SECURITY_CONFIG,

@@ -48,7 +48,13 @@ describe('end-to-end routing flow (mocked adapters)', () => {
       async *run() { yield routerResponse; },
     };
 
-    const plan = await routeTask('What is PostgreSQL partitioning?', agents, routerAdapter, routerConfig);
+    const decision = await routeTask('What is PostgreSQL partitioning?', agents, routerAdapter, routerConfig);
+    expect(decision.kind).toBe('plan');
+    if (decision.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+
+    const plan = decision.plan;
     expect(plan.plan).toHaveLength(1);
     expect(plan.plan[0].agent).toBe('researcher');
 
@@ -81,7 +87,13 @@ describe('end-to-end routing flow (mocked adapters)', () => {
       async *run() { yield routerResponse; },
     };
 
-    const plan = await routeTask('Research and build a caching layer', agents, routerAdapter, routerConfig);
+    const decision = await routeTask('Research and build a caching layer', agents, routerAdapter, routerConfig);
+    expect(decision.kind).toBe('plan');
+    if (decision.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+
+    const plan = decision.plan;
     expect(plan.plan).toHaveLength(2);
 
     let callCount = 0;

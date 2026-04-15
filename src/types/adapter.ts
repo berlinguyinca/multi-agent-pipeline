@@ -30,6 +30,9 @@ export interface RunOptions {
   cwd?: string;
   systemPrompt?: string;
   allowTools?: boolean;
+  responseFormat?: string;
+  hideThinking?: boolean;
+  think?: boolean | string;
 }
 
 export interface AgentAdapter {

@@ -36,12 +36,21 @@ export interface RouterConfig {
   model: string;
   maxSteps: number;
   timeoutMs: number;
+  stepTimeoutMs: number;
+  maxStepRetries: number;
+  retryDelayMs: number;
 }
 
 export interface AgentCreationConfig {
   adapter: AdapterType;
   model: string;
 }
+
+export interface AdapterRunDefaults {
+  think?: boolean;
+}
+
+export type AdapterDefaultsMap = Partial<Record<AdapterType, AdapterRunDefaults>>;
 
 export interface PipelineConfig {
   agents: {
@@ -59,6 +68,7 @@ export interface PipelineConfig {
   headless: HeadlessRuntimeConfig;
   router: RouterConfig;
   agentCreation: AgentCreationConfig;
+  adapterDefaults: AdapterDefaultsMap;
   agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }>;
   security: SecurityConfig;
 }

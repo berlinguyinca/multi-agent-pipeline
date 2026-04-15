@@ -42,6 +42,7 @@ export interface AgentDefinition {
   tools: AgentToolConfig[];
   enabled?: boolean;
   fallbacks?: AdapterFallback[];
+  think?: boolean;
 }
 
 const VALID_OUTPUT_TYPES: readonly OutputType[] = ['answer', 'data', 'files'];

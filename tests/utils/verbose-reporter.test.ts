@@ -39,7 +39,7 @@ describe('VerboseReporter', () => {
     const longPrompt = 'A'.repeat(100);
     reporter.pipelineStart(longPrompt);
     const line = writer.output.find((s) => s.includes('Pipeline started'));
-    expect(line).toContain('...');
+    expect(line).toContain('…');
     expect(line).not.toContain('A'.repeat(100));
   });
 
@@ -121,13 +121,13 @@ describe('VerboseReporter', () => {
 
   it('logs pipeline complete on success', () => {
     reporter.pipelineComplete(true, 60000);
-    const line = writer.output.find((s) => s.includes('Pipeline completed'));
+    const line = writer.output.find((s) => s.includes('Task finished successfully'));
     expect(line).toContain('01:00');
   });
 
   it('logs pipeline failed on failure', () => {
     reporter.pipelineComplete(false, 30000);
-    const line = writer.output.find((s) => s.includes('Pipeline failed'));
+    const line = writer.output.find((s) => s.includes('Task finished with errors'));
     expect(line).toBeDefined();
   });
 
@@ -162,7 +162,7 @@ describe('VerboseReporter', () => {
     const longTask = 'X'.repeat(80);
     reporter.dagStepStart('s1', 'coder', longTask);
     const line = writer.output.find((s) => s.includes('Step s1'));
-    expect(line).toContain('...');
+    expect(line).toContain('…');
   });
 
   it('logs DAG step complete', () => {
@@ -185,13 +185,13 @@ describe('VerboseReporter', () => {
 
   it('logs DAG complete success', () => {
     reporter.dagComplete(true, 10000);
-    const line = writer.output.find((s) => s.includes('DAG execution completed'));
+    const line = writer.output.find((s) => s.includes('Task finished successfully'));
     expect(line).toBeDefined();
   });
 
   it('logs DAG complete failure', () => {
     reporter.dagComplete(false, 10000);
-    const line = writer.output.find((s) => s.includes('DAG execution failed'));
+    const line = writer.output.find((s) => s.includes('Task finished with errors'));
     expect(line).toBeDefined();
   });
 
