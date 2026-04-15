@@ -6,11 +6,13 @@ import type {
   OllamaConfig,
   QualityConfig,
   RouterConfig,
+  RouterConsensusConfig,
   AgentCreationConfig,
   AdapterDefaultsMap,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
+import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
 
 const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes'];
 
@@ -260,7 +262,58 @@ function validateRouterConfig(value: unknown): Partial<RouterConfig> {
     router.retryDelayMs = parseDuration(obj['retryDelayMs'], 'router.retryDelayMs');
   }
 
+  if (obj['consensus'] !== undefined) {
+    router.consensus = validateRouterConsensusConfig(obj['consensus']);
+  }
+
   return router;
+}
+
+function validateRouterConsensusConfig(value: unknown): RouterConsensusConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('router.consensus must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const consensus: RouterConsensusConfig = { ...DEFAULT_ROUTER_CONSENSUS_CONFIG };
+
+  if (obj['enabled'] !== undefined) {
+    if (typeof obj['enabled'] !== 'boolean') {
+      throw new Error('router.consensus.enabled must be a boolean');
+    }
+    consensus.enabled = obj['enabled'];
+  }
+
+  if (obj['models'] !== undefined) {
+    if (!Array.isArray(obj['models'])) {
+      throw new Error('router.consensus.models must be an array');
+    }
+    if (obj['models'].length > 3) {
+      throw new Error('router.consensus.models must include at most 3 models');
+    }
+    consensus.models = obj['models'].map((model, index) => {
+      if (typeof model !== 'string' || model.trim() === '') {
+        throw new Error(`router.consensus.models[${index}] must be a non-empty string`);
+      }
+      return model.trim();
+    });
+  }
+
+  if (obj['scope'] !== undefined) {
+    if (obj['scope'] !== 'router') {
+      throw new Error('router.consensus.scope must be "router"');
+    }
+    consensus.scope = 'router';
+  }
+
+  if (obj['mode'] !== undefined) {
+    if (obj['mode'] !== 'majority') {
+      throw new Error('router.consensus.mode must be "majority"');
+    }
+    consensus.mode = 'majority';
+  }
+
+  return consensus;
 }
 
 function validateAgentCreationConfig(value: unknown): Partial<AgentCreationConfig> {

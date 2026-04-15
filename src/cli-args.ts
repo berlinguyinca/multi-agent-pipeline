@@ -15,6 +15,8 @@ const flagsWithValues = new Set([
   '--inactivity-timeout',
   '--poll-interval',
   '--router-timeout',
+  '--router-model',
+  '--router-consensus-models',
   '--github-issue',
   '--spec-file',
   '--personality',

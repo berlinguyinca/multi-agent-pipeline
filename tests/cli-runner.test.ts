@@ -12,6 +12,7 @@ const mkdirMock = vi.fn(async () => {});
 const readFileMock = vi.fn(async () => '# Loaded Spec\n\nBuild the thing from this spec.');
 const runHeadlessMock = vi.fn(async () => ({ version: 1, success: true }));
 const runHeadlessV2Mock = vi.fn(async () => ({ version: 2, success: true }));
+const runPRReviewMock = vi.fn(async () => ({ success: true, verdict: 'comment' }));
 
 vi.mock('../src/tui/tui-app.js', () => ({
   createTuiApp: createTuiAppMock,
@@ -20,6 +21,10 @@ vi.mock('../src/tui/tui-app.js', () => ({
 vi.mock('../src/headless/runner.js', () => ({
   runHeadless: runHeadlessMock,
   runHeadlessV2: runHeadlessV2Mock,
+}));
+
+vi.mock('../src/headless/pr-review.js', () => ({
+  runPRReview: runPRReviewMock,
 }));
 
 vi.mock('../src/config/loader.js', () => ({
@@ -102,6 +107,16 @@ describe('runCli', () => {
     expect(runHeadlessMock).not.toHaveBeenCalled();
   });
 
+  it('pretty-prints default headless smart routing JSON to stdout', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith('{\n  "version": 2,\n  "success": true\n}\n');
+  });
+
   it('runs headless classic mode when --classic is provided', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -115,6 +130,26 @@ describe('runCli', () => {
       }),
     );
     expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+  });
+
+  it('pretty-prints classic headless JSON to stdout', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--classic', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith('{\n  "version": 1,\n  "success": true\n}\n');
+  });
+
+  it('pretty-prints PR review JSON to stdout', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--review-pr', 'https://github.com/owner/repo/pull/1']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith('{\n  "success": true,\n  "verdict": "comment"\n}\n');
   });
 
   it('rejects conflicting --classic and --v2 flags', async () => {
@@ -148,5 +183,38 @@ describe('runCli', () => {
     );
     expect(runHeadlessV2Mock.mock.calls[0]?.[0].prompt).toContain('Use this for the next implementation pass');
     expect(runHeadlessMock).not.toHaveBeenCalled();
+  });
+
+  it('passes router model overrides to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--router-model', 'qwen3:latest', 'Research the task and produce a concise implementation readiness plan']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routerModel: 'qwen3:latest',
+      }),
+    );
+  });
+
+  it('passes router consensus model overrides to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--router-consensus-models',
+        'gemma4:26b,qwen3:latest,llama3.1:8b',
+        'Research the task and produce a concise implementation readiness plan',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routerConsensusModels: ['gemma4:26b', 'qwen3:latest', 'llama3.1:8b'],
+      }),
+    );
   });
 });

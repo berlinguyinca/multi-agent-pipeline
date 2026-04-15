@@ -39,6 +39,14 @@ export interface RouterConfig {
   stepTimeoutMs: number;
   maxStepRetries: number;
   retryDelayMs: number;
+  consensus: RouterConsensusConfig;
+}
+
+export interface RouterConsensusConfig {
+  enabled: boolean;
+  models: string[];
+  scope: 'router';
+  mode: 'majority';
 }
 
 export interface AgentCreationConfig {

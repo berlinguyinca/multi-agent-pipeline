@@ -13,6 +13,8 @@ export interface HeadlessOptions {
   inactivityTimeoutMs?: number;
   pollIntervalMs?: number;
   routerTimeoutMs?: number;
+  routerModel?: string;
+  routerConsensusModels?: string[];
   personality?: string;
   verbose?: boolean;
 }

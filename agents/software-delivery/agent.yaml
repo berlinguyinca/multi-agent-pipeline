@@ -1,16 +1,17 @@
 name: software-delivery
-description: "Full software delivery lifecycle from implementation-ready spec through code QA"
+description: "Full software delivery lifecycle with adviser-guided execution from implementation-ready spec through code QA"
 adapter: ollama
 model: gemma4:26b
 prompt: prompt.md
 pipeline:
   - name: spec-generation
   - name: spec-qa-review
+  - name: workflow-advice
   - name: tdd-planning
   - name: test-authoring
   - name: implementation
   - name: code-qa-analysis
-handles: "end-to-end feature delivery, implementation-ready specs, QA-reviewed requirements, test-driven development, code implementation, code quality analysis"
+handles: "end-to-end feature delivery, implementation-ready specs, QA-reviewed requirements, adviser-guided workflows, test-driven development, code implementation, code quality analysis"
 output:
   type: files
 tools:
@@ -19,7 +20,7 @@ tools:
 contract:
   mission: "Drive a software request from implementation-ready spec through tested, reviewed delivery."
   capabilities:
-    - "Sequence spec, review, testing, implementation, and QA."
+    - "Sequence spec, review, adviser workflow planning, testing, implementation, and QA."
     - "Keep changes scoped to the requested behavior."
     - "Recover through failing tests or build errors instead of stopping early."
   nonGoals:

@@ -33,13 +33,14 @@ ${cleanTask}
 2. If the task is complex, decompose it into bounded sub-tasks and use multiple agents when that materially improves quality, speed, or correctness.
 3. Steps with no dependencies on each other can run in parallel (use empty dependsOn).
 4. Use adaptive bounded planning: keep simple tasks compact, but use as many steps as needed up to ${maxSteps} for complex work.
-5. Each step's "task" field should be a clear, scoped sub-task description for that agent.
+5. Each step's "task" field should be a clear, concise, scoped, non-repetitive sub-task description for that agent. Do not repeat words or phrases to fill space.
 6. Only use agent names from the list above.
 7. If no listed agent is a good fit, do NOT force a bad match. Return a no-match result instead.
 8. Prefer agents with web research capability for tasks that need current external knowledge.
 9. Use presentation or visualization-oriented agents when the request asks for decks, charts, diagrams, or polished visual deliverables.
 10. For knowledge-heavy tasks, prefer a knowledge-aware plan that can use the shared 2nd brain and knowledge hygiene when stale or external knowledge matters.
 11. For high-stakes judgment-heavy tasks, you may plan multiple candidate-producing steps followed by a result-judge step that selects the best outcome.
+12. Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents. The adviser recommends the launch order, parallelization, custom agents to create, and whether the agent list must be refreshed. Adviser may replace pending downstream steps at runtime by returning adviser-workflow JSON.
 
 ## Output Format
 

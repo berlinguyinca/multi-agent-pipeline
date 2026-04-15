@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { runHeadless } from './headless/runner.js';
 import { createTuiApp } from './tui/tui-app.js';
 import { loadConfig } from './config/loader.js';
+import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from './config/defaults.js';
 import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
 import { validatePrompt } from './utils/prompt-validation.js';
@@ -40,6 +41,9 @@ Options:
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
   --router-timeout <dur> Router planning timeout, e.g. 300s
+  --router-model <name>  Override the smart-routing router model
+  --router-consensus-models <csv>
+                         Enable router consensus with up to 3 comma-separated Ollama models
   --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
@@ -53,7 +57,8 @@ Runtime updates:
 Commands:
   map agent list              List all registered agents
   map agent create            Create a new agent (LLM-assisted)
-  map agent test <name>       Test an agent with a sample prompt
+  map agent test <name>       Run an agent smoke test with an optional sample prompt
+  map agent edit <name>       Open an agent prompt in $EDITOR
 `);
     process.exit(0);
   }
@@ -86,7 +91,7 @@ Commands:
     const configPath = extractFlag(args, '--config');
     const personality = extractFlag(args, '--personality');
     const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
-    process.stdout.write(JSON.stringify(result) + '\n');
+    writeJsonResult(result);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -101,6 +106,10 @@ Commands:
     const inactivityTimeout = extractFlag(args, '--inactivity-timeout');
     const pollInterval = extractFlag(args, '--poll-interval');
     const routerTimeout = extractFlag(args, '--router-timeout');
+    const routerModel = extractFlag(args, '--router-model');
+    const routerConsensusModels = parseRouterConsensusModels(
+      extractFlag(args, '--router-consensus-models'),
+    );
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
 
@@ -129,10 +138,12 @@ Commands:
         configPath,
         personality,
         verbose,
+        routerModel,
+        routerConsensusModels,
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
-      process.stdout.write(JSON.stringify(result) + '\n');
+      writeJsonResult(result);
       process.exit(result.success ? 0 : 1);
     }
 
@@ -145,6 +156,8 @@ Commands:
       configPath,
       personality,
       verbose,
+      routerModel,
+      routerConsensusModels,
       routerTimeoutMs:
         routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       totalTimeoutMs:
@@ -158,7 +171,7 @@ Commands:
       pollIntervalMs:
         pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
     });
-    process.stdout.write(JSON.stringify(result) + '\n');
+    writeJsonResult(result);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -190,12 +203,17 @@ Commands:
   config.outputDir = path.resolve(outputDir ?? process.cwd());
   await fs.mkdir(config.outputDir, { recursive: true });
   const routerTimeout = extractFlag(args, '--router-timeout');
+  const routerModel = extractFlag(args, '--router-model');
+  const routerConsensusModels = parseRouterConsensusModels(
+    extractFlag(args, '--router-consensus-models'),
+  );
   if (routerTimeout !== undefined) {
     config.router = {
       ...config.router,
       timeoutMs: parseDuration(routerTimeout, '--router-timeout'),
     };
   }
+  applyRouterOverrides(config, routerModel, routerConsensusModels);
   const detection = await detectAllAdapters(config.ollama.host);
 
   const app = createTuiApp({
@@ -208,6 +226,48 @@ Commands:
     specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
   });
   await app.run();
+}
+
+function parseRouterConsensusModels(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  const models = value
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean);
+  if (models.length === 0) {
+    throw new Error('--router-consensus-models requires at least one model');
+  }
+  if (models.length > 3) {
+    throw new Error('--router-consensus-models accepts at most 3 models');
+  }
+  return models;
+}
+
+function applyRouterOverrides(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  routerModel: string | undefined,
+  routerConsensusModels: string[] | undefined,
+): void {
+  if (routerModel !== undefined) {
+    config.router = {
+      ...config.router,
+      model: routerModel,
+    };
+  }
+  if (routerConsensusModels !== undefined) {
+    config.router = {
+      ...config.router,
+      consensus: {
+        ...(config.router.consensus ?? {
+          ...DEFAULT_ROUTER_CONSENSUS_CONFIG,
+        }),
+        enabled: true,
+        models: routerConsensusModels,
+        scope: 'router',
+        mode: 'majority',
+      },
+    };
+  }
 }
 
 async function loadSpecFile(specFilePath: string): Promise<string> {
@@ -256,4 +316,8 @@ function buildV2SpecFilePrompt(
         ]
       : []),
   ].join('\n');
+}
+
+function writeJsonResult(result: unknown): void {
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }

@@ -13,6 +13,7 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'software-delivery',
   'spec-writer',
   'spec-qa-reviewer',
+  'adviser',
   'tdd-engineer',
   'implementation-coder',
   'code-qa-analyst',
@@ -22,6 +23,7 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'test-stabilizer',
   'refactor-cleaner',
   'docs-maintainer',
+  'stabilization-reviewer',
   'release-readiness-reviewer',
   'presentation-designer',
   'visualization-builder',
@@ -84,9 +86,12 @@ describe('software delivery agent bundle', () => {
 
     expect(prompt).toContain('spec-writer');
     expect(prompt).toContain('implementation-coder');
+    expect(prompt).toContain('adviser');
+    expect(prompt).toContain('Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents.');
     expect(prompt).toContain('github-review-merge-specialist');
     expect(prompt).toContain('test-driven development');
     expect(prompt).toContain('release-readiness-reviewer');
+    expect(prompt).toContain('stabilization-reviewer');
     expect(prompt).toContain('Mission:');
     expect(prompt).toContain('Capabilities:');
   });
@@ -96,12 +101,14 @@ describe('software delivery agent bundle', () => {
       plan: [
         { id: 'step-1', agent: 'spec-writer', task: 'Create an implementation-ready specification', dependsOn: [] },
         { id: 'step-2', agent: 'spec-qa-reviewer', task: 'Review the specification', dependsOn: ['step-1'] },
-        { id: 'step-3', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: ['step-2'] },
-        { id: 'step-4', agent: 'implementation-coder', task: 'Implement the behavior', dependsOn: ['step-3'] },
-        { id: 'step-5', agent: 'code-qa-analyst', task: 'Review the implementation', dependsOn: ['step-4'] },
-        { id: 'step-6', agent: 'docs-maintainer', task: 'Update Markdown docs', dependsOn: ['step-5'] },
-        { id: 'step-7', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-6'] },
-        { id: 'step-8', agent: 'github-review-merge-specialist', task: 'Perform the final GitHub PR review and merge the approved changes', dependsOn: ['step-7'] },
+        { id: 'step-3', agent: 'adviser', task: 'Recommend the best agent workflow from the reviewed and QA-approved spec', dependsOn: ['step-2'] },
+        { id: 'step-4', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: ['step-3'] },
+        { id: 'step-5', agent: 'implementation-coder', task: 'Implement the behavior', dependsOn: ['step-4'] },
+        { id: 'step-6', agent: 'code-qa-analyst', task: 'Review the implementation', dependsOn: ['step-5'] },
+        { id: 'step-7', agent: 'docs-maintainer', task: 'Update Markdown docs', dependsOn: ['step-6'] },
+        { id: 'step-8', agent: 'stabilization-reviewer', task: 'Audit capability claims, specs, docs, and integration boundaries', dependsOn: ['step-7'] },
+        { id: 'step-9', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-8'] },
+        { id: 'step-10', agent: 'github-review-merge-specialist', task: 'Perform the final GitHub PR review and merge the approved changes', dependsOn: ['step-9'] },
       ],
     };
 

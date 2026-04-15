@@ -17,6 +17,7 @@ import { routeTask } from '../router/router.js';
 import { executeDAG } from '../orchestrator/orchestrator.js';
 import { createAdapter } from '../adapters/adapter-factory.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
+import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
 import { resolveGitHubToken } from '../github/token.js';
 import {
   buildGitHubIssuePrompt,
@@ -772,6 +773,23 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
             : {}),
         });
 
+      const createRouterAdapters = (): AgentAdapter[] => {
+        const consensus = config.router.consensus ?? {
+          ...DEFAULT_ROUTER_CONSENSUS_CONFIG,
+        };
+        const models =
+          config.router.adapter === 'ollama' && consensus.enabled
+            ? (consensus.models.length > 0 ? consensus.models : [config.router.model])
+            : [config.router.model];
+
+        return models.slice(0, 3).map((model) =>
+          createV2Adapter({
+            type: config.router.adapter,
+            model,
+          }),
+        );
+      };
+
       function setRawOutput(key: string, title: string, content: string, streaming: boolean): void {
         rawOutputDockEnabled = true;
         rawOutputStore.setCurrent(key, title, content, streaming);
@@ -1414,10 +1432,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           const decision = await routeTask(
             resolvedPrompt,
             enabledAgents,
-            createV2Adapter({
-              type: config.router.adapter,
-              model: config.router.model,
-            }),
+            createRouterAdapters(),
             config.router,
             v2AbortController.signal,
             (chunk) => appendRawOutput(routerRawKey, 'Router', chunk),

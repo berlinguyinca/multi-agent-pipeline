@@ -143,7 +143,7 @@ const ROUTER_OUTPUT_SCHEMA = {
             properties: {
               id: { type: 'string', minLength: 1 },
               agent: { type: 'string', minLength: 1 },
-              task: { type: 'string', minLength: 1 },
+              task: { type: 'string', minLength: 1, maxLength: 320 },
               dependsOn: {
                 type: 'array',
                 items: { type: 'string' },

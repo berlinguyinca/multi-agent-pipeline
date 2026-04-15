@@ -40,6 +40,7 @@ import type {
   PipelineConfig,
   StageName,
 } from '../types/config.js';
+import type { AgentDefinition } from '../types/agent-definition.js';
 import type { DetectionResult, AgentAdapter } from '../types/adapter.js';
 import type { GitHubIssueContext } from '../types/github.js';
 import { validateDurationRelationship } from '../utils/duration.js';
@@ -63,6 +64,7 @@ import { createReporter, type VerboseReporter } from '../utils/verbose-reporter.
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import type { SecurityConfig } from '../security/types.js';
 import { isAbortError } from '../utils/error.js';
+import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
 import {
   generateAgentSummary,
   saveFinalReportMarkdown,
@@ -72,6 +74,46 @@ import {
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
+
+function buildRouterAdapters(config: PipelineConfig, createAdapterFn: AdapterFactory): AgentAdapter[] {
+  const consensus = config.router.consensus ?? {
+    ...DEFAULT_ROUTER_CONSENSUS_CONFIG,
+  };
+  const models =
+    config.router.adapter === 'ollama' && consensus.enabled
+      ? (consensus.models.length > 0 ? consensus.models : [config.router.model])
+      : [config.router.model];
+
+  return models.slice(0, 3).map((model) =>
+    createAdapterFn({
+      type: config.router.adapter,
+      model,
+    }),
+  );
+}
+
+function applyHeadlessRouterOverrides(config: PipelineConfig, options: HeadlessOptions): void {
+  if (options.routerModel !== undefined) {
+    config.router = {
+      ...config.router,
+      model: options.routerModel,
+    };
+  }
+  if (options.routerConsensusModels !== undefined) {
+    config.router = {
+      ...config.router,
+      consensus: {
+        ...(config.router.consensus ?? {
+          ...DEFAULT_ROUTER_CONSENSUS_CONFIG,
+        }),
+        enabled: true,
+        models: options.routerConsensusModels,
+        scope: 'router',
+        mode: 'majority',
+      },
+    };
+  }
+}
 
 interface HeadlessDependencies {
   loadConfigFn: typeof loadConfig;
@@ -311,6 +353,7 @@ async function runHeadlessLive(
 
   try {
     const config = await dependencies.loadConfigFn(options.configPath);
+    applyHeadlessRouterOverrides(config, options);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
     await fs.mkdir(outputDir, { recursive: true });
     const prompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
@@ -1063,16 +1106,7 @@ export async function runHeadlessV2(
     });
 
     const agentsDir = path.join(process.cwd(), 'agents');
-    const rawAgents = await loadAgentRegistry(agentsDir);
-
-    for (const [name, overrides] of Object.entries(config.agentOverrides)) {
-      const base = rawAgents.get(name);
-      if (base) {
-        rawAgents.set(name, mergeWithOverrides(base, overrides));
-      }
-    }
-
-    const agents = getEnabledAgents(rawAgents);
+    const agents = await loadEnabledAgentRegistry(agentsDir, config);
 
     if (agents.size === 0) {
       return await finish(buildHeadlessResultV2(
@@ -1092,11 +1126,8 @@ export async function runHeadlessV2(
       ...config.router,
       timeoutMs: options.routerTimeoutMs ?? config.router.timeoutMs,
     };
-    const routerAdapter = dependencies.createAdapterFn({
-      type: config.router.adapter,
-      model: config.router.model,
-    });
-    const decision = await routeTask(resolvedPrompt, agents, routerAdapter, routerConfig);
+    const routerAdapters = buildRouterAdapters(config, dependencies.createAdapterFn);
+    const decision = await routeTask(resolvedPrompt, agents, routerAdapters, routerConfig);
     if (decision.kind === 'no-match') {
       return await finish(buildHeadlessResultV2(
         { plan: [] },
@@ -1135,6 +1166,10 @@ export async function runHeadlessV2(
       adapterDefaults: config.adapterDefaults,
       workingDir: outputDir,
       knowledgeCwd: process.cwd(),
+      adaptiveReplanning: {
+        enabled: true,
+        refreshAgents: () => loadEnabledAgentRegistry(agentsDir, config),
+      },
     });
 
     const duration = Date.now() - startTime;
@@ -1201,6 +1236,22 @@ export async function runHeadlessV2(
       markdownFiles,
     }));
   }
+}
+
+async function loadEnabledAgentRegistry(
+  agentsDir: string,
+  config: PipelineConfig,
+): Promise<Map<string, AgentDefinition>> {
+  const rawAgents = await loadAgentRegistry(agentsDir);
+
+  for (const [name, overrides] of Object.entries(config.agentOverrides)) {
+    const base = rawAgents.get(name);
+    if (base) {
+      rawAgents.set(name, mergeWithOverrides(base, overrides));
+    }
+  }
+
+  return getEnabledAgents(rawAgents);
 }
 
 function formatRouterNoMatch(decision: {

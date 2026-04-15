@@ -38,4 +38,13 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.quality.maxSpecQaIterations).toBe(3);
     expect(DEFAULT_CONFIG.quality.maxCodeQaIterations).toBe(3);
   });
+
+  it('disables router consensus by default', () => {
+    expect(DEFAULT_CONFIG.router.consensus).toEqual({
+      enabled: false,
+      models: [],
+      scope: 'router',
+      mode: 'majority',
+    });
+  });
 });

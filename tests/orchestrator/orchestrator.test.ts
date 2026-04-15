@@ -685,6 +685,106 @@ describe('executeDAG', () => {
     expect(result.steps.find((step) => step.id === 'step-1-retry-1')?.status).toBe('completed');
   });
 
+
+  it('lets adviser refresh agents and replace pending downstream steps with a revised workflow', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'spec-qa-reviewer', task: 'Approve spec', dependsOn: [] },
+        { id: 'step-2', agent: 'adviser', task: 'Advise workflow', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'implementation-coder', task: 'Generic implementation', dependsOn: ['step-2'] },
+      ],
+    };
+    const agents = new Map([
+      ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
+      ['adviser', makeAgent('adviser')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+    ]);
+    const refreshedAgents = new Map([
+      ...agents,
+      ['migration-specialist', makeAgent('migration-specialist', 'files')],
+    ]);
+    const calls: string[] = [];
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Approve spec')) {
+          calls.push('spec-qa-reviewer');
+          yield 'Spec QA approved';
+          return;
+        }
+        if (prompt.includes('Advise workflow')) {
+          calls.push('adviser');
+          yield JSON.stringify({
+            kind: 'adviser-workflow',
+            refreshAgents: true,
+            plan: [
+              { id: 'step-3a', agent: 'migration-specialist', task: 'Apply the schema migration', dependsOn: ['step-2'] },
+              { id: 'step-4', agent: 'implementation-coder', task: 'Implement after migration', dependsOn: ['step-3a'] },
+            ],
+          });
+          return;
+        }
+        if (prompt.includes('Your task: Generic implementation')) {
+          calls.push('generic-implementation');
+          yield 'Generic implementation should have been replaced';
+          return;
+        }
+        if (prompt.includes('Your task: Apply the schema migration')) {
+          calls.push('migration-specialist');
+          yield 'Migration complete';
+          return;
+        }
+        if (prompt.includes('Your task: Implement after migration')) {
+          calls.push('implementation-coder');
+          yield 'Implementation complete';
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        adaptiveReplanning: {
+          enabled: true,
+          refreshAgents: async () => refreshedAgents,
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual([
+      'spec-qa-reviewer',
+      'adviser',
+      'migration-specialist',
+      'implementation-coder',
+    ]);
+    expect(result.steps.map((step) => step.id)).toEqual(['step-1', 'step-2', 'step-3a', 'step-4']);
+    expect(result.steps.find((step) => step.id === 'step-3')).toBeUndefined();
+    expect(result.steps.find((step) => step.id === 'step-3a')?.agent).toBe('migration-specialist');
+    expect(result.replans).toEqual([
+      {
+        type: 'adviser-replan',
+        fromStep: 'step-2',
+        removedSteps: ['step-3'],
+        insertedSteps: ['step-3a', 'step-4'],
+        refreshedAgents: true,
+      },
+    ]);
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],

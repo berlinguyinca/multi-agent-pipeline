@@ -74,6 +74,60 @@ quality:
     expect(config.quality.maxCodeQaIterations).toBe(4);
   });
 
+  it('parses router consensus config', async () => {
+    const yamlContent = `
+router:
+  adapter: ollama
+  model: gemma4
+  consensus:
+    enabled: true
+    models:
+      - gemma4
+      - qwen3
+      - llama3
+    scope: router
+    mode: majority
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    const config = await loadConfig(configPath);
+
+    expect(config.router.consensus).toEqual({
+      enabled: true,
+      models: ['gemma4', 'qwen3', 'llama3'],
+      scope: 'router',
+      mode: 'majority',
+    });
+  });
+
+  it('rejects more than three router consensus models', async () => {
+    const yamlContent = `
+router:
+  consensus:
+    enabled: true
+    models: [a, b, c, d]
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('router.consensus.models');
+  });
+
+  it('rejects unsupported router consensus scope', async () => {
+    const yamlContent = `
+router:
+  consensus:
+    enabled: true
+    models: [gemma4]
+    scope: all
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('router.consensus.scope');
+  });
+
   it('merges partial config with defaults', async () => {
     const yamlContent = `
 outputDir: ./my-output

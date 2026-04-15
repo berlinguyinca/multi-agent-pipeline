@@ -13,11 +13,13 @@ import type { SecurityConfig } from '../security/types.js';
 import { shouldGateStep } from '../security/should-gate.js';
 import { isAbortError } from '../utils/error.js';
 import { recordLearningCandidate } from '../knowledge/index.js';
+import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
 
 export interface DAGExecutionResult {
   success: boolean;
   steps: StepResult[];
   plan: DAGPlan;
+  replans?: AdviserReplanEvent[];
 }
 
 type AdapterFactory = (config: AdapterConfig) => AgentAdapter;
@@ -34,6 +36,10 @@ export interface DAGRetryOptions {
   adapterDefaults?: AdapterDefaultsMap;
   workingDir?: string;
   knowledgeCwd?: string;
+  adaptiveReplanning?: {
+    enabled?: boolean;
+    refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+  };
 }
 
 const MAX_TOOL_CALLS = 4;
@@ -89,6 +95,7 @@ export async function executeDAG(
   const allIds = new Set(mutablePlan.plan.map((s) => s.id));
   const activeAdapters = new Set<AgentAdapter>();
   const recoveryRounds = new Map<string, number>();
+  const replans: AdviserReplanEvent[] = [];
 
   const abortActiveAdapters = () => {
     for (const adapter of activeAdapters) {
@@ -261,6 +268,22 @@ export async function executeDAG(
             results.set(step.id, result);
             completed.add(step.id);
             settled.add(step.id);
+            if (retry?.adaptiveReplanning?.enabled && step.agent === 'adviser') {
+              const replan = await maybeApplyAdviserWorkflow({
+                adviserStepId: step.id,
+                output,
+                plan: mutablePlan,
+                agents,
+                completed,
+                settled,
+                running,
+                allIds,
+                refreshAgents: retry.adaptiveReplanning.refreshAgents,
+              });
+              if (replan) {
+                replans.push(replan);
+              }
+            }
             if (step.agent === 'result-judge' && result.output?.trim()) {
               await persistLearningCandidate(step, result.output, knowledgeCwd);
             }
@@ -362,7 +385,54 @@ export async function executeDAG(
     success: failed.size === 0,
     steps: stepResults,
     plan: mutablePlan,
+    ...(replans.length > 0 ? { replans } : {}),
   };
+}
+
+interface AdviserWorkflowOptions {
+  adviserStepId: string;
+  output: string;
+  plan: DAGPlan;
+  agents: Map<string, AgentDefinition>;
+  completed: Set<string>;
+  settled: Set<string>;
+  running: Set<string>;
+  allIds: Set<string>;
+  refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+}
+
+async function maybeApplyAdviserWorkflow(
+  options: AdviserWorkflowOptions,
+): Promise<AdviserReplanEvent | null> {
+  const workflow = parseAdviserWorkflow(options.output);
+  if (!workflow) return null;
+
+  const refreshedAgents =
+    workflow.refreshAgents && options.refreshAgents
+      ? await options.refreshAgents()
+      : null;
+  const agentSource = refreshedAgents ?? options.agents;
+
+  const event = applyAdviserWorkflow({
+    adviserStepId: options.adviserStepId,
+    workflow,
+    plan: options.plan,
+    agents: agentSource,
+    completed: options.completed,
+    settled: options.settled,
+    running: options.running,
+    allIds: options.allIds,
+    refreshedAgents: refreshedAgents !== null,
+  });
+
+  if (refreshedAgents) {
+    options.agents.clear();
+    for (const [name, agentDefinition] of refreshedAgents) {
+      options.agents.set(name, agentDefinition);
+    }
+  }
+
+  return event;
 }
 
 async function persistLearningCandidate(

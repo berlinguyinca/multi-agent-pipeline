@@ -11,6 +11,7 @@ All software-delivery agents added in PR #1 use `adapter: ollama` and `model: ge
 | `software-delivery` | `files` | Complete spec -> QA -> TDD -> implementation -> code QA lifecycle. |
 | `spec-writer` | `answer` | Convert rough requests into implementation-ready specs. |
 | `spec-qa-reviewer` | `answer` | Review specs for ambiguity, test gaps, and implementation risk. |
+| `adviser` | `answer` | Recommend the best agent launch workflow from reviewed/QA-approved specs, including custom-agent and registry-refresh guidance. |
 | `tdd-engineer` | `files` | Create test-first plans and failing tests. |
 | `implementation-coder` | `files` | Implement minimal code changes that satisfy tests. |
 | `code-qa-analyst` | `answer` | Review code against specs, tests, and maintainability expectations. |
@@ -27,6 +28,7 @@ All software-delivery agents added in PR #1 use `adapter: ollama` and `model: ge
 The router sees each agent's `description`, `handles`, and output type. Keep step tasks specific and dependency edges explicit:
 
 - Use `answer` agents for analysis, review, and decision points.
+- For coding workflows with a reviewed and QA-approved spec, route through `adviser` before execution agents so launch order, parallel work, custom agents, and registry refresh needs are explicit. If `adviser` returns `kind: "adviser-workflow"` JSON, MAP refreshes the agent registry when requested and replaces pending downstream DAG steps with the advised workflow.
 - Use `files` agents when the step is expected to create or modify files.
 - Put QA/review agents after implementation or docs steps when their output should gate downstream work.
 - Use `software-delivery` as a single-agent fallback for tasks that do not need explicit DAG decomposition.
@@ -40,12 +42,14 @@ Use this when a request needs a new feature or meaningful behavior change.
   "plan": [
     { "id": "step-1", "agent": "spec-writer", "task": "Create an implementation-ready specification", "dependsOn": [] },
     { "id": "step-2", "agent": "spec-qa-reviewer", "task": "Review the specification for ambiguity, missing tests, and risk", "dependsOn": ["step-1"] },
-    { "id": "step-3", "agent": "tdd-engineer", "task": "Write failing tests from the reviewed specification", "dependsOn": ["step-2"] },
-    { "id": "step-4", "agent": "implementation-coder", "task": "Implement the smallest code change that satisfies the tests", "dependsOn": ["step-3"] },
-    { "id": "step-5", "agent": "code-qa-analyst", "task": "Review the code against the reviewed specification and tests", "dependsOn": ["step-4"] },
-    { "id": "step-6", "agent": "docs-maintainer", "task": "Update Markdown documentation for the completed behavior", "dependsOn": ["step-5"] },
-    { "id": "step-7", "agent": "release-readiness-reviewer", "task": "Assess final readiness and residual risk", "dependsOn": ["step-6"] },
-    { "id": "step-8", "agent": "github-review-merge-specialist", "task": "Perform the final GitHub PR review and merge the approved changes", "dependsOn": ["step-7"] }
+    { "id": "step-3", "agent": "adviser", "task": "Recommend the best launch workflow from the reviewed and QA-approved spec", "dependsOn": ["step-2"] },
+    { "id": "step-4", "agent": "tdd-engineer", "task": "Write failing tests from the reviewed specification", "dependsOn": ["step-3"] },
+    { "id": "step-5", "agent": "implementation-coder", "task": "Implement the smallest code change that satisfies the tests", "dependsOn": ["step-4"] },
+    { "id": "step-6", "agent": "code-qa-analyst", "task": "Review the code against the reviewed specification and tests", "dependsOn": ["step-5"] },
+    { "id": "step-7", "agent": "docs-maintainer", "task": "Update Markdown documentation for the completed behavior", "dependsOn": ["step-6"] },
+    { "id": "step-8", "agent": "stabilization-reviewer", "task": "Audit capability claims, specs, docs, and integration boundaries", "dependsOn": ["step-7"] },
+    { "id": "step-9", "agent": "release-readiness-reviewer", "task": "Assess final readiness and residual risk", "dependsOn": ["step-8"] },
+    { "id": "step-10", "agent": "github-review-merge-specialist", "task": "Perform the final GitHub PR review and merge the approved changes", "dependsOn": ["step-9"] }
   ]
 }
 ```

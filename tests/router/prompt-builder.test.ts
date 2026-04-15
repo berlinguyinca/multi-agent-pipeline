@@ -73,6 +73,13 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('"dependsOn"');
   });
 
+  it('requires concise non-repetitive task descriptions', () => {
+    const prompt = buildRouterPrompt(agents, 'test');
+
+    expect(prompt).toContain('concise');
+    expect(prompt).toContain('non-repetitive');
+  });
+
   it('allows the router to return a no-match result', () => {
     const prompt = buildRouterPrompt(agents, 'test');
     expect(prompt).toContain('"kind":"no-match"');

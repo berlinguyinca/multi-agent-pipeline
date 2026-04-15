@@ -8,6 +8,22 @@ describe('buildCreationPrompt', () => {
     expect(prompt).toContain('agent.yaml');
     expect(prompt).toContain('prompt.md');
   });
+
+  it('includes interactive creation preferences', () => {
+    const prompt = buildCreationPrompt('Analyze financial reports', {
+      name: 'financial-analyst',
+      adapter: 'ollama',
+      model: 'gemma4',
+      tools: 'web-search',
+      pipeline: 'research, report',
+      outputType: 'data',
+    });
+
+    expect(prompt).toContain('financial-analyst');
+    expect(prompt).toContain('web-search');
+    expect(prompt).toContain('research, report');
+    expect(prompt).toContain('data');
+  });
 });
 
 describe('generateAgentFiles', () => {

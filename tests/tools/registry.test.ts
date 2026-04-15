@@ -25,8 +25,29 @@ describe('createToolRegistry', () => {
     expect(createToolRegistry(agent, '/tmp').map((tool) => tool.name)).toEqual(['knowledge-search']);
   });
 
-  it('skips MCP tools', () => {
+  it('creates http-api and db-connection builtin tools', () => {
+    const agent: AgentDefinition = {
+      name: 'test',
+      description: 'test',
+      adapter: 'claude',
+      prompt: 'test',
+      pipeline: [{ name: 'run' }],
+      handles: 'test',
+      output: { type: 'data' },
+      tools: [
+        { type: 'builtin', name: 'http-api', config: { baseUrl: 'https://example.com' } },
+        { type: 'builtin', name: 'db-connection', config: { dialect: 'postgres', connectionString: 'postgres://localhost/db' } },
+      ],
+    };
+    expect(createToolRegistry(agent, '/tmp').map((tool) => tool.name)).toEqual([
+      'knowledge-search',
+      'http-api',
+      'db-connection',
+    ]);
+  });
+
+  it('creates MCP proxy tools', () => {
     const agent: AgentDefinition = { name: 'test', description: 'test', adapter: 'claude', prompt: 'test', pipeline: [{ name: 'run' }], handles: 'test', output: { type: 'files' }, tools: [{ type: 'mcp', uri: 'mcp://localhost:5432' }] };
-    expect(createToolRegistry(agent, '/tmp').map((tool) => tool.name)).toEqual(['knowledge-search']);
+    expect(createToolRegistry(agent, '/tmp').map((tool) => tool.name)).toEqual(['knowledge-search', 'mcp-localhost-5432']);
   });
 });
