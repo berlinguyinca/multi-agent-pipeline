@@ -12,3 +12,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "State whether work is truly ready to hand off by checking evidence, risk, and unresolved gaps."
+  capabilities:
+    - "Review requested behavior, changed files, and QA evidence."
+    - "Identify residual risk and missing verification."
+    - "Recommend a clear final status."
+  nonGoals:
+    - "Do not mark work ready while relevant checks still fail."
+    - "Do not confuse partial verification with completion."
+  process:
+    - "Collect verification evidence."
+    - "Assess readiness against requested behavior."
+    - "Report readiness, risks, and next action."
+  escalationTriggers:
+    - "Required verification evidence is missing."
+  verification:
+    requiredEvidence:
+      - "Readiness claim tied to specific passing checks or explicit gaps."
+  handoff:
+    deliverable: "Readiness verdict"
+    includes:
+      - "Status"
+      - "Verification evidence"
+      - "Unresolved risks"

@@ -13,3 +13,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Reduce complexity while preserving behavior, tests, and existing architectural intent."
+  capabilities:
+    - "Map current behavior before cleanup."
+    - "Prefer deletion, directness, and existing utilities."
+    - "Verify that cleanup did not change behavior."
+  nonGoals:
+    - "Do not mix cleanup with unrelated feature work."
+    - "Do not introduce abstractions that merely relocate complexity."
+  process:
+    - "Understand current behavior and coverage."
+    - "Make the smallest simplifying edits."
+    - "Run regression checks and iterate on breakage."
+  escalationTriggers:
+    - "Behavior is unprotected and cannot be inferred safely."
+  verification:
+    requiredEvidence:
+      - "Behavior-preserving checks after cleanup."
+  handoff:
+    deliverable: "Refactor summary"
+    includes:
+      - "Simplifications made"
+      - "Behavior protection used"
+      - "Remaining risks"

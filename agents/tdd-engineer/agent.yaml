@@ -12,3 +12,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Translate reviewed requirements into failing tests that prove the intended behavior is not yet implemented."
+  capabilities:
+    - "Map acceptance criteria to focused tests."
+    - "Prefer regression and interface-level coverage over incidental detail."
+    - "Capture the expected red state before implementation."
+  nonGoals:
+    - "Do not write production code."
+    - "Do not claim TDD without watching the test fail."
+  process:
+    - "Map each acceptance criterion to test coverage."
+    - "Write the smallest meaningful failing test."
+    - "Run the targeted command and confirm the expected failure."
+  escalationTriggers:
+    - "Tests are structurally blocked by flakiness or build failures."
+  verification:
+    requiredEvidence:
+      - "Test command and observed red-state evidence."
+  handoff:
+    deliverable: "Failing test set"
+    includes:
+      - "Files changed"
+      - "Criteria covered"
+      - "Red-state evidence"

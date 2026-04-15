@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { StepResult } from '../types/dag.js';
 
 export interface ExecutionGraphEntry {
   id: string;
@@ -145,4 +146,176 @@ export async function saveFinalReportMarkdown(
   ].join('\n');
 
   return writeMarkdown(path.join(runDir, 'final-report.md'), content);
+}
+
+export interface GenerateAgentSummaryOptions {
+  steps: StepResult[];
+  duration: number;
+  success: boolean;
+  pipelineId: string;
+  outputRoot: string;
+}
+
+interface AgentStats {
+  totalSteps: number;
+  succeeded: number;
+  failed: number;
+  agents: Map<string, {
+    adapter: string;
+    model: string;
+    stepsRun: number;
+    errors: string[];
+  }>;
+}
+
+function groupStepsByAgent(steps: StepResult[]): AgentStats {
+  const stats: AgentStats = {
+    totalSteps: steps.length,
+    succeeded: steps.filter(s => s.status === 'completed').length,
+    failed: steps.filter(s => s.status === 'failed').length,
+    agents: new Map(),
+  };
+  
+  for (const step of steps) {
+    const agentName = step.agent;
+    const agentData = stats.agents.get(agentName) || {
+      adapter: step.provider ?? 'unknown',
+      model: step.model ?? 'unknown',
+      stepsRun: 0,
+      errors: [],
+    };
+    
+    agentData.stepsRun += 1;
+    if (step.status === 'failed') {
+      const errorMsg = step.error 
+        ? step.error.slice(0, 200).replace(/\n+/g, ' ').trim()
+        : 'Unknown error';
+      // Avoid duplicate error entries
+      if (!agentData.errors.includes(errorMsg)) {
+        agentData.errors.push(errorMsg);
+      }
+    }
+    stats.agents.set(agentName, agentData);
+  }
+  
+  return stats;
+}
+
+export async function generateAgentSummary(options: GenerateAgentSummaryOptions): Promise<string> {
+  // Group steps by agent with better tracking
+  const agentMap = new Map<string, {
+    adapter: string;
+    model: string;
+    steps: StepResult[];
+    errors: string[];
+  }>();
+  
+  for (const step of options.steps) {
+    const agentName = step.agent;
+    if (!agentMap.has(agentName)) {
+      agentMap.set(agentName, {
+        adapter: step.provider ?? 'unknown',
+        model: step.model ?? 'unknown',
+        steps: [],
+        errors: [],
+      });
+    }
+    
+    const agentData = agentMap.get(agentName)!;
+    agentData.steps.push(step);
+    
+    if (step.status === 'failed') {
+      const errorMsg = step.error 
+        ? step.error.slice(0, 200).replace(/\n+/g, ' ').trim()
+        : 'Unknown error';
+      if (!agentData.errors.includes(errorMsg)) {
+        agentData.errors.push(errorMsg);
+      }
+    }
+  }
+  
+  const duration = options.duration >= 360000 
+    ? `${(options.duration / 360000).toFixed(2)}h`
+    : options.duration >= 60000
+      ? `${(options.duration / 60000).toFixed(1)}m`
+      : `${options.duration}ms`;
+  
+  const header = [
+    `# Pipeline Execution Summary`,
+    '',
+    `**Duration:** ${duration}`,
+    `**Pipeline ID:** ${options.pipelineId}`,
+    `**Status:** ${options.success ? '✅ Completed' : '❌ Failed'}`,
+    '',
+    '## Overall Statistics',
+    '',
+    `**Total Steps:** ${options.steps.length}`,
+    `**Successful:** ${options.steps.filter(s => s.status === 'completed').length}`,
+    `**Failed:** ${options.steps.filter(s => s.status === 'failed').length}`,
+    '',
+    '## Agents Summary',
+    '',
+  ].join('\n');
+  
+  const agentSections = Array.from(agentMap.entries()).map(([agentName, data]) => {
+    const completedSteps = data.steps.filter(s => s.status === 'completed').length;
+    const failedSteps = data.steps.filter(s => s.status === 'failed').length;
+    const status = data.steps.length === 0 
+      ? '_not used_'
+      : failedSteps > 0 
+        ? '⚠️ had failures'
+        : '✅ fully successful';
+    
+    const stepHistory = data.steps
+      .map((step, idx) => {
+        return `   - Step ${idx + 1}: ${step.task} [${step.status}] ${step.duration ? `(${formatDuration(step.duration)})` : ''}`;
+      })
+      .join('\n');
+    
+    const errorsSection = data.errors.length > 0 
+      ? [
+        '',
+        `     ## Errors encountered (${data.errors.length})`,
+        '',
+        ...data.errors.slice(0, 5).map(err => `       - ${err}`),
+        '',
+      ].join('\n')
+      : '';
+    
+    return [
+      `### ${agentName}`,
+      '',
+      `**Adapter:** ${data.adapter} ${data.model ? `(${data.model})` : ''}`,
+      `**Total Steps:** ${data.steps.length}`,
+      `**Completed:** ${completedSteps}`,
+      `**Failed:** ${failedSteps}`,
+      `**Status:** ${status}`,
+      '',
+      '## Step history',
+      '',
+      stepHistory,
+      '',
+      '## Actions taken',
+      '',
+      `- **Input:** Processed task/output from previous steps`,
+      `- **Output:** Generated results for downstream steps`,
+      errorsSection,
+      '',
+    ].join('\n');
+  });
+  
+  const footer = [
+    '',
+    '## Notes',
+    '',
+    '- Agents are invoked based on the DAG plan and their dependencies',
+    '- Recovery steps are included when failures occur',
+    '- Failed steps may trigger recovery attempts before marking as failed',
+    '- This summary is generated after each pipeline completes',
+    '',
+  ].join('\n');
+  
+  const content = header + agentSections.join('') + footer;
+  
+  return writeMarkdown(path.join(options.outputRoot, 'AGENTS_SUMMARY.md'), content);
 }

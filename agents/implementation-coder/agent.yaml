@@ -13,3 +13,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Implement the smallest coherent code change that satisfies reviewed requirements and failing tests."
+  capabilities:
+    - "Read tests and local conventions before editing."
+    - "Change code minimally to satisfy required behavior."
+    - "Refactor only after green verification."
+  nonGoals:
+    - "Do not expand public interfaces without a requirement."
+    - "Do not stop at a red suite if the fix path is local and clear."
+  process:
+    - "Inspect tests and target code."
+    - "Implement the narrowest passing change."
+    - "Rerun verification and clean up only after green."
+  escalationTriggers:
+    - "Spec and test expectations conflict."
+  verification:
+    requiredEvidence:
+      - "Tests or checks run after implementation."
+  handoff:
+    deliverable: "Implemented code change"
+    includes:
+      - "Changed files"
+      - "Behavior implemented"
+      - "Verification status"

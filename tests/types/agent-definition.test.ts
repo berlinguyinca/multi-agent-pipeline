@@ -1,6 +1,7 @@
 // tests/types/agent-definition.test.ts
 import { describe, it, expect } from 'vitest';
 import type {
+  AgentContract,
   AgentDefinition,
   AgentToolConfig,
   AgentStageConfig,
@@ -9,6 +10,27 @@ import type {
 import { isValidAgentDefinition } from '../../src/types/agent-definition.js';
 
 describe('AgentDefinition types', () => {
+  const validContract: AgentContract = {
+    mission: 'Answer research questions with sourced, testable conclusions.',
+    capabilities: ['Clarify the question', 'Synthesize retrieved evidence'],
+    nonGoals: ['Do not fabricate citations'],
+    inputs: {
+      required: ['User question'],
+      optional: ['Existing notes'],
+    },
+    process: ['Clarify scope', 'Gather evidence', 'Synthesize findings'],
+    decisionRules: ['Prefer higher-quality evidence over breadth'],
+    escalationTriggers: ['Critical source conflict'],
+    verification: {
+      requiredEvidence: ['Claims are tied to evidence'],
+      forbiddenClaims: ['Do not claim certainty without support'],
+    },
+    handoff: {
+      deliverable: 'Markdown answer',
+      includes: ['Summary', 'Evidence', 'Open questions'],
+    },
+  };
+
   it('validates a minimal agent definition', () => {
     const agent: AgentDefinition = {
       name: 'researcher',
@@ -20,6 +42,22 @@ describe('AgentDefinition types', () => {
       output: { type: 'answer' },
       tools: [],
     };
+    expect(isValidAgentDefinition(agent)).toBe(true);
+  });
+
+  it('validates an agent definition with a structured contract', () => {
+    const agent: AgentDefinition = {
+      name: 'researcher',
+      description: 'Synthesizes answers from research',
+      adapter: 'claude',
+      prompt: 'You are a research specialist.',
+      pipeline: [{ name: 'research' }],
+      handles: 'research questions, knowledge synthesis',
+      output: { type: 'answer' },
+      tools: [],
+      contract: validContract,
+    };
+
     expect(isValidAgentDefinition(agent)).toBe(true);
   });
 
@@ -101,6 +139,25 @@ describe('AgentDefinition types', () => {
       output: { type: 'unknown' },
       tools: [],
     };
+    expect(isValidAgentDefinition(agent as AgentDefinition)).toBe(false);
+  });
+
+  it('rejects agent with an invalid contract', () => {
+    const agent = {
+      name: 'bad-contract',
+      description: 'test',
+      adapter: 'claude',
+      prompt: 'test',
+      pipeline: [{ name: 'step1' }],
+      handles: 'test',
+      output: { type: 'answer' },
+      tools: [],
+      contract: {
+        mission: '',
+        capabilities: [],
+      },
+    };
+
     expect(isValidAgentDefinition(agent as AgentDefinition)).toBe(false);
   });
 });

@@ -528,7 +528,7 @@ Run:
   map
   map --headless "Build a tested Node.js CLI"
   map --headless --personality "Be concise and strict about test evidence." "Build a tested Node.js CLI"
-  map --headless --v2 "Build the feature with TDD and QA review"
+  map --headless --classic "Build the feature with the fixed-stage pipeline"
   map agent create --adapter ollama --model ${MAP_OLLAMA_MODEL:-$DEFAULT_OLLAMA_MODEL}
 
 Local checkout:

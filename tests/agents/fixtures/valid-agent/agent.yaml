@@ -15,3 +15,29 @@ tools:
     name: shell
     config:
       allowedCommands: ["ls"]
+contract:
+  mission: "Turn test inputs into a precise, reviewable answer."
+  capabilities:
+    - "Read prompt context carefully."
+    - "Return concise findings."
+  nonGoals:
+    - "Do not invent missing data."
+  inputs:
+    required:
+      - "Task description"
+    optional:
+      - "Stage-specific prompt"
+  process:
+    - "Inspect the prompt."
+    - "Answer only what is supported."
+  decisionRules:
+    - "Prefer concise, direct output."
+  escalationTriggers:
+    - "Input is missing required facts."
+  verification:
+    requiredEvidence:
+      - "Answer matches available input."
+  handoff:
+    deliverable: "Markdown answer"
+    includes:
+      - "Findings"

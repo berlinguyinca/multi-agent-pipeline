@@ -1,14 +1,25 @@
 // src/router/router.ts
 import type { AgentAdapter } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
+import type { RouterConfig as PipelineRouterConfig } from '../types/config.js';
 import type { DAGPlan } from '../types/dag.js';
 import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
 import { isAbortError } from '../utils/error.js';
 
-interface RouterConfig {
-  maxSteps: number;
-  timeoutMs: number;
+type RouterConfig = Pick<PipelineRouterConfig, 'maxSteps' | 'timeoutMs' | 'maxStepRetries' | 'retryDelayMs'>;
+
+const DEFAULT_MAX_STEP_RETRIES = 4;
+const DEFAULT_RETRY_DELAY_MS = 3_000;
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
 
 export interface SuggestedAgentDefinition {
@@ -38,51 +49,69 @@ export async function routeTask(
   onChunk?: (chunk: string) => void,
 ): Promise<RouterDecision> {
   const prompt = buildRouterPrompt(agents, userTask, config.maxSteps);
-
   let output = '';
-  const controller = new AbortController();
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, config.timeoutMs);
-  const abortExternal = () => controller.abort();
-  signal?.addEventListener('abort', abortExternal);
-  const runOptions =
-    routerAdapter.type === 'ollama'
-      ? {
-          signal: controller.signal,
-          responseFormat: 'json',
-          hideThinking: true,
-          think: false,
-          systemPrompt:
-            'Return only valid JSON for the router decision. Do not include reasoning, markdown, code fences, or commentary.',
-        }
-      : {
-          signal: controller.signal,
-          systemPrompt:
-            'Return only valid JSON for the router decision. Do not include reasoning, markdown, code fences, or commentary.',
-        };
+  let timeoutMsForAttempt = config.timeoutMs;
+  const maxRetries = config.maxStepRetries ?? DEFAULT_MAX_STEP_RETRIES;
+  const retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
-  try {
-    for await (const chunk of routerAdapter.run(prompt, runOptions)) {
-      output += chunk;
-      onChunk?.(chunk);
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    output = '';
+    let timedOut = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMsForAttempt);
+    const abortExternal = () => controller.abort();
+    signal?.addEventListener('abort', abortExternal);
+    const runOptions =
+      routerAdapter.type === 'ollama'
+        ? {
+            signal: controller.signal,
+            responseFormat: 'json',
+            hideThinking: true,
+            think: false,
+            systemPrompt:
+              'Return only valid JSON for the router decision. Do not include reasoning, markdown, code fences, or commentary.',
+          }
+        : {
+            signal: controller.signal,
+            systemPrompt:
+              'Return only valid JSON for the router decision. Do not include reasoning, markdown, code fences, or commentary.',
+          };
+
+    try {
+      for await (const chunk of routerAdapter.run(prompt, runOptions)) {
+        output += chunk;
+        onChunk?.(chunk);
+      }
+      break;
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
+        if (signal?.aborted) {
+          throw new Error('Router was cancelled');
+        }
+        if (!timedOut || attempt >= maxRetries) {
+          throw new Error(
+            timedOut
+              ? `Router timed out after ${timeoutMsForAttempt}ms`
+              : 'Router operation was aborted',
+          );
+        }
+        timeoutMsForAttempt *= 2;
+        if (retryDelayMs > 0) {
+          await delay(retryDelayMs, signal);
+          if (signal?.aborted) {
+            throw new Error('Router was cancelled');
+          }
+        }
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortExternal);
     }
-  } catch (err: unknown) {
-    if (isAbortError(err)) {
-      throw new Error(
-        timedOut
-          ? `Router timed out after ${config.timeoutMs}ms`
-          : signal?.aborted
-            ? 'Router was cancelled'
-            : 'Router operation was aborted',
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener('abort', abortExternal);
   }
 
   const decision = parseRouterDecision(output);

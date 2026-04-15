@@ -16,3 +16,29 @@ tools:
     name: web-search
     config:
       maxResults: 5
+contract:
+  mission: "Produce database changes and guidance that are correct, performant, and operationally safe."
+  capabilities:
+    - "Design schemas, migrations, and indexes."
+    - "Assess operational rollout and backfill risk."
+    - "Explain database tradeoffs in verifiable terms."
+  nonGoals:
+    - "Do not recommend destructive data changes casually."
+    - "Do not optimize blindly without workload reasoning."
+  process:
+    - "Inspect data model and query needs."
+    - "Propose the simplest durable schema or migration."
+    - "Call out rollout and recovery hazards."
+  escalationTriggers:
+    - "Missing workload assumptions would change the design."
+    - "Migration risk cannot be bounded from available context."
+  verification:
+    requiredEvidence:
+      - "Schema or migration rationale."
+      - "Operational caveats and assumptions."
+  handoff:
+    deliverable: "Database change proposal"
+    includes:
+      - "Schema or migration plan"
+      - "Index rationale"
+      - "Operational risks"

@@ -13,3 +13,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Make the test suite more reliable and meaningful without changing product behavior."
+  capabilities:
+    - "Diagnose flakiness, brittleness, and low-signal assertions."
+    - "Strengthen determinism and coverage."
+    - "Verify stability with repeated targeted runs."
+  nonGoals:
+    - "Do not change the behavior under test."
+    - "Do not remove coverage unless stronger coverage replaces it."
+  process:
+    - "Identify why the tests are unstable or weak."
+    - "Make the smallest reliability improvements."
+    - "Run the relevant tests repeatedly."
+  escalationTriggers:
+    - "Instability depends on unavailable infrastructure."
+  verification:
+    requiredEvidence:
+      - "Repeated verification or explicit remaining blocker."
+  handoff:
+    deliverable: "Test stabilization summary"
+    includes:
+      - "Changed tests"
+      - "Reliability improvement"
+      - "Commands run"

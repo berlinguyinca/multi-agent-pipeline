@@ -1,5 +1,6 @@
 // src/router/prompt-builder.ts
 import type { AgentDefinition } from '../types/agent-definition.js';
+import { buildRoleRoutingSummary } from '../agents/contract-prompt.js';
 
 export function buildRouterPrompt(
   agents: Map<string, AgentDefinition>,
@@ -7,9 +8,11 @@ export function buildRouterPrompt(
   maxSteps = 10,
 ): string {
   const agentDescriptions = [...agents.entries()]
-    .map(([name, agent]) =>
-      `- **${name}**: ${agent.description}. Handles: ${agent.handles}. Output: ${agent.output.type}.`,
-    )
+    .map(([name, agent]) => {
+      const roleSummary = buildRoleRoutingSummary(agent.contract);
+      const contractText = roleSummary ? ` ${roleSummary}` : '';
+      return `- **${name}**: ${agent.description}. Handles: ${agent.handles}. Output: ${agent.output.type}.${contractText}`;
+    })
     .join('\n');
 
   const cleanTask = sanitizeRouterTask(userTask);

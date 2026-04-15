@@ -16,3 +16,27 @@ tools:
     name: web-search
     config:
       maxResults: 5
+contract:
+  mission: "Produce clear visual assets that communicate the intended message with minimal cognitive overhead."
+  capabilities:
+    - "Choose the right visual form for the point being made."
+    - "Generate charts, diagrams, and report-ready assets."
+    - "Keep visuals aligned to audience and presentation context."
+  nonGoals:
+    - "Do not create decorative visuals that obscure the message."
+    - "Do not omit assumptions behind the visual encoding."
+  process:
+    - "Clarify the message and audience."
+    - "Select the simplest effective visual form."
+    - "Build the asset and note any assumptions."
+  escalationTriggers:
+    - "The underlying data or intended message is ambiguous."
+  verification:
+    requiredEvidence:
+      - "Asset created and linked to its intended message."
+  handoff:
+    deliverable: "Visual asset package"
+    includes:
+      - "Asset paths"
+      - "Message per asset"
+      - "Data assumptions"

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildMarkdownRunDir,
+  generateAgentSummary,
   saveFinalReportMarkdown,
   saveStepMarkdown,
   saveStageMarkdown,
@@ -110,5 +111,47 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('Final answer');
     expect(saved).toContain('src/index.ts');
     expect(saved).toContain('/tmp/raw.log');
+  });
+
+  it('generates an agent summary markdown report', async () => {
+    const outputRoot = await makeTempDir();
+
+    const file = await generateAgentSummary({
+      outputRoot,
+      pipelineId: 'pipe-4',
+      duration: 1500,
+      success: false,
+      steps: [
+        {
+          id: 'step-1',
+          agent: 'researcher',
+          provider: 'ollama',
+          model: 'gemma4:26b',
+          task: 'Research topic',
+          status: 'completed',
+          duration: 900,
+        },
+        {
+          id: 'step-2',
+          agent: 'writer',
+          provider: 'claude',
+          model: 'sonnet',
+          task: 'Draft summary',
+          status: 'failed',
+          duration: 600,
+          error: 'Model response was empty',
+        },
+      ],
+    });
+
+    const saved = await fs.readFile(file, 'utf8');
+    expect(path.basename(file)).toBe('AGENTS_SUMMARY.md');
+    expect(saved).toContain('# Pipeline Execution Summary');
+    expect(saved).toContain('**Pipeline ID:** pipe-4');
+    expect(saved).toContain('### researcher');
+    expect(saved).toContain('**Status:** ✅ fully successful');
+    expect(saved).toContain('### writer');
+    expect(saved).toContain('**Status:** ⚠️ had failures');
+    expect(saved).toContain('Model response was empty');
   });
 });

@@ -1,0 +1,13 @@
+name: invalid-contract
+description: "Agent with invalid contract metadata"
+adapter: claude
+prompt: prompt.md
+pipeline:
+  - name: run
+handles: "invalid contract tests"
+output:
+  type: answer
+tools: []
+contract:
+  mission: ""
+  capabilities: []

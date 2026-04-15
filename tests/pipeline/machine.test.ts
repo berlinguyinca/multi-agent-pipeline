@@ -158,6 +158,27 @@ describe('Pipeline State Machine', () => {
     });
   });
 
+  describe('spec-file entry path', () => {
+    it('starts in reviewing when START carries an initial spec', () => {
+      const actor = createTestActor();
+      actor.start();
+
+      actor.send({
+        type: 'START',
+        prompt: 'Use the supplied spec',
+        initialSpec: mockSpec,
+        specFilePath: 'docs/spec.md',
+      });
+
+      expect(actor.getSnapshot().value).toBe('reviewing');
+      expect(actor.getSnapshot().context.spec).toEqual(mockSpec);
+      expect(actor.getSnapshot().context.initialSpec).toBe(mockSpec.content);
+      expect(actor.getSnapshot().context.specFilePath).toBe('docs/spec.md');
+
+      actor.stop();
+    });
+  });
+
   describe('feedback loop: feedback → specifying → reviewing → feedback', () => {
     it('loops back on FEEDBACK event', () => {
       const actor = createTestActor();

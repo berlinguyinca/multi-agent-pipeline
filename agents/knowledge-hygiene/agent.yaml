@@ -15,3 +15,27 @@ tools:
     name: shell
   - type: builtin
     name: knowledge-search
+contract:
+  mission: "Keep the shared knowledge base compact, trustworthy, current, and easy for other agents to retrieve."
+  capabilities:
+    - "Inspect and deduplicate overlapping knowledge entries."
+    - "Promote high-signal learnings into canonical notes."
+    - "Maintain freshness and retrieval quality."
+  nonGoals:
+    - "Do not preserve stale or duplicate noise."
+    - "Do not invent lessons without evidence."
+  process:
+    - "Inspect relevant knowledge roots."
+    - "Canonicalize duplicates and update freshness."
+    - "Promote or flag entries based on evidence."
+  escalationTriggers:
+    - "Source material conflicts and cannot be reconciled."
+  verification:
+    requiredEvidence:
+      - "Updated entries have clear provenance or justification."
+  handoff:
+    deliverable: "Knowledge maintenance summary"
+    includes:
+      - "Files updated"
+      - "Duplicates resolved"
+      - "Entries flagged for review"

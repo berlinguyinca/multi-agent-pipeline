@@ -2,8 +2,14 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { AgentDefinition, AgentStageConfig, AgentToolConfig } from '../types/agent-definition.js';
+import type {
+  AgentContract,
+  AgentDefinition,
+  AgentStageConfig,
+  AgentToolConfig,
+} from '../types/agent-definition.js';
 import { isValidAgentDefinition } from '../types/agent-definition.js';
+import { buildRoleContractPrompt } from './contract-prompt.js';
 
 interface RawAgentYaml {
   name: string;
@@ -18,6 +24,7 @@ interface RawAgentYaml {
   enabled?: boolean;
   fallbacks?: Array<{ adapter: string; model?: string }>;
   think?: boolean;
+  contract?: AgentContract;
 }
 
 export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDefinition> {
@@ -61,7 +68,7 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
     description: raw.description,
     adapter: raw.adapter as AgentDefinition['adapter'],
     model: raw.model,
-    prompt: mainPrompt,
+    prompt: buildPromptWithContract(mainPrompt, raw.contract),
     pipeline,
     handles: raw.handles,
     output: { type: raw.output.type as AgentDefinition['output']['type'] },
@@ -69,6 +76,7 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
     enabled: raw.enabled,
     ...(fallbacks && fallbacks.length > 0 ? { fallbacks } : {}),
     ...(raw.think !== undefined ? { think: raw.think } : {}),
+    ...(raw.contract ? { contract: raw.contract } : {}),
   };
 
   if (!isValidAgentDefinition(agent)) {
@@ -81,4 +89,10 @@ export async function loadAgentFromDirectory(agentDir: string): Promise<AgentDef
 async function loadPromptFile(baseDir: string, promptPath: string): Promise<string> {
   const fullPath = path.join(baseDir, promptPath);
   return (await fs.readFile(fullPath, 'utf-8')).trim();
+}
+
+function buildPromptWithContract(mainPrompt: string, contract: AgentContract | undefined): string {
+  const contractPrompt = buildRoleContractPrompt(contract);
+  if (!contractPrompt) return mainPrompt;
+  return `${contractPrompt}\n${mainPrompt}`.trim();
 }

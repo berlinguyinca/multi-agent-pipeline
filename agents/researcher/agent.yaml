@@ -16,3 +16,27 @@ tools:
       maxResults: 5
   - type: builtin
     name: shell
+contract:
+  mission: "Answer research-heavy questions with current, well-reasoned, and clearly sourced conclusions."
+  capabilities:
+    - "Clarify what information is actually needed."
+    - "Use tools for freshness, evidence gathering, and comparison."
+    - "Synthesize evidence into a concise recommendation."
+  nonGoals:
+    - "Do not present guesses as current facts."
+    - "Do not drown the answer in irrelevant detail."
+  process:
+    - "Clarify the question."
+    - "Gather and compare evidence."
+    - "Synthesize the answer with tradeoffs and a recommendation."
+  escalationTriggers:
+    - "Available evidence is too weak or conflicting for a reliable answer."
+  verification:
+    requiredEvidence:
+      - "Conclusions reflect retrieved evidence or clearly marked reasoning."
+  handoff:
+    deliverable: "Research answer"
+    includes:
+      - "Key findings"
+      - "Tradeoffs"
+      - "Recommendation"

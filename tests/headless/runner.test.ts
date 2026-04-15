@@ -369,6 +369,53 @@ describe('runWithActor', () => {
     const result = await runWithActor({ prompt: 'test' }, './output', actor);
     expect(result.spec).toBe('Final reviewed content');
   });
+
+  it('starts from reviewing when initialSpec is provided', async () => {
+    const actor = makeActor();
+
+    let step = 0;
+    const origSubscribe = actor.subscribe.bind(actor);
+    actor.subscribe = ((listener: Parameters<typeof origSubscribe>[0]) => {
+      return origSubscribe((snapshot) => {
+        if (typeof listener === 'function') listener(snapshot);
+        else if (typeof listener === 'object' && listener !== null) {
+          (listener as { next?: (s: typeof snapshot) => void }).next?.(snapshot);
+        }
+
+        const value = snapshot.value as string;
+        if (value === 'reviewing' && step === 0) {
+          step = 1;
+          expect(snapshot.context.spec?.content).toBe('# Imported Spec');
+          actor.send({ type: 'REVIEW_COMPLETE', reviewedSpec: mockReviewedSpec, score: mockScore });
+        } else if (value === 'specAssessing' && step === 1) {
+          step = 2;
+          actor.send({ type: 'SPEC_QA_COMPLETE', assessment: mockSpecQa, maxReached: false });
+        } else if (value === 'executing' && step === 2) {
+          step = 3;
+          actor.send({ type: 'EXECUTE_COMPLETE', result: mockExecutionResult });
+        } else if (value === 'codeAssessing' && step === 3) {
+          step = 4;
+          actor.send({ type: 'CODE_QA_COMPLETE', assessment: mockCodeQa, maxReached: false });
+        } else if (value === 'documenting' && step === 4) {
+          step = 5;
+          actor.send({
+            type: 'DOCS_COMPLETE',
+            result: { filesUpdated: ['README.md'], outputDir: './output', duration: 100, rawOutput: 'done' },
+          });
+        }
+      });
+    }) as typeof actor.subscribe;
+
+    const result = await runWithActor(
+      { prompt: 'review this imported spec', initialSpec: '# Imported Spec', specFilePath: 'docs/spec.md' },
+      './output',
+      actor,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.spec).toBe(mockReviewedSpec.content);
+    expect(result.specFilePath).toBe('docs/spec.md');
+  });
 });
 
 // ---------------------------------------------------------------------------

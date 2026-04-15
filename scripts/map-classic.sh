@@ -10,7 +10,7 @@ if [[ ! -x "$CLI" ]]; then
   exit 1
 fi
 
-args=(--headless)
+args=(--headless --classic)
 
 if [[ -n "${CONFIG:-}" ]]; then
   args+=(--config "$CONFIG")

@@ -51,9 +51,33 @@ describe('validatePrompt', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('bypasses validation when a spec file path is provided', () => {
+    const result = validatePrompt('', undefined, 'docs/spec.md');
+    expect(result.valid).toBe(true);
+  });
+
   it('bypasses validation with short prompt when GitHub issue URL is provided', () => {
     const result = validatePrompt('test', 'https://github.com/org/repo/issues/1');
     expect(result.valid).toBe(true);
+  });
+
+  it('allows mixing prompt text with a spec file when requested', () => {
+    const result = validatePrompt('build a CLI from this', undefined, 'docs/spec.md', {
+      allowPromptWithSpecFile: true,
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects mixing prompt text with a spec file by default', () => {
+    const result = validatePrompt('build a CLI from this', undefined, 'docs/spec.md');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('--spec-file');
+  });
+
+  it('rejects mixing a GitHub issue with a spec file', () => {
+    const result = validatePrompt('', 'https://github.com/org/repo/issues/1', 'docs/spec.md');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('--github-issue');
   });
 
   it('does not bypass validation for empty GitHub URL', () => {

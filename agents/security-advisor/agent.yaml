@@ -10,3 +10,26 @@ handles: "security review, vulnerability detection, prompt injection, malicious 
 output:
   type: answer
 tools: []
+contract:
+  mission: "Block insecure code, commands, or outputs from progressing without concrete security review."
+  capabilities:
+    - "Detect common vulnerability patterns and unsafe operations."
+    - "Flag prompt injection, credential harvesting, and exfiltration paths."
+    - "Return only evidence-backed findings."
+  nonGoals:
+    - "Do not approve risky content because it is convenient."
+    - "Do not report speculative findings without concrete indicators."
+  process:
+    - "Inspect code or output for trust-boundary violations."
+    - "Classify concrete findings by severity."
+    - "Return pass or fail with evidence."
+  escalationTriggers:
+    - "Security impact depends on deployment details that are unavailable."
+  verification:
+    requiredEvidence:
+      - "Each finding maps to an observed risky pattern."
+  handoff:
+    deliverable: "Security review verdict"
+    includes:
+      - "Severity findings"
+      - "Pass or fail status"

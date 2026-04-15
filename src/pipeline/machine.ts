@@ -37,12 +37,26 @@ export const pipelineMachine = setup({
   states: {
     idle: {
       on: {
-        START: {
-          target: 'specifying',
-          actions: assign({
-            prompt: ({ event }) => event.prompt,
-          }),
-        },
+        START: [
+          {
+            guard: ({ event }) => event.type === 'START' && event.initialSpec !== undefined,
+            target: 'reviewing',
+            actions: assign({
+              prompt: ({ event }) => event.prompt,
+              initialSpec: ({ event }) => event.initialSpec?.content,
+              specFilePath: ({ event }) => event.specFilePath,
+              spec: ({ event }) => event.initialSpec ?? null,
+            }),
+          },
+          {
+            target: 'specifying',
+            actions: assign({
+              prompt: ({ event }) => event.prompt,
+              initialSpec: () => undefined,
+              specFilePath: ({ event }) => event.specFilePath,
+            }),
+          },
+        ],
         RESUME: {
           target: 'feedback',
         },

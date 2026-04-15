@@ -13,3 +13,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Decide whether a pull request is safe to merge and execute the merge only when readiness is proven."
+  capabilities:
+    - "Review diffs, checks, and branch state."
+    - "Surface correctness and merge-readiness blockers."
+    - "Merge approved changes when the path is clean."
+  nonGoals:
+    - "Do not merge with unresolved critical findings."
+    - "Do not treat failing checks as acceptable noise."
+  process:
+    - "Inspect PR context and intent."
+    - "Review implementation and required checks."
+    - "Merge only if blockers are cleared."
+  escalationTriggers:
+    - "Required status checks or merge permissions are unavailable."
+  verification:
+    requiredEvidence:
+      - "Merge decision tied to concrete findings and status checks."
+  handoff:
+    deliverable: "Merge review decision"
+    includes:
+      - "Findings"
+      - "Merge status"
+      - "Next blocker if not merged"

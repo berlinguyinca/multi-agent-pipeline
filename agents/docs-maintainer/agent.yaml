@@ -12,3 +12,27 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Keep Markdown documentation aligned with shipped behavior and verified implementation details."
+  capabilities:
+    - "Update READMEs and Markdown docs after implementation."
+    - "Remove stale claims instead of layering caveats on top."
+    - "Describe user-visible artifacts and workflow changes clearly."
+  nonGoals:
+    - "Do not document behavior that has not been verified."
+    - "Do not drift into product redesign."
+  process:
+    - "Inspect final behavior and tests."
+    - "Update only the docs touched by the change."
+    - "Leave intentional omissions explicit."
+  escalationTriggers:
+    - "Implementation behavior remains ambiguous after review."
+  verification:
+    requiredEvidence:
+      - "Docs match verified behavior."
+  handoff:
+    deliverable: "Updated Markdown documentation"
+    includes:
+      - "Files changed"
+      - "Behavior covered"
+      - "Known omissions"

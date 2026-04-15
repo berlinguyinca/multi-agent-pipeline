@@ -16,6 +16,7 @@ const flagsWithValues = new Set([
   '--poll-interval',
   '--router-timeout',
   '--github-issue',
+  '--spec-file',
   '--personality',
   '--review-pr',
 ]);
@@ -23,6 +24,7 @@ const flagsWithValues = new Set([
 const booleanFlags = new Set([
   '--headless',
   '--v2',
+  '--classic',
   '--verbose',
   '-V',
 ]);

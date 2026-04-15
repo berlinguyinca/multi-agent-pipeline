@@ -2,7 +2,7 @@
 
 **One task. One shot. Useful output.**
 
-MAP orchestrates AI CLIs and local models through spec-first, test-driven software delivery. It can run the original guided pipeline, or use v2 smart routing to select repo-defined agents and execute a dependency-aware DAG.
+MAP orchestrates AI CLIs and local models through spec-first, test-driven software delivery. It uses v2 smart routing by default to select repo-defined agents and execute a dependency-aware DAG, with the original guided pipeline still available through `--classic`.
 
 ```bash
 npm install -g multi-agent-pipeline
@@ -13,8 +13,8 @@ map
 
 MAP supports two execution modes:
 
-- **Classic pipeline**: spec generation, spec review, spec QA, user feedback, TDD execution, code QA, and Markdown docs.
-- **Smart routing v2**: a router reads registered agents from `agents/`, creates a DAG plan, and runs independent agent steps in parallel where possible.
+- **Smart routing v2**: the default. A router reads registered agents from `agents/`, creates a DAG plan, and runs independent agent steps in parallel where possible.
+- **Classic pipeline**: optional fixed-stage mode for spec generation, spec review, spec QA, user feedback, TDD execution, code QA, and Markdown docs.
 
 The core idea is the same in both modes: invest in the spec and verification path before spending expensive implementation cycles.
 
@@ -32,16 +32,22 @@ Run the interactive TUI:
 map
 ```
 
-Run headless classic mode:
+Run headless smart-routing mode:
 
 ```bash
 map --headless "Investigate how a concept is used in a domain"
 ```
 
-Run headless smart-routing mode:
+Run headless smart-routing mode from an existing spec file:
 
 ```bash
-map --headless --v2 "Research the best design, implement it with tests, then review readiness"
+map --headless --spec-file docs/spec.md
+```
+
+Run the optional classic fixed-stage pipeline:
+
+```bash
+map --headless --classic "Research the best design, implement it with tests, then review readiness"
 ```
 
 For local development without linking the command globally:
@@ -147,7 +153,7 @@ npm run build
 ./dist/cli.js --headless "Explain how alanine is used in metabolomics research"
 npm link
 map --help
-map --headless --v2 "Research the best approach, plan the steps, and review readiness"
+map --headless "Research the best approach, plan the steps, and review readiness"
 ```
 
 If you use `npm link`, rebuild after source changes before running `map` again:
@@ -234,6 +240,9 @@ map "Explain how alanine is used in metabolomics research"
 # Point at a specific config
 map --config ./pipeline.yaml "Explain the tradeoffs of two approaches"
 
+# Start from a local spec file instead of a freeform prompt
+map --spec-file docs/spec.md
+
 # Start from a GitHub issue — the issue title, body, and comments become the prompt
 map --github-issue https://github.com/owner/repo/issues/123
 
@@ -300,11 +309,14 @@ Headless mode runs the full pipeline without user interaction: every approval is
 Run once and exit. Good for CI pipelines, local scripts, or manual batch runs.
 
 ```bash
-# Classic pipeline — fixed spec/review/QA/execute/docs stages
+# Smart-routing v2 — default router-picked DAG
 map --headless "Explain how a concept is used in a domain"
 
-# Smart-routing v2 — router picks agents and builds a DAG
-map --headless --v2 "Research the best approach, plan the work, and review readiness"
+# Smart-routing v2 from a prewritten spec file
+map --headless --spec-file docs/spec.md
+
+# Classic pipeline — fixed spec/review/QA/execute/docs stages
+map --headless --classic "Research the best approach, plan the work, and review readiness"
 
 # Write output to a specific directory
 map --headless --output-dir ./output/pantry "Investigate a specific question"
@@ -430,6 +442,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
+Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; when a step times out, MAP retries it and doubles the next step timeout budget by default.
 
 ### Verbose Progress
 
@@ -502,7 +515,7 @@ map agent create --adapter ollama --model gemma4:26b
 From this repository, prefix the same commands with `npm run dev --`:
 
 ```bash
-npm run dev -- --headless --v2 \
+npm run dev -- --headless \
   --personality "Use a terse engineering review style." \
   "Research the task, plan execution, and review readiness"
 ```
@@ -599,7 +612,7 @@ prompt
 Run it with:
 
 ```bash
-map --headless --v2 "Research the task, plan the steps, and assess readiness"
+map --headless "Research the task, plan the steps, and assess readiness"
 ```
 
 The router uses the registered agents' `name`, `description`, `handles`, and `output.type` to produce JSON:
@@ -694,6 +707,8 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `release-readiness-reviewer` | `answer` | Final readiness, evidence, risk, and handoff status. |
 
 Example DAG flows are documented in [docs/agents/software-delivery-flows.md](docs/agents/software-delivery-flows.md).
+
+For self-orientation, use [docs/agents/tool-explorer.md](docs/agents/tool-explorer.md) to ask MAP what it can do, which mode fits a task, and which agents or commands to inspect next.
 
 ## Agent CLI
 
@@ -798,8 +813,8 @@ Usage:
   map --resume [id]      Resume a saved pipeline
   map --config <path>    Use custom config file
   map --headless "idea"  Run non-interactively, outputs JSON to stdout
-  map --headless --v2 "idea"
-                         Run smart-routing DAG mode
+  map --classic "idea"   Use the classic fixed-stage pipeline
+  map --spec-file <path> Start from a local spec file
   map --github-issue <url>
                          Use a GitHub issue as prompt and post final report
   map agent list         List registered agents
@@ -812,7 +827,9 @@ Options:
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
   --headless             Run without TUI, print JSON result to stdout
-  --v2                   Use DAG-based smart routing in headless mode
+  --classic              Use the classic fixed-stage pipeline
+  --spec-file <path>     Use a local spec file as input
+  --v2                   Deprecated compatibility flag; smart routing is the default
   --output-dir <path>    Output directory for generated projects
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>

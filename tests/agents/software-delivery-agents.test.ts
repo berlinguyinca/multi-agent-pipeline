@@ -63,6 +63,21 @@ describe('software delivery agent bundle', () => {
     }
   });
 
+  it('requires every first-party agent to define a structured contract', async () => {
+    const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const agentDir = path.join(AGENTS_DIR, entry.name);
+      const yaml = parseYaml(await fs.readFile(path.join(agentDir, 'agent.yaml'), 'utf-8')) as {
+        contract?: unknown;
+      };
+
+      expect(yaml.contract, `${entry.name} is missing contract metadata`).toBeDefined();
+    }
+  });
+
   it('exposes the new agents to the router prompt', async () => {
     const agents = await loadAgentRegistry(AGENTS_DIR);
     const prompt = buildRouterPrompt(agents, 'Build a feature with TDD and QA review');
@@ -72,6 +87,8 @@ describe('software delivery agent bundle', () => {
     expect(prompt).toContain('github-review-merge-specialist');
     expect(prompt).toContain('test-driven development');
     expect(prompt).toContain('release-readiness-reviewer');
+    expect(prompt).toContain('Mission:');
+    expect(prompt).toContain('Capabilities:');
   });
 
   it('validates the documented feature delivery DAG', () => {

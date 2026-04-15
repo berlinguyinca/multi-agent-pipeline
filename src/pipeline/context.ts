@@ -4,6 +4,8 @@ import type { AdapterConfig } from '../types/adapter.js';
 
 export interface CreateContextOptions {
   prompt: string;
+  initialSpec?: string;
+  specFilePath?: string;
   agents: {
     spec: AdapterConfig;
     review: AdapterConfig;
@@ -18,6 +20,8 @@ export interface CreateContextOptions {
 export function createPipelineContext(options: CreateContextOptions): PipelineContext {
   return {
     prompt: options.prompt,
+    initialSpec: options.initialSpec,
+    specFilePath: options.specFilePath,
     spec: null,
     reviewedSpec: null,
     iteration: 1,

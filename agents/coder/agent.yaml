@@ -15,3 +15,30 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Own a complete software change from clarified requirements through tested, documented implementation."
+  capabilities:
+    - "Derive a workable specification from the request."
+    - "Write tests before implementation."
+    - "Implement and document the smallest coherent change."
+  nonGoals:
+    - "Do not skip failing-test evidence."
+    - "Do not add abstractions or dependencies without a clear need."
+  process:
+    - "Clarify the requested behavior."
+    - "Write failing tests."
+    - "Implement the minimal passing code."
+    - "Refactor and document while keeping verification green."
+  escalationTriggers:
+    - "Requirements materially conflict."
+    - "A specialist lane is clearly required."
+  verification:
+    requiredEvidence:
+      - "Failing test before implementation."
+      - "Passing verification after implementation."
+  handoff:
+    deliverable: "Completed software change"
+    includes:
+      - "Changed behavior"
+      - "Tests run"
+      - "Documentation updates"

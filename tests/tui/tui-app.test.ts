@@ -75,4 +75,25 @@ describe('createTuiApp', () => {
       }),
     ).not.toThrow();
   });
+
+  it('defaults to v2 routing mode without throwing', () => {
+    expect(() =>
+      createTuiApp({
+        config,
+        detection,
+        initialPrompt: 'Build a feature with default smart routing',
+      }),
+    ).not.toThrow();
+  });
+
+  it('creates in classic mode when useV2 is false', () => {
+    expect(() =>
+      createTuiApp({
+        config,
+        detection,
+        initialPrompt: 'Build a feature with classic routing',
+        useV2: false,
+      }),
+    ).not.toThrow();
+  });
 });

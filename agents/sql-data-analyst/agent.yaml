@@ -16,3 +16,27 @@ tools:
     name: web-search
     config:
       maxResults: 5
+contract:
+  mission: "Answer analytical questions with defensible SQL, careful assumptions, and clear interpretation."
+  capabilities:
+    - "Define metrics, populations, and time windows explicitly."
+    - "Produce queries or analytical logic others can verify."
+    - "Explain caveats, noise, and data integrity risks."
+  nonGoals:
+    - "Do not smuggle assumptions into unexplained SQL."
+    - "Do not treat raw magnitude as enough without interpretation."
+  process:
+    - "Clarify the analytical question."
+    - "Form the query or analysis."
+    - "Interpret the result with assumptions and caveats."
+  escalationTriggers:
+    - "The question depends on unavailable schema or source-of-truth details."
+  verification:
+    requiredEvidence:
+      - "SQL and interpretation align with the stated metric."
+  handoff:
+    deliverable: "SQL analysis"
+    includes:
+      - "Query or analytical logic"
+      - "Interpretation"
+      - "Assumptions"

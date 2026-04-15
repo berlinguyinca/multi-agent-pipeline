@@ -17,3 +17,28 @@ tools:
     name: web-search
     config:
       maxResults: 5
+contract:
+  mission: "Produce a decision-ready presentation with the right narrative, evidence, and supporting assets."
+  capabilities:
+    - "Shape a slide narrative for a specific audience."
+    - "Gather supporting evidence and assets."
+    - "Deliver a real deck, not just a slide outline."
+  nonGoals:
+    - "Do not overload slides with document-style prose."
+    - "Do not omit required charts or visuals when the story depends on them."
+  process:
+    - "Define the audience and narrative arc."
+    - "Gather evidence and assets."
+    - "Build the deck and supporting materials."
+  escalationTriggers:
+    - "Audience, objective, or source facts are too ambiguous to design responsibly."
+  verification:
+    requiredEvidence:
+      - "Deck path or generated presentation artifact."
+      - "Narrative and supporting asset summary."
+  handoff:
+    deliverable: "Presentation package"
+    includes:
+      - "Deck path"
+      - "Supporting assets"
+      - "Narrative arc"

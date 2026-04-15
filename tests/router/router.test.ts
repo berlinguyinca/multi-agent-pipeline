@@ -118,8 +118,47 @@ describe('routeTask', () => {
     } satisfies AgentAdapter;
 
     await expect(
-      routeTask('test', agents, adapter, { ...routerConfig, timeoutMs: 1 }),
+      routeTask('test', agents, adapter, { ...routerConfig, timeoutMs: 1, maxStepRetries: 0, retryDelayMs: 0 }),
     ).rejects.toThrow('Router timed out after 1ms');
+  });
+
+  it('retries router timeouts with doubled timeout budgets', async () => {
+    const timeoutWindows: number[] = [];
+    let callCount = 0;
+    const adapter = {
+      ...mockAdapter(''),
+      async *run(_prompt: string, options?: { signal?: AbortSignal }) {
+        callCount += 1;
+        const startedAt = Date.now();
+        if (callCount <= 2) {
+          await new Promise<void>((resolve) => {
+            options?.signal?.addEventListener('abort', () => {
+              timeoutWindows.push(Date.now() - startedAt);
+              resolve();
+            }, { once: true });
+          });
+          const err = new Error('This operation was aborted.');
+          (err as Error & { name: string }).name = 'AbortError';
+          throw err;
+        }
+        yield '{"plan":[{"id":"step-1","agent":"researcher","task":"Research topic","dependsOn":[]}]}';
+      },
+    } satisfies AgentAdapter;
+
+    const result = await routeTask('test', agents, adapter, {
+      ...routerConfig,
+      timeoutMs: 25,
+      maxStepRetries: 2,
+      retryDelayMs: 0,
+    });
+
+    expect(result.kind).toBe('plan');
+    expect(callCount).toBe(3);
+    expect(timeoutWindows).toHaveLength(2);
+    expect(timeoutWindows[0]).toBeGreaterThanOrEqual(20);
+    expect(timeoutWindows[0]).toBeLessThan(90);
+    expect(timeoutWindows[1]).toBeGreaterThanOrEqual(45);
+    expect(timeoutWindows[1]).toBeLessThan(140);
   });
 
   it('strips markdown fences from response', async () => {

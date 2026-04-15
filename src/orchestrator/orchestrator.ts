@@ -38,6 +38,9 @@ export interface DAGRetryOptions {
 
 const MAX_TOOL_CALLS = 4;
 const MAX_RECOVERY_ROUNDS = 2;
+const DEFAULT_STEP_TIMEOUT_MS = 300_000;
+const DEFAULT_MAX_STEP_RETRIES = 4;
+const DEFAULT_RETRY_DELAY_MS = 3_000;
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof Error)) return true;
@@ -46,7 +49,9 @@ function isRetryable(err: unknown): boolean {
   if (msg.includes('security gate failed')) return false;
   if (msg.includes('dependency failed')) return false;
   if (msg.includes('execution cancelled')) return false;
-  return true;
+  // Timeouts ARE retryable - we want to give the system more time on retry attempts
+  if (!msg.includes('timed out') && !msg.includes('timeout')) return true;
+  return true; // Allow timeout retries (see code around line 172 for dynamic timeout increase)
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -69,9 +74,10 @@ export async function executeDAG(
   const mutablePlan: DAGPlan = {
     plan: plan.plan.map((step) => ({ ...step, dependsOn: [...step.dependsOn] })),
   };
-  const maxRetries = retry?.maxStepRetries ?? 0;
-  const retryDelayMs = retry?.retryDelayMs ?? 3_000;
-  const stepTimeoutMs = retry?.stepTimeoutMs ?? 0;
+  const configuredMaxRetries = retry?.maxStepRetries;
+  const maxRetries = configuredMaxRetries ?? DEFAULT_MAX_STEP_RETRIES;
+  const retryDelayMs = retry?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+  const stepTimeoutMs = retry?.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
   const adapterDefaults = retry?.adapterDefaults;
   const workingDir = retry?.workingDir ?? process.cwd();
   const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
@@ -139,10 +145,12 @@ export async function executeDAG(
         let lastError: string | undefined;
         let attempts = 0;
         let stepTimedOut = false;
+        let timeoutMsForAttempt = stepTimeoutMs;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           if (signal?.aborted) break;
           attempts = attempt + 1;
+          stepTimedOut = false;
 
           if (attempt > 0) {
             reporter?.dagStepRetry(step.id, step.agent, attempt, lastError ?? 'unknown');
@@ -155,26 +163,27 @@ export async function executeDAG(
             const rawContext = buildStepContext(step.task, step.dependsOn, results);
             const context = injectToolCatalog(rawContext, tools, agent.prompt);
 
-            const configs: AdapterConfig[] = [
-              { type: agent.adapter, model: agent.model },
-              ...(agent.fallbacks ?? []).map((fb) => ({
-                type: fb.adapter,
-                model: fb.model,
-              })),
-            ];
+             const configs: AdapterConfig[] = [
+               { type: agent.adapter, model: agent.model },
+               ...(agent.fallbacks ?? []).map((fb) => ({
+                 type: fb.adapter,
+                 model: fb.model,
+               })),
+             ];
 
-            // Per-step timeout: create a child AbortController that aborts
-            // when either the parent signal fires or the step timeout elapses.
-            const stepController = new AbortController();
-            let stepTimer: ReturnType<typeof setTimeout> | undefined;
-            const abortFromParent = () => stepController.abort();
-            signal?.addEventListener('abort', abortFromParent, { once: true });
-            if (stepTimeoutMs > 0) {
-              stepTimer = setTimeout(() => {
-                stepTimedOut = true;
-                stepController.abort();
-              }, stepTimeoutMs);
-            }
+             // Per-step timeout: create a child AbortController that aborts
+             // when either the parent signal fires or the step timeout elapses.
+             const stepController = new AbortController();
+             let stepTimer: ReturnType<typeof setTimeout> | undefined;
+             const abortFromParent = () => stepController.abort();
+             signal?.addEventListener('abort', abortFromParent, { once: true });
+             const currentTimeoutMs = timeoutMsForAttempt;
+             if (currentTimeoutMs > 0) {
+               stepTimer = setTimeout(() => {
+                 stepTimedOut = true;
+                 stepController.abort();
+               }, currentTimeoutMs);
+             }
 
             // Resolve thinking: agent-level > adapter-default > undefined
             const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
@@ -268,7 +277,13 @@ export async function executeDAG(
             } else {
               lastError = err instanceof Error ? err.message : String(err);
             }
-            if (!isRetryable(err) || attempt >= maxRetries) {
+            if (stepTimedOut) {
+              timeoutMsForAttempt *= 2;
+            }
+            const retryBudget = stepTimedOut
+              ? (configuredMaxRetries ?? DEFAULT_MAX_STEP_RETRIES)
+              : (configuredMaxRetries ?? 0);
+            if (!isRetryable(err) || attempt >= retryBudget) {
               const duration = Date.now() - startedAt;
               const baseFailure: StepResult = {
                 id: step.id,
@@ -652,14 +667,48 @@ function selectRecoveryAgent(
 }
 
 function buildRecoveryTask(step: DAGPlan['plan'][number], failure: StepResult): string {
-  return [
-    `Fix the failed step "${step.id}" before it is retried.`,
-    `Original agent: ${step.agent}`,
-    `Original task: ${step.task}`,
-    `Failure kind: ${failure.failureKind ?? 'unknown'}`,
-    `Failure: ${failure.error ?? 'unknown error'}`,
-    'Return the concrete fix or stabilization needed so the retry can continue.',
-  ].join('\n');
+  const errorDisplay = failure.error?.slice(0, 500) ?? 'unknown error'; // Truncate for readability
+  const recoveryInstructions: string[] = [];
+  
+  recoveryInstructions.push(`Fix the failed step "${step.id}" before it is retried.`);
+  recoveryInstructions.push(`Original agent: ${step.agent}`);
+  recoveryInstructions.push(`Original task: ${step.task}`);
+  recoveryInstructions.push(`Failure kind: ${failure.failureKind ?? 'unknown'}`);
+  recoveryInstructions.push(`Error message:\n${errorDisplay}`);
+  
+  // Add dynamic instructions based on failure type
+  if (failure.failureKind === 'test') {
+    recoveryInstructions.push(`\n\n=== TEST FAILURE RECOVERY PRIORITY ===`);
+    recoveryInstructions.push(`1. Analyze the test failure and identify the root cause`);
+    recoveryInstructions.push(`2. Fix the failing test WITHOUT changing production code behavior`);
+    recoveryInstructions.push(`3. Consider: flaky test, missing fixture, assertion timing, brittle selector`);
+    recoveryInstructions.push(`4. Run the test multiple times to verify it's stable`);
+    recoveryInstructions.push(`5. If test was truly flaky, improve test reliability`);
+    recoveryInstructions.push(`6. If test needs new tests, add missing coverage`);
+    recoveryInstructions.push(`7. Verify all tests pass before reporting success`);
+  }
+  
+  if (failure.failureKind === 'compile') {
+    recoveryInstructions.push(`\n\n=== COMPILATION/TYPE ERROR RECOVERY PRIORITY ===`);
+    recoveryInstructions.push(`1. Fix the TypeScript compilation error`);
+    recoveryInstructions.push(`2. Do NOT use @ts-ignore, as any, or @ts-expect-error`);
+    recoveryInstructions.push(`3. Address missing imports, type mismatches, or undefined variables`);
+    recoveryInstructions.push(`4. If you need help, ask for clarification first`);
+    recoveryInstructions.push(`5. Compile again after your fix`);
+  }
+  
+  if (failure.failureKind === 'runtime') {
+    recoveryInstructions.push(`\n\n=== RUNTIME ERROR RECOVERY PRIORITY ===`);
+    recoveryInstructions.push(`1. Analyze the runtime error message carefully`);
+    recoveryInstructions.push(`2. Check for null/undefined access, type errors, or unexpected states`);
+    recoveryInstructions.push(`3. Add defensive checks if needed, but don't silently ignore errors`);
+    recoveryInstructions.push(`4. Consider edge cases that triggered this error`);
+  }
+  
+  recoveryInstructions.push(`\n\nReturn the concrete fix or stabilization needed so the retry can continue.`);
+  recoveryInstructions.push(`If you are unsure how to fix this, describe your analysis and ask for help first.`);
+  
+  return recoveryInstructions.join('\n');
 }
 
 function buildStepContext(
