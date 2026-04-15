@@ -1,0 +1,15 @@
+name: github-review-merge-specialist
+description: "Reviews GitHub pull requests and merges approved changes when checks and findings are clean"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-pr
+  - name: review-changes
+  - name: decide-merge
+handles: "GitHub pull request review, code review, merge readiness, merge execution, branch conflicts, CI checks, post-review merge decisions"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell

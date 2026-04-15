@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildPRReviewPrompt,
   fetchGitHubPRContext,
+  mergeGitHubPR,
   parseGitHubPRUrl,
   postGitHubPRReview,
 } from '../../src/github/pull-requests.js';
@@ -198,6 +199,44 @@ describe('postGitHubPRReview', () => {
 
     expect(result.posted).toBe(false);
     expect(result.error).toContain('403');
+  });
+});
+
+describe('mergeGitHubPR', () => {
+  it('merges the pull request via the GitHub API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          merged: true,
+          sha: 'deadbeef',
+          html_url: 'https://github.com/owner/repo/pull/42',
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const ref = parseGitHubPRUrl('https://github.com/owner/repo/pull/42');
+    const result = await mergeGitHubPR(ref, 'token', fetchMock as typeof fetch);
+
+    expect(result.merged).toBe(true);
+    expect(result.posted).toBe(false);
+    expect(result.mergeUrl).toBe('https://github.com/owner/repo/pull/42');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://api.github.com/repos/owner/repo/pulls/42/merge',
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('PUT');
+  });
+
+  it('returns error on merge failure', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('Conflict', { status: 405 }),
+    );
+
+    const ref = parseGitHubPRUrl('https://github.com/owner/repo/pull/42');
+    const result = await mergeGitHubPR(ref, 'token', fetchMock as typeof fetch);
+
+    expect(result.merged).toBeUndefined();
+    expect(result.error).toContain('405');
   });
 });
 

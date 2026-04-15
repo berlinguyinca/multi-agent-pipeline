@@ -16,6 +16,7 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'tdd-engineer',
   'implementation-coder',
   'code-qa-analyst',
+  'github-review-merge-specialist',
   'bug-debugger',
   'build-fixer',
   'test-stabilizer',
@@ -66,6 +67,7 @@ describe('software delivery agent bundle', () => {
 
     expect(prompt).toContain('spec-writer');
     expect(prompt).toContain('implementation-coder');
+    expect(prompt).toContain('github-review-merge-specialist');
     expect(prompt).toContain('test-driven development');
     expect(prompt).toContain('release-readiness-reviewer');
   });
@@ -80,6 +82,7 @@ describe('software delivery agent bundle', () => {
         { id: 'step-5', agent: 'code-qa-analyst', task: 'Review the implementation', dependsOn: ['step-4'] },
         { id: 'step-6', agent: 'docs-maintainer', task: 'Update Markdown docs', dependsOn: ['step-5'] },
         { id: 'step-7', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-6'] },
+        { id: 'step-8', agent: 'github-review-merge-specialist', task: 'Perform the final GitHub PR review and merge the approved changes', dependsOn: ['step-7'] },
       ],
     };
 

@@ -200,6 +200,38 @@ export async function postGitHubPRReview(
   }
 }
 
+export async function mergeGitHubPR(
+  ref: GitHubPRRef,
+  token: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<PRReviewResult> {
+  try {
+    const response = await requestGitHub<{ html_url?: string; merged?: boolean; sha?: string; message?: string }>(
+      `${prApiUrl(ref)}/merge`,
+      token,
+      fetchImpl,
+      {
+        method: 'PUT',
+        body: JSON.stringify({}),
+      },
+    );
+
+    return {
+      prUrl: ref.url,
+      posted: false,
+      merged: response.merged === true,
+      mergeUrl: response.html_url,
+      mergeMethod: 'default',
+    };
+  } catch (err) {
+    return {
+      prUrl: ref.url,
+      posted: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 async function requestGitHub<T>(
   url: string,
   token: string,

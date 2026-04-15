@@ -14,6 +14,7 @@ All software-delivery agents added in PR #1 use `adapter: ollama` and `model: ge
 | `tdd-engineer` | `files` | Create test-first plans and failing tests. |
 | `implementation-coder` | `files` | Implement minimal code changes that satisfy tests. |
 | `code-qa-analyst` | `answer` | Review code against specs, tests, and maintainability expectations. |
+| `github-review-merge-specialist` | `answer` | Review GitHub pull requests and merge them when checks and findings are clean. |
 | `bug-debugger` | `answer` | Reproduce defects and isolate root cause. |
 | `build-fixer` | `files` | Fix build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Improve flaky, brittle, or missing tests. |
@@ -43,7 +44,8 @@ Use this when a request needs a new feature or meaningful behavior change.
     { "id": "step-4", "agent": "implementation-coder", "task": "Implement the smallest code change that satisfies the tests", "dependsOn": ["step-3"] },
     { "id": "step-5", "agent": "code-qa-analyst", "task": "Review the code against the reviewed specification and tests", "dependsOn": ["step-4"] },
     { "id": "step-6", "agent": "docs-maintainer", "task": "Update Markdown documentation for the completed behavior", "dependsOn": ["step-5"] },
-    { "id": "step-7", "agent": "release-readiness-reviewer", "task": "Assess final readiness and residual risk", "dependsOn": ["step-6"] }
+    { "id": "step-7", "agent": "release-readiness-reviewer", "task": "Assess final readiness and residual risk", "dependsOn": ["step-6"] },
+    { "id": "step-8", "agent": "github-review-merge-specialist", "task": "Perform the final GitHub PR review and merge the approved changes", "dependsOn": ["step-7"] }
   ]
 }
 ```

@@ -5,6 +5,7 @@ import {
   fetchGitHubPRContext,
   parseGitHubPRUrl,
   buildPRReviewPrompt,
+  mergeGitHubPR,
   postGitHubPRReview,
 } from '../github/pull-requests.js';
 import { resolveGitHubToken } from '../github/token.js';
@@ -83,6 +84,21 @@ export async function runPRReview(
       dependencies.fetchFn,
     );
 
+    const verdict = extractReviewVerdict(review);
+    if (githubReport.posted && verdict === 'approve') {
+      const mergeReport = await mergeGitHubPR(ref, token, dependencies.fetchFn);
+      return {
+        success: mergeReport.merged === true,
+        prUrl: ref.url,
+        review,
+        duration: Date.now() - startTime,
+        githubReport: {
+          ...mergeReport,
+          ...githubReport,
+        },
+      };
+    }
+
     return {
       success: true,
       prUrl: ref.url,
@@ -99,6 +115,20 @@ export async function runPRReview(
       duration: Date.now() - startTime,
       error: message,
     };
+  }
+}
+
+function extractReviewVerdict(review: string): 'approve' | 'request_changes' | 'comment' {
+  const verdictBlock = review.match(/###\s*Verdict[\s\S]*?(APPROVE|REQUEST_CHANGES|COMMENT)/i);
+  const verdict = verdictBlock?.[1]?.toUpperCase();
+
+  switch (verdict) {
+    case 'APPROVE':
+      return 'approve';
+    case 'REQUEST_CHANGES':
+      return 'request_changes';
+    default:
+      return 'comment';
   }
 }
 

@@ -24,6 +24,9 @@ export interface GitHubReportResult {
   issueUrl: string;
   posted: boolean;
   commentUrl?: string;
+  merged?: boolean;
+  mergeUrl?: string;
+  mergeMethod?: string;
   error?: string;
 }
 
@@ -57,5 +60,8 @@ export interface PRReviewResult {
   prUrl: string;
   posted: boolean;
   commentUrl?: string;
+  merged?: boolean;
+  mergeUrl?: string;
+  mergeMethod?: string;
   error?: string;
 }

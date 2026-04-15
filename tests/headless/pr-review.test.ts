@@ -88,7 +88,7 @@ describe('runPRReview', () => {
     expect(result.error).toContain('valid URL');
   });
 
-  it('runs full review pipeline and posts comment', async () => {
+  it('runs full review pipeline, posts comment, and merges approved PRs', async () => {
     const reviewOutput = '### Summary\nGood PR.\n\n### Verdict\nAPPROVE';
     const adapter = makeFakeAdapter(reviewOutput);
 
@@ -135,6 +135,18 @@ describe('runPRReview', () => {
           { status: 201 },
         ),
       );
+      // Merge PR
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            merged: true,
+            sha: 'abc123',
+            html_url: 'https://github.com/owner/repo/pull/1',
+            message: 'Pull Request successfully merged',
+          }),
+          { status: 200 },
+        ),
+      );
 
     const result = await runPRReview(
       { prUrl: 'https://github.com/owner/repo/pull/1' },
@@ -150,6 +162,7 @@ describe('runPRReview', () => {
     expect(result.review).toContain('Good PR.');
     expect(result.githubReport?.posted).toBe(true);
     expect(result.githubReport?.commentUrl).toContain('issuecomment-99');
+    expect(result.githubReport?.merged).toBe(true);
   });
 
   it('applies personality directive when provided', async () => {
