@@ -8,6 +8,8 @@ dist/
 *.tsbuildinfo
 coverage/
 .omx/
+eval-output/
+map-output/
 
 # Generated agents (will be git-tracked as templates)
 agents/*/agent.yaml
