@@ -61,7 +61,14 @@ curl -fsSL https://raw.githubusercontent.com/berlinguyinca/multi-agent-pipeline/
 
 The installer clones or updates MAP in `~/.local/share/multi-agent-pipeline`, installs dependencies, builds `dist/cli.js`, links `map` onto your `PATH`, and creates `~/.map/pipeline.yaml` when needed.
 
-When `map` runs from a git checkout, it checks `origin/main` for newer commits before loading the command runner and fast-forwards the checkout when a newer revision is available. Set `MAP_NO_UPDATE=1` to disable the runtime update check.
+When `map` runs from a git checkout, it checks the checkout's tracked branch for newer commits before loading the command runner and fast-forwards when a newer revision is available.
+
+Runtime self-update controls:
+
+- `MAP_NO_UPDATE=1`: disable the launch-time update check.
+- `MAP_FORCE_UPDATE=1`: allow an update attempt even if the checkout has local changes.
+- `MAP_BRANCH=<branch>`: force the tracked branch used for update checks.
+- `CI=1` or `CI=true`: skip the update check in CI environments.
 
 Onboarding detects available backends, sets classic and v2 defaults, enables the software-delivery agent bundle, and can optionally generate a custom agent. Non-interactive `curl | bash` installs use safe defaults.
 
@@ -102,6 +109,7 @@ Onboarding environment variables:
 - `MAP_DEFAULT_AGENT_ADAPTER`: default adapter for software-delivery agents.
 - `MAP_NO_UPDATE=1`: skip the git self-update step.
 - `MAP_FORCE_UPDATE=1`: allow git update attempts even when the checkout has local changes.
+- `MAP_BRANCH`: tracked branch name for runtime self-update, defaulting to the current checkout branch.
 
 From this checkout, run the same installer directly:
 
