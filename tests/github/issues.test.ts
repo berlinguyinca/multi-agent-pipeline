@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildGitHubIssuePrompt,
   buildGitHubReport,
+  buildGitHubReportV2,
   fetchGitHubIssueContext,
   getGitHubToken,
   parseGitHubIssueUrl,
   postGitHubIssueComment,
 } from '../../src/github/issues.js';
 import type { GitHubIssueContext } from '../../src/types/github.js';
-import type { HeadlessResult } from '../../src/types/headless.js';
+import type { HeadlessResult, HeadlessResultV2 } from '../../src/types/headless.js';
 
 describe('parseGitHubIssueUrl', () => {
   it('parses github.com issue URLs', () => {
@@ -128,6 +129,19 @@ describe('buildGitHubReport', () => {
   });
 });
 
+describe('buildGitHubReportV2', () => {
+  it('includes smart routing DAG step summary and errors', () => {
+    const report = buildGitHubReportV2(makeResultV2(), makeIssueContext());
+
+    expect(report).toContain('MAP Smart Routing Report');
+    expect(report).toContain('Status: ❌ Failed');
+    expect(report).toContain('Outcome: failed');
+    expect(report).toContain('step-1 [researcher]: completed');
+    expect(report).toContain('step-2 [coder]: failed');
+    expect(report).toContain('Error: build failed');
+  });
+});
+
 function makeIssueContext(): GitHubIssueContext {
   return {
     ref: parseGitHubIssueUrl('https://github.com/openai/codex/issues/123'),
@@ -168,5 +182,42 @@ function makeResult(): HeadlessResult {
       },
     ],
     error: 'QA failed',
+  };
+}
+
+function makeResultV2(): HeadlessResultV2 {
+  return {
+    version: 2,
+    success: false,
+    outcome: 'failed',
+    dag: {
+      nodes: [
+        { id: 'step-1', agent: 'researcher', status: 'completed', duration: 100 },
+        { id: 'step-2', agent: 'coder', status: 'failed', duration: 200 },
+      ],
+      edges: [{ from: 'step-1', to: 'step-2', type: 'planned' }],
+    },
+    steps: [
+      {
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research',
+        status: 'completed',
+        output: 'Found context',
+        duration: 100,
+      },
+      {
+        id: 'step-2',
+        agent: 'coder',
+        task: 'Build',
+        status: 'failed',
+        error: 'build failed',
+        duration: 200,
+      },
+    ],
+    outputDir: './output/demo',
+    markdownFiles: [],
+    duration: 1000,
+    error: 'build failed',
   };
 }

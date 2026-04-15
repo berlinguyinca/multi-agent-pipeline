@@ -52,6 +52,7 @@ import { buildDocsPrompt } from '../prompts/docs-system.js';
 import {
   buildGitHubIssuePrompt,
   buildGitHubReport,
+  buildGitHubReportV2,
   fetchGitHubIssueContext,
   parseGitHubIssueUrl,
   postGitHubIssueComment,
@@ -153,6 +154,7 @@ export function runWithActor(
           testsFailing: execResult?.testsFailing ?? 0,
           duration: Date.now() - startTime,
           documentationResult: ctx.documentationResult,
+          specFilePath: options.specFilePath,
         });
         return;
       }
@@ -168,6 +170,7 @@ export function runWithActor(
           testsPassing: 0,
           testsFailing: 0,
           duration: Date.now() - startTime,
+          specFilePath: options.specFilePath,
           error: ctx.error ?? 'Pipeline failed',
         });
         return;
@@ -184,6 +187,7 @@ export function runWithActor(
           testsPassing: 0,
           testsFailing: 0,
           duration: Date.now() - startTime,
+          specFilePath: options.specFilePath,
           error: 'Pipeline cancelled',
         });
         return;
@@ -191,7 +195,12 @@ export function runWithActor(
     });
 
     actor.start();
-    actor.send({ type: 'START', prompt: options.prompt });
+    actor.send({
+      type: 'START',
+      prompt: options.prompt,
+      initialSpec: options.initialSpec ? createSpec(options.initialSpec) : undefined,
+      specFilePath: options.specFilePath,
+    });
   });
 }
 
@@ -221,6 +230,8 @@ async function runHeadlessWithActor(
 
     const context = createPipelineContext({
       prompt: options.prompt,
+      initialSpec: options.initialSpec,
+      specFilePath: options.specFilePath,
       agents: {
         spec: assignmentToAdapterConfig(config.agents.spec, config.ollama.host),
         review: assignmentToAdapterConfig(config.agents.review, config.ollama.host),
@@ -246,6 +257,7 @@ async function runHeadlessWithActor(
       testsPassing: 0,
       testsFailing: 0,
       duration: Date.now() - startTime,
+      specFilePath: options.specFilePath,
       error: message,
     };
   }
@@ -312,6 +324,8 @@ async function runHeadlessLive(
 
     const context = createPipelineContext({
       prompt,
+      initialSpec: options.initialSpec,
+      specFilePath: options.specFilePath,
       agents: {
         spec: assignmentToAdapterConfig(config.agents.spec, config.ollama.host),
         review: assignmentToAdapterConfig(config.agents.review, config.ollama.host),
@@ -407,9 +421,10 @@ async function runHeadlessLive(
           testsPassing: executionResult.testsPassing,
           testsFailing: executionResult.testsFailing,
           duration: Date.now() - startTime,
-          qaAssessments,
-          documentationResult,
-        });
+        qaAssessments,
+        documentationResult,
+        specFilePath: options.specFilePath,
+      });
       }
 
       if (attempt >= config.quality.maxCodeQaIterations) {
@@ -424,6 +439,7 @@ async function runHeadlessLive(
           testsFailing: executionResult.testsFailing,
           duration: Date.now() - startTime,
           qaAssessments,
+          specFilePath: options.specFilePath,
           error: `Code QA failed after ${attempt} iteration${attempt === 1 ? '' : 's'}`,
         });
       }
@@ -470,6 +486,7 @@ async function runHeadlessLive(
       testsFailing: executionResult.testsFailing,
       duration: Date.now() - startTime,
       qaAssessments,
+      specFilePath: options.specFilePath,
       error: 'Code QA did not complete',
     });
   } catch (err: unknown) {
@@ -489,6 +506,7 @@ async function runHeadlessLive(
       testsPassing: 0,
       testsFailing: 0,
       duration: Date.now() - startTime,
+      specFilePath: options.specFilePath,
       error: message,
     });
   }
@@ -634,26 +652,31 @@ async function runSpecReviewQaLoop(
   qaAssessments: QaAssessment[],
   reporter?: VerboseReporter,
 ): Promise<string> {
-  let latestSpecText = '';
+  let latestSpecText = context.initialSpec ?? '';
   let latestReviewedSpecText = '';
 
   for (let attempt = 1; attempt <= config.quality.maxSpecQaIterations; attempt += 1) {
     markActivity(runtimeState);
-    reporter?.stageStart('spec', attempt);
-    const specText = await runSpecStage(
-      context,
-      dependencies,
-      runtimeConfig,
-      runtimeState,
-      config,
-      latestSpecText,
-      latestReviewedSpecText,
-      reporter,
-    );
-    reporter?.stageComplete('spec', Date.now() - runtimeState.lastActivityAt);
-    markActivity(runtimeState);
-    context.spec = createSpec(specText, context.iteration);
-    latestSpecText = specText;
+    let specText = latestSpecText;
+    if (!(attempt === 1 && context.initialSpec)) {
+      reporter?.stageStart('spec', attempt);
+      specText = await runSpecStage(
+        context,
+        dependencies,
+        runtimeConfig,
+        runtimeState,
+        config,
+        latestSpecText,
+        latestReviewedSpecText,
+        reporter,
+      );
+      reporter?.stageComplete('spec', Date.now() - runtimeState.lastActivityAt);
+      markActivity(runtimeState);
+      context.spec = createSpec(specText, context.iteration);
+      latestSpecText = specText;
+    } else {
+      context.spec = createSpec(specText, context.iteration);
+    }
 
     reporter?.stageStart('review', attempt);
     const review = await runReviewStage(
@@ -682,8 +705,8 @@ async function runSpecReviewQaLoop(
       reporter,
     );
     reporter?.stageComplete('qa', Date.now() - runtimeState.lastActivityAt);
-    qaAssessments.push(assessment);
-    reporter?.specQaResult(assessment.passed, attempt, config.quality.maxSpecQaIterations);
+      qaAssessments.push(assessment);
+      reporter?.specQaResult(assessment.passed, attempt, config.quality.maxSpecQaIterations);
 
     if (assessment.passed) {
       return review.reviewedSpec.content;
@@ -712,7 +735,7 @@ async function runSpecQaStage(
   reporter?: VerboseReporter,
 ): Promise<QaAssessment> {
   const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
-  const basePrompt = buildSpecQaPrompt(context.prompt, reviewedSpecText);
+  const basePrompt = buildSpecQaPrompt(context.initialSpec ?? context.prompt, reviewedSpecText);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
     : basePrompt;
@@ -1009,11 +1032,34 @@ export async function runHeadlessV2(
   const reporter = createReporter(options.verbose ?? false);
   const outputDir = path.resolve(options.outputDir ?? process.cwd());
   const markdownFiles: string[] = [];
+  let issueContext: GitHubIssueContext | undefined;
+  let githubToken: string | undefined;
+
+  async function finish(result: HeadlessResultV2): Promise<HeadlessResultV2> {
+    reporter.dispose();
+
+    if (!issueContext || !githubToken) {
+      return result;
+    }
+
+    const githubReport = await postGitHubIssueComment(
+      issueContext.ref,
+      githubToken,
+      buildGitHubReportV2(result, issueContext),
+      dependencies.fetchFn,
+    );
+
+    return { ...result, githubReport };
+  }
 
   try {
     await fs.mkdir(outputDir, { recursive: true });
     const config = await dependencies.loadConfigFn(options.configPath);
     const securityConfig = resolveSecurityConfig(config);
+    const resolvedPrompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
+      issueContext = context;
+      githubToken = token;
+    });
 
     const agentsDir = path.join(process.cwd(), 'agents');
     const rawAgents = await loadAgentRegistry(agentsDir);
@@ -1028,17 +1074,16 @@ export async function runHeadlessV2(
     const agents = getEnabledAgents(rawAgents);
 
     if (agents.size === 0) {
-      reporter.dispose();
-      return buildHeadlessResultV2(
+      return await finish(buildHeadlessResultV2(
         { plan: [] },
         [],
         Date.now() - startTime,
         'No agents available',
         { outputDir, markdownFiles },
-      );
+      ));
     }
 
-    reporter.pipelineStart(options.prompt);
+    reporter.pipelineStart(resolvedPrompt);
 
     reporter.dagRoutingStart();
     const routeStart = Date.now();
@@ -1050,16 +1095,15 @@ export async function runHeadlessV2(
       type: config.router.adapter,
       model: config.router.model,
     });
-    const decision = await routeTask(options.prompt, agents, routerAdapter, routerConfig);
+    const decision = await routeTask(resolvedPrompt, agents, routerAdapter, routerConfig);
     if (decision.kind === 'no-match') {
-      reporter.dispose();
-      return buildHeadlessResultV2(
+      return await finish(buildHeadlessResultV2(
         { plan: [] },
         [],
         Date.now() - startTime,
         formatRouterNoMatch(decision),
         { outputDir, markdownFiles },
-      );
+      ));
     }
 
     const plan = decision.plan;
@@ -1134,18 +1178,16 @@ export async function runHeadlessV2(
       }),
     );
     reporter.dagComplete(dagResult.success, duration);
-    reporter.dispose();
-    return buildHeadlessResultV2(plan, dagResult.steps, duration, undefined, {
+    return await finish(buildHeadlessResultV2(plan, dagResult.steps, duration, undefined, {
       outputDir,
       markdownFiles,
-    });
+    }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    reporter.dispose();
-    return buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
+    return await finish(buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
       outputDir,
       markdownFiles,
-    });
+    }));
   }
 }
 

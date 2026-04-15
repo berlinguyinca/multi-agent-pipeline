@@ -49,7 +49,6 @@ import {
   recordPromptHistory,
   type PromptHistoryEntry,
 } from './prompt-history.js';
-import { shouldUseResearchFlow } from '../utils/prompt-intent.js';
 import {
   saveFinalReportMarkdown,
   saveStageMarkdown,
@@ -65,6 +64,8 @@ export interface TuiAppOptions {
   detection: DetectionResult;
   initialPrompt?: string;
   initialGithubIssueUrl?: string;
+  initialSpec?: string;
+  specFilePath?: string;
   useV2?: boolean;
 }
 
@@ -354,7 +355,7 @@ function buildExecutionGraph(
 }
 
 export function createTuiApp(options: TuiAppOptions): TuiApp {
-  const { config, detection, initialPrompt, initialGithubIssueUrl, useV2 = false } = options;
+  const { config, detection, initialPrompt, initialGithubIssueUrl, initialSpec, specFilePath, useV2 = true } = options;
 
   let screen: blessed.Widgets.Screen | null = null;
   let headerBar: blessed.Widgets.BoxElement | null = null;
@@ -745,6 +746,8 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       let autoStarted = false;
       let lastPrompt = initialPrompt?.trim() ?? '';
       let lastGithubIssueUrl = initialGithubIssueUrl?.trim() ?? '';
+      let lastInitialSpec = initialSpec;
+      let lastSpecFilePath = specFilePath;
       let previousReviewedSpec = '';
       let currentV1RawOutputKey: string | null = null;
       let v2Plan: DAGPlan | null = null;
@@ -896,9 +899,11 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       if (detection.codex.installed) availableBackends.push('codex');
       if (detection.ollama.installed) availableBackends.push('ollama');
       if (detection.hermes.installed) availableBackends.push('hermes');
-      async function startPipeline(prompt: string, githubIssueUrl?: string): Promise<void> {
+      async function startPipeline(prompt: string, githubIssueUrl?: string, startingSpec?: string, startingSpecFilePath?: string): Promise<void> {
         lastPrompt = prompt;
         lastGithubIssueUrl = githubIssueUrl?.trim() ?? '';
+        lastInitialSpec = startingSpec;
+        lastSpecFilePath = startingSpecFilePath;
         lastErrorMessage = undefined;
         markdownFiles = [];
         finalMarkdownSavedFor = null;
@@ -913,12 +918,12 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           // Prompt history is best-effort only.
         }
 
-        if (useV2 || shouldUseResearchFlow(prompt, githubIssueUrl)) {
+        if (useV2) {
           void startV2Flow(prompt, githubIssueUrl);
           return;
         }
 
-        runner?.start(prompt, githubIssueUrl);
+        runner?.start(prompt, githubIssueUrl, startingSpec, startingSpecFilePath);
       }
 
       const welcomeScreen = new WelcomeScreen(
@@ -1665,7 +1670,10 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
 
       if (initialPrompt && initialPrompt.trim() !== '' && !autoStarted) {
         autoStarted = true;
-        void startPipeline(initialPrompt.trim(), initialGithubIssueUrl);
+        void startPipeline(initialPrompt.trim(), initialGithubIssueUrl, initialSpec, specFilePath);
+      } else if (initialSpec && !autoStarted) {
+        autoStarted = true;
+        void startPipeline(initialPrompt?.trim() || `Use the provided specification file${specFilePath ? ` at ${specFilePath}` : ''}.`, initialGithubIssueUrl, initialSpec, specFilePath);
       }
     });
   }

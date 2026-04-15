@@ -24,6 +24,8 @@ export type PipelineStage =
 
 export interface PipelineContext {
   prompt: string;
+  initialSpec?: string;
+  specFilePath?: string;
   spec: Spec | null;
   reviewedSpec: ReviewedSpec | null;
   iteration: number;
@@ -49,7 +51,7 @@ export interface PipelineContext {
 }
 
 export type PipelineEvent =
-  | { type: 'START'; prompt: string }
+  | { type: 'START'; prompt: string; initialSpec?: Spec; specFilePath?: string }
   | { type: 'SPEC_COMPLETE'; spec: Spec }
   | { type: 'REVIEW_COMPLETE'; reviewedSpec: ReviewedSpec; score: RefinementScore }
   | { type: 'SPEC_QA_COMPLETE'; assessment: QaAssessment; maxReached: boolean }

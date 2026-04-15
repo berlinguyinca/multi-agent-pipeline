@@ -63,6 +63,8 @@ export class PipelineRunner {
   private githubToken: string | undefined = undefined;
   private specContent: string = '';
   private reviewedSpecContent: string = '';
+  private initialSpecContent: string | undefined = undefined;
+  private specFilePath: string | undefined = undefined;
   private cancelCurrentRun: (() => void) | null = null;
   private subscription: { unsubscribe(): void } | null = null;
 
@@ -104,8 +106,8 @@ export class PipelineRunner {
     this.actor.start();
   }
 
-  start(prompt: string, githubIssueUrl?: string): void {
-    void this._startAsync(prompt, githubIssueUrl);
+  start(prompt: string, githubIssueUrl?: string, initialSpec?: string, specFilePath?: string): void {
+    void this._startAsync(prompt, githubIssueUrl, initialSpec, specFilePath);
   }
 
   cancel(): void {
@@ -135,13 +137,25 @@ export class PipelineRunner {
     return this.actor;
   }
 
-  private async _startAsync(prompt: string, githubIssueUrl?: string): Promise<void> {
+  private async _startAsync(
+    prompt: string,
+    githubIssueUrl?: string,
+    initialSpec?: string,
+    specFilePath?: string,
+  ): Promise<void> {
     this.githubIssueContext = undefined;
     this.githubToken = undefined;
+    this.initialSpecContent = initialSpec;
+    this.specFilePath = specFilePath;
 
     try {
       if (!githubIssueUrl?.trim()) {
-        this.actor.send({ type: 'START', prompt });
+        this.actor.send({
+          type: 'START',
+          prompt,
+          initialSpec: initialSpec ? createSpec(initialSpec) : undefined,
+          specFilePath,
+        });
         return;
       }
 
@@ -159,7 +173,12 @@ export class PipelineRunner {
       );
       this.githubIssueContext = issueContext;
       this.githubToken = token;
-      this.actor.send({ type: 'START', prompt: buildGitHubIssuePrompt(issueContext, prompt) });
+      this.actor.send({
+        type: 'START',
+        prompt: buildGitHubIssuePrompt(issueContext, prompt),
+        initialSpec: initialSpec ? createSpec(initialSpec) : undefined,
+        specFilePath,
+      });
     } catch (err) {
       this.callbacks.onError(err instanceof Error ? err.message : String(err));
     }
@@ -424,7 +443,7 @@ export async function buildPromptForState({
   latestReviewedSpecContent: string;
 }): Promise<string> {
   if (stateValue === 'specAssessing') {
-    return buildSpecQaPrompt(context.prompt, latestReviewedSpecContent);
+    return buildSpecQaPrompt(context.initialSpec ?? context.prompt, latestReviewedSpecContent);
   }
 
   if (stateValue === 'codeAssessing') {
@@ -533,6 +552,7 @@ export function buildHeadlessResultFromContext(
     duration: Date.now() - context.startedAt.getTime(),
     qaAssessments: context.qaAssessments,
     documentationResult: context.documentationResult,
+    specFilePath: context.specFilePath,
     ...(stateValue === 'complete' ? {} : { error: context.error ?? `Pipeline ${stateValue}` }),
   };
 }

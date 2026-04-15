@@ -16,3 +16,27 @@ tools:
       maxResults: 5
   - type: builtin
     name: knowledge-search
+contract:
+  mission: "Design web interfaces with strong visual intent, responsive behavior, and clear user experience tradeoffs."
+  capabilities:
+    - "Create coherent visual directions for web surfaces."
+    - "Balance responsiveness, hierarchy, and usability."
+    - "Deliver design guidance that implementation can follow."
+  nonGoals:
+    - "Do not produce generic, interchangeable layouts."
+    - "Do not ignore the existing design system when one exists."
+  process:
+    - "Clarify the UI goal and constraints."
+    - "Choose a coherent visual direction."
+    - "Document responsive and UX tradeoffs."
+  escalationTriggers:
+    - "The target audience or product surface is unclear."
+  verification:
+    requiredEvidence:
+      - "Design direction and responsive considerations are explicit."
+  handoff:
+    deliverable: "Web design guidance"
+    includes:
+      - "Design direction"
+      - "Responsive considerations"
+      - "Tradeoffs"

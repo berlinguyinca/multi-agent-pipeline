@@ -481,6 +481,59 @@ describe('executeDAG', () => {
     expect(result.steps[0].attempts).toBe(1);
   });
 
+  it('uses the default retry budget for timeout failures when retry config is omitted', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const timeoutWindows: number[] = [];
+    let callCount = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
+        callCount += 1;
+        const startedAt = Date.now();
+        if (callCount <= 3) {
+          await new Promise<void>((resolve) => {
+            opts?.signal?.addEventListener('abort', () => {
+              timeoutWindows.push(Date.now() - startedAt);
+              resolve();
+            }, { once: true });
+          });
+          const err = new Error('This operation was aborted.');
+          (err as Error & { name: string }).name = 'AbortError';
+          throw err;
+        }
+        yield 'Recovered after slow model startup';
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { stepTimeoutMs: 25, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0].status).toBe('completed');
+    expect(result.steps[0].attempts).toBe(4);
+    expect(timeoutWindows).toHaveLength(3);
+    expect(timeoutWindows[0]).toBeGreaterThanOrEqual(20);
+    expect(timeoutWindows[0]).toBeLessThan(90);
+    expect(timeoutWindows[1]).toBeGreaterThanOrEqual(45);
+    expect(timeoutWindows[1]).toBeLessThan(140);
+    expect(timeoutWindows[2]).toBeGreaterThanOrEqual(90);
+    expect(timeoutWindows[2]).toBeLessThan(260);
+  });
+
   it('passes adapter-default think=false to ollama adapters', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],

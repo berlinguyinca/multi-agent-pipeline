@@ -14,6 +14,10 @@ describe('buildRouterPrompt', () => {
       handles: 'research questions, knowledge synthesis',
       output: { type: 'answer' },
       tools: [],
+      contract: {
+        mission: 'Deliver evidence-backed research answers.',
+        capabilities: ['Gather evidence', 'Synthesize findings'],
+      },
     }],
     ['coder', {
       name: 'coder',
@@ -24,6 +28,10 @@ describe('buildRouterPrompt', () => {
       handles: 'code implementation, features, bug fixes',
       output: { type: 'files' },
       tools: [],
+      contract: {
+        mission: 'Implement tested software changes.',
+        capabilities: ['Write tests first', 'Implement minimal code'],
+      },
     }],
   ]);
 
@@ -89,5 +97,13 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('web research');
     expect(prompt).toContain('presentation');
     expect(prompt).toContain('visualization');
+  });
+
+  it('includes contract mission and capabilities when available', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a REST API');
+
+    expect(prompt).toContain('Mission: Deliver evidence-backed research answers.');
+    expect(prompt).toContain('Capabilities: Gather evidence; Synthesize findings');
+    expect(prompt).toContain('Mission: Implement tested software changes.');
   });
 });

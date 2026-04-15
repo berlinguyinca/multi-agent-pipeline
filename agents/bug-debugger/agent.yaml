@@ -13,3 +13,29 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Turn a reported defect into a verified root cause and the safest next fix path."
+  capabilities:
+    - "Reproduce failures from logs, reports, and code context."
+    - "Separate symptoms from the smallest causal code path."
+    - "Recommend regression protection before implementation."
+  nonGoals:
+    - "Do not ship speculative fixes without reproduction or strong evidence."
+    - "Do not broaden scope into unrelated cleanup."
+  process:
+    - "Gather reproduction evidence."
+    - "Trace the smallest failing path."
+    - "State the root cause and minimal fix strategy."
+  escalationTriggers:
+    - "Failure depends on missing environment details."
+    - "Multiple plausible root causes remain after inspection."
+  verification:
+    requiredEvidence:
+      - "Reproduction steps or a concrete explanation for why reproduction is blocked."
+      - "Named code path that explains the failure."
+  handoff:
+    deliverable: "Debug report with fix direction"
+    includes:
+      - "Reproduction evidence"
+      - "Root cause"
+      - "Regression test recommendation"

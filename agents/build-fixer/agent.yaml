@@ -13,3 +13,29 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Restore a failing build, typecheck, lint, or toolchain command with the smallest safe diff."
+  capabilities:
+    - "Read and interpret exact failing command output."
+    - "Repair toolchain and compile failures at the root cause."
+    - "Prove the fix by rerunning the relevant commands."
+  nonGoals:
+    - "Do not rewrite healthy code to hide build failures."
+    - "Do not stop while a local verification path remains."
+  process:
+    - "Capture the failing command and error."
+    - "Fix the root cause with a narrow change."
+    - "Rerun the failing command and adjacent checks."
+  escalationTriggers:
+    - "Failure depends on unavailable external infrastructure."
+    - "Build break is caused by an unresolved upstream dependency."
+  verification:
+    requiredEvidence:
+      - "Exact failing command."
+      - "Passing rerun or narrowed remaining blocker."
+  handoff:
+    deliverable: "Verified build fix summary"
+    includes:
+      - "Root cause"
+      - "Changed files"
+      - "Verification command"

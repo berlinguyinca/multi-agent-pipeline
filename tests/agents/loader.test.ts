@@ -4,6 +4,7 @@ import * as path from 'path';
 import { loadAgentFromDirectory } from '../../src/agents/loader.js';
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
+const INVALID_FIXTURES = path.join(import.meta.dirname, 'invalid-fixtures');
 
 describe('loadAgentFromDirectory', () => {
   it('loads a valid agent with stage prompts', async () => {
@@ -23,6 +24,11 @@ describe('loadAgentFromDirectory', () => {
     expect(agent.output.type).toBe('answer');
     expect(agent.tools).toHaveLength(1);
     expect(agent.tools[0].type).toBe('builtin');
+    expect(agent.contract?.mission).toBe('Turn test inputs into a precise, reviewable answer.');
+    expect(agent.prompt).toContain('## Role Contract');
+    expect(agent.prompt).toContain('Mission: Turn test inputs into a precise, reviewable answer.');
+    expect(agent.prompt).toContain('Capabilities:');
+    expect(agent.prompt).toContain('Handoff deliverable: Markdown answer');
   });
 
   it('loads a minimal agent', async () => {
@@ -34,11 +40,18 @@ describe('loadAgentFromDirectory', () => {
     expect(agent.prompt).toContain('minimal agent');
     expect(agent.pipeline).toHaveLength(1);
     expect(agent.tools).toEqual([]);
+    expect(agent.contract).toBeUndefined();
   });
 
   it('throws for missing agent.yaml', async () => {
     await expect(
       loadAgentFromDirectory(path.join(FIXTURES, 'nonexistent')),
     ).rejects.toThrow();
+  });
+
+  it('throws for an invalid contract shape', async () => {
+    await expect(
+      loadAgentFromDirectory(path.join(INVALID_FIXTURES, 'invalid-contract-agent')),
+    ).rejects.toThrow('Invalid agent definition');
   });
 });

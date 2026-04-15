@@ -5,6 +5,8 @@ import type { DAGResult, StepResult, StepTerminalOutcome } from './dag.js';
 export interface HeadlessOptions {
   prompt: string;
   githubIssueUrl?: string;
+  initialSpec?: string;
+  specFilePath?: string;
   outputDir?: string;
   configPath?: string;
   totalTimeoutMs?: number;
@@ -29,6 +31,7 @@ export interface HeadlessResult {
   documentationResult?: DocumentationResult;
   githubReport?: GitHubReportResult;
   markdownFiles?: string[];
+  specFilePath?: string;
   error?: string;
 }
 

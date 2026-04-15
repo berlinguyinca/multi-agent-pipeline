@@ -49,4 +49,27 @@ describe('cli argument parsing', () => {
     );
     expect(extractPrompt(args)).toBe('Extra prompt');
   });
+
+  it('extracts spec file path without treating it as prompt text', () => {
+    const args = [
+      '--headless',
+      '--spec-file',
+      'docs/spec.md',
+      '--output-dir',
+      'eval-output/demo',
+    ];
+
+    expect(extractFlag(args, '--spec-file')).toBe('docs/spec.md');
+    expect(extractPrompt(args)).toBe('');
+  });
+
+  it('does not treat --classic as prompt text', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--classic',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
 });

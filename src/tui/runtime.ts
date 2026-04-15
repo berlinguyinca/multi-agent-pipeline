@@ -79,18 +79,19 @@ export function buildStagePrompt({
   personality,
 }: BuildStagePromptOptions): string {
   let prompt: string;
+  const sourceRequest = context.initialSpec ?? context.prompt;
 
   if (stage === 'spec') {
     const feedbackText = context.feedbackHistory.at(-1);
     if (feedbackText && latestSpecContent !== '' && latestReviewedSpecContent !== '') {
       prompt = buildFeedbackPrompt(
-        context.prompt,
+        sourceRequest,
         latestSpecContent,
         latestReviewedSpecContent,
         feedbackText,
       );
     } else {
-      prompt = buildSpecPrompt(context.prompt);
+      prompt = buildSpecPrompt(sourceRequest);
     }
   } else if (stage === 'review') {
     prompt = buildReviewPrompt(latestSpecContent);

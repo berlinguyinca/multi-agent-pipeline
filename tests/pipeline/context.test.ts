@@ -44,6 +44,24 @@ describe('createPipelineContext', () => {
     expect(ctx.outputDir).toBe('/custom/path');
   });
 
+  it('stores an initial spec when provided', () => {
+    const ctx = createPipelineContext({
+      prompt: 'review this spec',
+      initialSpec: '# Imported Spec',
+      specFilePath: 'docs/spec.md',
+      agents: {
+        spec: { type: 'claude' },
+        review: { type: 'codex' },
+        qa: { type: 'codex' },
+        execute: { type: 'claude' },
+        docs: { type: 'claude' },
+      },
+    });
+
+    expect(ctx.initialSpec).toBe('# Imported Spec');
+    expect(ctx.specFilePath).toBe('docs/spec.md');
+  });
+
   it('generates unique pipeline IDs', () => {
     const ctx1 = createPipelineContext({
       prompt: 'test',

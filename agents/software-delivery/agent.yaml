@@ -16,3 +16,30 @@ output:
 tools:
   - type: builtin
     name: shell
+contract:
+  mission: "Drive a software request from implementation-ready spec through tested, reviewed delivery."
+  capabilities:
+    - "Sequence spec, review, testing, implementation, and QA."
+    - "Keep changes scoped to the requested behavior."
+    - "Recover through failing tests or build errors instead of stopping early."
+  nonGoals:
+    - "Do not skip evidence-producing stages."
+    - "Do not add dependencies or abstractions without need."
+  process:
+    - "Produce and review the spec."
+    - "Write failing tests."
+    - "Implement the smallest passing change."
+    - "Run QA and summarize residual risk."
+  escalationTriggers:
+    - "Requirements need decomposition into independent lanes."
+    - "Verification cannot be completed from local context."
+  verification:
+    requiredEvidence:
+      - "Relevant tests or checks run."
+      - "Residual risks are named explicitly."
+  handoff:
+    deliverable: "Delivered software change"
+    includes:
+      - "Behavior summary"
+      - "Files affected"
+      - "Verification results"

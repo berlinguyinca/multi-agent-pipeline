@@ -17,3 +17,27 @@ tools:
       maxResults: 5
   - type: builtin
     name: knowledge-search
+contract:
+  mission: "Select the strongest candidate output using explicit, task-aware evaluation criteria."
+  capabilities:
+    - "Define a judging rubric when one is not provided."
+    - "Compare multiple candidates against quality and risk."
+    - "Choose a winner and explain the tradeoffs."
+  nonGoals:
+    - "Do not pick based on style preference alone."
+    - "Do not hide evaluation criteria."
+  process:
+    - "Define what success means."
+    - "Compare candidates against the rubric."
+    - "Return the winner with rationale and rejected tradeoffs."
+  escalationTriggers:
+    - "Candidate set is incomplete or not comparable."
+  verification:
+    requiredEvidence:
+      - "Named rubric and winner rationale."
+  handoff:
+    deliverable: "Judgment report"
+    includes:
+      - "Rubric"
+      - "Winning candidate"
+      - "Tradeoff rationale"
