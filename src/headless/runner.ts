@@ -43,6 +43,7 @@ import type {
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { DetectionResult, AgentAdapter } from '../types/adapter.js';
 import type { GitHubIssueContext } from '../types/github.js';
+
 import { validateDurationRelationship } from '../utils/duration.js';
 import {
   buildCodeFixPrompt,
@@ -65,6 +66,7 @@ import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import type { SecurityConfig } from '../security/types.js';
 import { isAbortError } from '../utils/error.js';
 import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
+import { selectFinalCompletedStep } from '../dag/final-step.js';
 import {
   generateAgentSummary,
   saveFinalReportMarkdown,
@@ -1188,9 +1190,7 @@ export async function runHeadlessV2(
         }),
       );
     }
-    const finalStep = [...dagResult.steps]
-      .reverse()
-      .find((step) => step.status === 'completed' && step.output?.trim());
+    const finalStep = selectFinalCompletedStep(dagResult.plan, dagResult.steps);
     markdownFiles.push(
       await saveFinalReportMarkdown({
         outputRoot: outputDir,
@@ -1253,6 +1253,7 @@ async function loadEnabledAgentRegistry(
 
   return getEnabledAgents(rawAgents);
 }
+
 
 function formatRouterNoMatch(decision: {
   reason: string;

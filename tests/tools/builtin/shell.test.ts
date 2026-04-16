@@ -25,6 +25,14 @@ describe('ShellTool', () => {
     expect(blocked.error).toContain('not allowed');
   });
 
+
+  it('rejects shell metacharacters when allowed commands are configured', async () => {
+    const tool = createShellTool({ allowedCommands: ['echo'] });
+    const result = await tool.execute({ command: 'echo hello && rm -rf /tmp/important' });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('metacharacters');
+  });
+
   it('reports command failure', async () => {
     const tool = createShellTool({});
     const result = await tool.execute({ command: 'false' });

@@ -77,7 +77,7 @@ describe('raw-output-log', () => {
     expect(content).toContain('"dependsOn": []');
   });
 
-  it('writes a sanitized log file synchronously under .map/logs', () => {
+  it('writes a sanitized log file synchronously under .map/logs', async () => {
     tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'map-raw-log-sync-'));
 
     const logPath = persistRawOutputLogSync(
@@ -94,6 +94,6 @@ describe('raw-output-log', () => {
       'session',
       new Date('2026-04-14T12:34:56.000Z'),
     ));
-    expect(fs.readFile(logPath, 'utf8')).resolves.toBe('Hello\n');
+    await expect(fs.readFile(logPath, 'utf8')).resolves.toBe('Hello\n');
   });
 });

@@ -104,6 +104,16 @@ describe('software delivery agent bundle', () => {
     }
   });
 
+
+  it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
+    const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
+
+    expect(agent.prompt).toContain('without changing the message, tone, voice, intent, structure, or level of formality');
+    expect(agent.prompt).toContain("Preserve the author's message, tone, voice, intent, structure");
+    expect(agent.prompt).toContain('Do not summarize, shorten, expand, soften, strengthen, formalize, casualize, or otherwise restyle');
+    expect(agent.contract?.mission).toContain('preserving the original message, tone, voice, intent, and structure');
+  });
+
   it('exposes the new agents to the router prompt', async () => {
     const agents = await loadAgentRegistry(AGENTS_DIR);
     const prompt = buildRouterPrompt(agents, 'Build a feature with TDD and QA review');

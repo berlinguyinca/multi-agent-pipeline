@@ -57,6 +57,22 @@ describe('buildHeadlessResultV2', () => {
   });
 
 
+
+  it('marks explicit final DAG nodes in the result graph', () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'writer', task: 'Write final', dependsOn: [], final: true },
+      ],
+    };
+    const steps: StepResult[] = [
+      { id: 'step-1', agent: 'writer', task: 'Write final', status: 'completed', output: 'Final' },
+    ];
+
+    const result = buildHeadlessResultV2(plan, steps, 1000);
+
+    expect(result.dag.nodes[0]).toMatchObject({ id: 'step-1', final: true });
+  });
+
   it('builds the graph from the mutated runtime DAG including inserted polishing steps', () => {
     const plan: DAGPlan = {
       plan: [

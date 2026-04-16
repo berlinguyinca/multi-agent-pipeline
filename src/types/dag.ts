@@ -8,6 +8,7 @@ export interface DAGStep {
   task: string;
   dependsOn: string[];
   parentStepId?: string;
+  final?: boolean;
 }
 
 export interface DAGPlan {
@@ -24,6 +25,7 @@ export interface StepResult {
   provider?: string;
   model?: string;
   task: string;
+  dependsOn?: string[];
   status: StepStatus | 'recovered';
   outputType?: 'answer' | 'data' | 'files' | 'presentation';
   output?: string;
@@ -50,6 +52,7 @@ export interface DAGNode {
   model?: string;
   status: string;
   duration: number;
+  final?: boolean;
 }
 
 export interface DAGEdge {
@@ -177,6 +180,7 @@ export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult 
       model: result?.model,
       status: result?.status ?? 'pending',
       duration: result?.duration ?? 0,
+      ...(step.final === true ? { final: true } : {}),
     };
   });
 

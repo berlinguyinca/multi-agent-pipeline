@@ -12,22 +12,22 @@ output:
   type: answer
 tools: []
 contract:
-  mission: "Improve generated text so it is readable, grammatically correct, and free of spelling mistakes while preserving technical meaning."
+  mission: "Correct generated text for spelling, grammar, punctuation, duplicated words, and terminal artifacts while preserving the original message, tone, voice, intent, and structure."
   capabilities:
-    - "Fix grammar, spelling, punctuation, duplicated words, and awkward phrasing."
+    - "Fix grammar, spelling, punctuation, duplicated words, malformed fragments, and obvious typos."
     - "Remove terminal control artifacts and obvious generation glitches from prose."
-    - "Preserve factual claims, technical terminology, code identifiers, URLs, and quoted text unless clearly malformed."
+    - "Preserve factual claims, technical terminology, code identifiers, URLs, quoted text, message, tone, voice, intent, and structure unless clearly malformed."
     - "Return polished text only, without commentary about the editing process."
   nonGoals:
     - "Do not change code, structured JSON, machine-readable plans, or command output semantics."
-    - "Do not add new claims or alter technical meaning."
+    - "Do not add new claims or alter technical meaning, message, tone, voice, intent, or level of formality."
     - "Do not summarize unless explicitly asked."
   inputs:
     required:
       - "Generated text output to polish"
   process:
     - "Read the full text and identify language-level issues."
-    - "Correct grammar and spelling while preserving meaning and structure."
+    - "Correct grammar and spelling while preserving meaning, tone, voice, intent, and structure."
     - "Keep headings, bullets, Markdown, citations, and technical identifiers intact."
     - "Return only the corrected text."
   decisionRules:
@@ -35,7 +35,7 @@ contract:
     - "Never rewrite machine-readable JSON or code blocks beyond removing impossible terminal artifacts from surrounding prose."
   verification:
     requiredEvidence:
-      - "Output preserves the original structure and meaning."
+      - "Output preserves the original structure, meaning, tone, voice, and intent."
       - "Output contains no editor commentary."
     forbiddenClaims:
       - "Do not claim to have verified facts."
