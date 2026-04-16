@@ -29,9 +29,9 @@ describe('validateStepHandoff', () => {
     expect(validation.handoffFindings[0]?.message).toContain('Invalid adviser workflow');
   });
 
-  it('flags grammar output that changes tone or drops substantive content', () => {
+  it('warns but does not fail when grammar output changes length or Markdown structure', () => {
     const priorResults = new Map<string, StepResult>([
-      ['step-1', result({ id: 'step-1', agent: 'researcher', output: 'I hate this API, but the timeout must remain 30 seconds.' })],
+      ['step-1', result({ id: 'step-1', agent: 'researcher', output: '# Title\n- I hate this API, but the timeout must remain 30 seconds.\n- Keep API docs.' })],
     ]);
     const validation = validateStepHandoff({
       step: step({ id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', dependsOn: ['step-1'] }),
@@ -39,8 +39,61 @@ describe('validateStepHandoff', () => {
       priorResults,
     });
 
+    expect(validation.handoffPassed).toBe(true);
+    expect(validation.handoffFindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'medium', message: expect.stringContaining('too much') }),
+        expect.objectContaining({ severity: 'medium', message: expect.stringContaining('Markdown/list structure') }),
+      ]),
+    );
+  });
+
+
+  it('still fails grammar output that is empty', () => {
+    const validation = validateStepHandoff({
+      step: step({ id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', dependsOn: ['step-1'] }),
+      result: result({ id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', outputType: 'answer', output: '' }),
+      priorResults: new Map([['step-1', result({ id: 'step-1', output: 'Original text.' })]]),
+    });
+
     expect(validation.handoffPassed).toBe(false);
-    expect(validation.handoffFindings.map((finding) => finding.message).join('\n')).toContain('too much');
+    expect(validation.handoffFindings[0]).toMatchObject({ severity: 'high' });
+  });
+
+
+  it('fails output-formatter handoff when it drops sections, trees, notes, or key terms', () => {
+    const priorResults = new Map<string, StepResult>([
+      ['step-1', result({
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        output: '# Usage Classification Tree\n\nSource method: evidence-backed inference\nConfidence: low\n\n### Tree 1: Metabolomics and Biomarker Identification\n\nPhenolic glycoside\n\n### Tree 2: Analytical Research\n\nMass spectrometry/NMR identification standard\n\n## Notes\n\n- Important caveat preserved.',
+      })],
+    ]);
+    const validation = validateStepHandoff({
+      step: step({ id: 'step-2', agent: 'output-formatter', dependsOn: ['step-1'] }),
+      result: result({ id: 'step-2', agent: 'output-formatter', output: '| Entity | Usage Domain |\n| X | research |' }),
+      priorResults,
+    });
+
+    expect(validation.handoffPassed).toBe(false);
+    expect(validation.handoffFindings.map((finding) => finding.message).join('\n')).toContain('Formatter dropped');
+  });
+
+  it('passes output-formatter handoff when all substantive sections are preserved in a new layout', () => {
+    const priorResults = new Map<string, StepResult>([
+      ['step-1', result({
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        output: '# Usage Classification Tree\n\nSource method: evidence-backed inference\nConfidence: low\n\n### Tree 1: Metabolomics\nPhenolic glycoside\n\n## Notes\nImportant caveat preserved.',
+      })],
+    ]);
+    const validation = validateStepHandoff({
+      step: step({ id: 'step-2', agent: 'output-formatter', dependsOn: ['step-1'] }),
+      result: result({ id: 'step-2', agent: 'output-formatter', output: 'Cell 1: Usage Classification Tree. Source method: evidence-backed inference. Confidence: low. Tree 1: Metabolomics. Phenolic glycoside. Notes: Important caveat preserved.' }),
+      priorResults,
+    });
+
+    expect(validation.handoffPassed).toBe(true);
   });
 
   it('records spec conformance findings for missing acceptance criteria', () => {

@@ -15,11 +15,16 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup",
-    "test": "vitest run",
+    "test": "npm run test:core",
     "test:watch": "vitest --watch",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test:llm-agents": "vitest run tests/agents/llm-integration.test.ts"
+    "test:llm-agents": "node scripts/run-with-timeout.mjs 120000 vitest run tests/agents/llm-integration.test.ts",
+    "test:all": "vitest run",
+    "test:core": "vitest run --config vitest.core.config.ts",
+    "test:tui": "node scripts/run-with-timeout.mjs 60000 vitest run --config vitest.tui.config.ts",
+    "test:spike": "node scripts/run-with-timeout.mjs 60000 vitest run tests/spike",
+    "test:ci": "npm run typecheck && npm run test:core && npm run test:tui"
   },
   "keywords": [
     "ai",

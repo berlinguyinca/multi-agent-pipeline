@@ -779,7 +779,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         };
         const models =
           config.router.adapter === 'ollama' && consensus.enabled
-            ? (consensus.models.length > 0 ? consensus.models : [config.router.model])
+            ? (consensus.models.length > 0 ? consensus.models : [config.router.model, config.router.model, config.router.model])
             : [config.router.model];
 
         return models.slice(0, 3).map((model) =>
@@ -1272,6 +1272,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               maxStepRetries: config.router.maxStepRetries,
               retryDelayMs: config.router.retryDelayMs,
               adapterDefaults: config.adapterDefaults,
+              agentConsensus: config.agentConsensus,
               workingDir: config.outputDir,
               knowledgeCwd: process.cwd(),
             },

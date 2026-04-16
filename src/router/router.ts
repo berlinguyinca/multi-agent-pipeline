@@ -2,7 +2,7 @@
 import type { AgentAdapter } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { RouterConfig as PipelineRouterConfig } from '../types/config.js';
-import type { DAGPlan } from '../types/dag.js';
+import type { ConsensusDiagnostics, ConsensusParticipant, DAGPlan } from '../types/dag.js';
 import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
 import { isAbortError } from '../utils/error.js';
@@ -30,6 +30,7 @@ export interface SuggestedAgentDefinition {
 export interface RouterPlanDecision {
   kind: 'plan';
   plan: DAGPlan;
+  consensus?: ConsensusDiagnostics;
 }
 
 export interface RouterNoMatchDecision {
@@ -109,10 +110,18 @@ async function routeTaskWithConsensus(
 
   const consensusPlan = buildMajorityPlan(planCandidates.map((candidate) => candidate.decision.plan));
   if (consensusPlan !== null) {
-    return { kind: 'plan', plan: consensusPlan };
+    return {
+      kind: 'plan',
+      plan: consensusPlan,
+      consensus: buildRouterConsensusDiagnostics(candidates, consensusPlan, 'majority'),
+    };
   }
 
-  return planCandidates.sort((a, b) => b.score - a.score)[0]!.decision;
+  const selected = planCandidates.sort((a, b) => b.score - a.score)[0]!;
+  return {
+    ...selected.decision,
+    consensus: buildRouterConsensusDiagnostics(candidates, selected.decision.plan, 'best-valid-fallback'),
+  };
 }
 
 async function runRouterAdapter(
@@ -503,15 +512,21 @@ function cleanRouterDecision(
     return decision;
   }
 
+  const cleanedSteps = decision.plan.plan.map((step) => ({
+    ...step,
+    id: step.id.trim(),
+    agent: normalizeRouterAgentName(step.agent.trim(), agents),
+    task: cleanRouterTaskText(step.task),
+    dependsOn: step.dependsOn.map((dep) => dep.trim()).filter(Boolean),
+  }));
+  const ids = new Set(cleanedSteps.map((step) => step.id));
+
   return {
     kind: 'plan',
     plan: {
-      plan: decision.plan.plan.map((step) => ({
+      plan: cleanedSteps.map((step) => ({
         ...step,
-        id: step.id.trim(),
-        agent: normalizeRouterAgentName(step.agent.trim(), agents),
-        task: cleanRouterTaskText(step.task),
-        dependsOn: step.dependsOn.map((dep) => dep.trim()),
+        dependsOn: step.dependsOn.filter((dep) => ids.has(dep)),
       })),
     },
   };
@@ -643,6 +658,70 @@ function buildMajorityPlan(plans: DAGPlan[]): DAGPlan | null {
   const plan = { plan: majoritySteps };
   const validation = validateDAGPlan(plan);
   return validation.valid ? plan : null;
+}
+
+function buildRouterConsensusDiagnostics(
+  candidates: Array<
+    | { model: string; decision: RouterDecision; score: number }
+    | { model: string; error: string }
+  >,
+  selectedPlan: DAGPlan,
+  method: string,
+): ConsensusDiagnostics {
+  const selectedSignatures = new Set(selectedPlan.plan.map(planStepSignature));
+  const denominator = Math.max(1, selectedSignatures.size);
+  const participants: ConsensusParticipant[] = candidates.map((candidate, index) => {
+    if ('error' in candidate) {
+      return {
+        run: index + 1,
+        provider: 'ollama',
+        model: candidate.model,
+        status: 'failed',
+        contribution: 0,
+        detail: candidate.error,
+      };
+    }
+
+    if (candidate.decision.kind !== 'plan') {
+      return {
+        run: index + 1,
+        provider: 'ollama',
+        model: candidate.model,
+        status: 'rejected',
+        contribution: 0,
+        detail: candidate.decision.reason,
+      };
+    }
+
+    const matchedSteps = candidate.decision.plan.plan
+      .map(planStepSignature)
+      .filter((signature) => selectedSignatures.has(signature)).length;
+    const contribution = matchedSteps / denominator;
+    return {
+      run: index + 1,
+      provider: 'ollama',
+      model: candidate.model,
+      status: contribution > 0 ? 'contributed' : 'rejected',
+      contribution,
+      detail: `${matchedSteps}/${denominator} selected plan step${denominator === 1 ? '' : 's'} matched`,
+    };
+  });
+
+  const selected = participants
+    .filter((participant) => participant.contribution > 0)
+    .sort((a, b) => b.contribution - a.contribution || a.run - b.run)[0];
+
+  return {
+    source: 'router',
+    method,
+    runs: candidates.length,
+    selectedRun: selected?.run,
+    selectedModel: selected?.model,
+    agreement:
+      participants.reduce((sum, participant) => sum + participant.contribution, 0) /
+      Math.max(1, participants.length),
+    participants,
+  };
 }
 
 function planStepSignature(step: DAGPlan['plan'][number]): string {

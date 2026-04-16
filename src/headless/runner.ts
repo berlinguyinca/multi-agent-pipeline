@@ -83,7 +83,7 @@ function buildRouterAdapters(config: PipelineConfig, createAdapterFn: AdapterFac
   };
   const models =
     config.router.adapter === 'ollama' && consensus.enabled
-      ? (consensus.models.length > 0 ? consensus.models : [config.router.model])
+      ? (consensus.models.length > 0 ? consensus.models : [config.router.model, config.router.model, config.router.model])
       : [config.router.model];
 
   return models.slice(0, 3).map((model) =>
@@ -1166,6 +1166,7 @@ export async function runHeadlessV2(
       maxStepRetries: config.router.maxStepRetries,
       retryDelayMs: config.router.retryDelayMs,
       adapterDefaults: config.adapterDefaults,
+      agentConsensus: config.agentConsensus,
       workingDir: outputDir,
       knowledgeCwd: process.cwd(),
       adaptiveReplanning: {
@@ -1210,10 +1211,18 @@ export async function runHeadlessV2(
             status: result?.status ?? 'pending',
             duration: result?.duration,
             dependsOn: step.dependsOn,
+            consensus: result?.consensus
+              ? {
+                method: result.consensus.method,
+                selectedRun: result.consensus.selectedRun,
+                participants: result.consensus.participants,
+              }
+              : undefined,
           };
         }),
         content: finalStep?.output ?? '',
         filesCreated: dagResult.steps.flatMap((step) => step.filesCreated ?? []),
+        consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
       }),
     );
     if (config.generateAgentSummary) {
@@ -1231,6 +1240,7 @@ export async function runHeadlessV2(
     return await finish(buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
       outputDir,
       markdownFiles,
+      consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
     }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

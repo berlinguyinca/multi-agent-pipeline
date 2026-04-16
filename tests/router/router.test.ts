@@ -118,6 +118,30 @@ describe('routeTask', () => {
     expect(result.plan.plan[0].agent).toBe('adviser');
   });
 
+
+  it('repairs router plans that reference missing dependency step ids', async () => {
+    const json = '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research taxonomy","dependsOn":[]},{"id":"step-3","agent":"usage-classification-tree","task":"Build usage tree","dependsOn":["step-2"]}]}';
+    const localAgents = new Map(agents);
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage tree agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You classify usage.',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const adapter = mockAdapter(json);
+
+    const result = await routeTask('Build taxonomy and usage tree', localAgents, adapter, routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.find((step) => step.id === 'step-3')?.dependsOn).toEqual([]);
+  });
+
   it('throws on invalid JSON', async () => {
     const adapter = mockAdapter('not json');
 
@@ -400,6 +424,15 @@ describe('routeTask', () => {
       task: 'Research and summarize agent capabilities',
       dependsOn: [],
     }]);
+    expect(result.consensus?.participants.map((participant) => ({
+      model: participant.model,
+      status: participant.status,
+      contribution: participant.contribution,
+    }))).toEqual([
+      { model: 'gemma4', status: 'contributed', contribution: 1 },
+      { model: 'qwen3', status: 'contributed', contribution: 1 },
+      { model: 'llama3', status: 'failed', contribution: 0 },
+    ]);
   });
 
   it('falls back to the best scored valid router plan when there is no majority', async () => {

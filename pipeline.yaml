@@ -23,6 +23,32 @@ router:
   maxStepRetries: 3         # Number of retry attempts after the first timeout/failure
   stepTimeoutMs: 5m         # Initial per-step timeout; timeout retries double this budget each attempt
   timeoutMs: 30s
+  consensus:
+    enabled: true           # Always run router planning through consensus
+    models: []              # Empty repeats router.model three times; list up to 3 models to diversify
+    scope: router
+    mode: majority
+
+adapterDefaults:
+  ollama:
+    think: false
+    temperature: 0          # Deterministic local model sampling
+    seed: 42
+
+agentConsensus:
+  enabled: true             # Repeat non-file agent outputs and select the consensus candidate
+  runs: 3
+  outputTypes: [answer, data, presentation]
+  minSimilarity: 0.35
+  fileOutputs:
+    enabled: true           # Run file-producing candidates in isolated git worktrees when possible
+    runs: 3
+    isolation: git-worktree
+    keepWorktreesOnFailure: true
+    verificationCommands:
+      - npm run typecheck
+      - npm run test:core
+    selection: best-passing-minimal-diff
 
 agentCreation:
   adapter: ollama

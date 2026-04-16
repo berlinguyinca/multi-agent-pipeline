@@ -236,14 +236,14 @@ function summarize(content: string): string {
 
 function inferFreshnessClass(filePath: string, content: string): KnowledgeFreshnessClass {
   const haystack = `${filePath}\n${content}`.toLowerCase();
+  if (/(woodwork|woodworking|mortise|tenon|craft|joinery)/.test(haystack)) {
+    return 'evergreen';
+  }
   if (/(ai|llm|model|prompt|gpt|claude|codex|ollama|day trading|market|finance|api|framework|library)/.test(haystack)) {
     return 'fast';
   }
   if (/(typescript|react|sql|database|migration|software)/.test(haystack)) {
     return 'medium';
-  }
-  if (/(woodwork|woodworking|mortise|tenon|craft|joinery)/.test(haystack)) {
-    return 'evergreen';
   }
   return 'slow';
 }

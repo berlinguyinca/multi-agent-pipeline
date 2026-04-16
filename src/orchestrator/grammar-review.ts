@@ -62,6 +62,9 @@ function shouldGrammarReview(
   if (!agents.has(GRAMMAR_AGENT)) return false;
   if (step.agent === GRAMMAR_AGENT) return false;
   if (step.agent === 'adviser') return false;
+  if (step.agent === 'classyfire-taxonomy-classifier') return false;
+  if (step.agent === 'usage-classification-tree') return false;
+  if (step.agent === 'output-formatter') return false;
   if (result.outputType !== 'answer' && result.outputType !== 'presentation') return false;
   const output = result.output?.trim();
   if (!output) return false;

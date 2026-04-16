@@ -33,6 +33,8 @@ export interface RunOptions {
   responseFormat?: string;
   hideThinking?: boolean;
   think?: boolean | string;
+  temperature?: number;
+  seed?: number;
 }
 
 export interface AgentAdapter {

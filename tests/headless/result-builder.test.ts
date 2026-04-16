@@ -18,6 +18,16 @@ describe('buildHeadlessResultV2', () => {
     const result = buildHeadlessResultV2(plan, steps, 15000, undefined, {
       outputDir: '/tmp/out',
       markdownFiles: ['/tmp/out/map-output/pipe/final-report.md'],
+      consensusDiagnostics: [{
+        source: 'router',
+        method: 'majority',
+        runs: 3,
+        selectedModel: 'gemma4',
+        participants: [
+          { run: 1, provider: 'ollama', model: 'gemma4', status: 'contributed', contribution: 1 },
+          { run: 2, provider: 'ollama', model: 'qwen3', status: 'contributed', contribution: 1 },
+        ],
+      }],
     });
 
     expect(result.version).toBe(2);
@@ -30,6 +40,7 @@ describe('buildHeadlessResultV2', () => {
     expect(result.error).toBeNull();
     expect(result.outputDir).toBe('/tmp/out');
     expect(result.markdownFiles).toEqual(['/tmp/out/map-output/pipe/final-report.md']);
+    expect(result.consensusDiagnostics?.[0].participants.map((participant) => participant.model)).toEqual(['gemma4', 'qwen3']);
   });
 
   it('builds failure result with error', () => {

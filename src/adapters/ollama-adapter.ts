@@ -51,8 +51,12 @@ export class OllamaAdapter extends BaseAdapter {
       ? `${options.systemPrompt}\n\n---\n\n${prompt}`
       : prompt;
 
-    if (options?.responseFormat === 'json') {
-      yield await this.runViaStructuredApi(fullPrompt, options);
+    if (
+      options?.responseFormat === 'json' ||
+      options?.temperature !== undefined ||
+      options?.seed !== undefined
+    ) {
+      yield await this.runViaChatApi(fullPrompt, options);
       return;
     }
 
@@ -75,9 +79,19 @@ export class OllamaAdapter extends BaseAdapter {
     });
   }
 
-  private async runViaStructuredApi(prompt: string, options?: RunOptions): Promise<string> {
+  private async runViaChatApi(prompt: string, options?: RunOptions): Promise<string> {
     const baseUrl = new URL(this.host ?? process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434');
     const url = new URL('/api/chat', baseUrl);
+    const generationOptions: Record<string, number> = {};
+    if (options?.temperature !== undefined) {
+      generationOptions['temperature'] = options.temperature;
+    }
+    if (options?.seed !== undefined) {
+      generationOptions['seed'] = options.seed;
+    }
+    if (Object.keys(generationOptions).length === 0) {
+      generationOptions['temperature'] = 0;
+    }
 
     let response: Response;
     try {
@@ -89,12 +103,10 @@ export class OllamaAdapter extends BaseAdapter {
         signal: options?.signal,
         body: JSON.stringify({
           model: this.model,
-          messages: buildChatMessages(prompt),
+          messages: buildChatMessages(prompt, options?.responseFormat === 'json'),
           stream: false,
-          format: ROUTER_OUTPUT_SCHEMA,
-          options: {
-            temperature: 0,
-          },
+          ...(options?.responseFormat === 'json' ? { format: ROUTER_OUTPUT_SCHEMA } : {}),
+          options: generationOptions,
         }),
       });
     } catch (err: unknown) {
@@ -178,14 +190,16 @@ const ROUTER_OUTPUT_SCHEMA = {
   ],
 } as const;
 
-function buildChatMessages(prompt: string): Array<{ role: 'system' | 'user'; content: string }> {
-  const messages: Array<{ role: 'system' | 'user'; content: string }> = [
-    {
+function buildChatMessages(prompt: string, jsonMode: boolean): Array<{ role: 'system' | 'user'; content: string }> {
+  const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+
+  if (jsonMode) {
+    messages.push({
       role: 'system',
       content:
         'Return only valid JSON that matches the provided schema. Do not include reasoning, markdown, or commentary.',
-    },
-  ];
+    });
+  }
 
   messages.push({ role: 'user', content: prompt });
   return messages;

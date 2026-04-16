@@ -46,7 +46,7 @@ Options:
   --router-timeout <dur> Router planning timeout, e.g. 300s
   --router-model <name>  Override the smart-routing router model
   --router-consensus-models <csv>
-                         Enable router consensus with up to 3 comma-separated Ollama models
+                         Override default router consensus with up to 3 comma-separated Ollama models
   --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts

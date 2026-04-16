@@ -157,4 +157,134 @@ describe('extended result formats', () => {
     expect(parsed.errors).toEqual(['Router failed', 'step-1 [researcher]: Model timed out']);
   });
 
+
+  it('includes non-blocking handoff warnings in compact markdown output', () => {
+    const warned = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      steps: [
+        {
+          id: 'step-1-grammar-1',
+          agent: 'grammar-spelling-specialist',
+          task: 'Polish',
+          status: 'completed',
+          handoffPassed: true,
+          handoffFindings: [
+            { severity: 'medium', sourceStepId: 'step-1-grammar-1', message: 'Grammar-polished output changed Markdown/list structure.' },
+          ],
+          output: 'Polished result',
+        },
+      ],
+    };
+
+    const output = formatMapOutput(warned, 'markdown', { compact: true });
+
+    expect(output).toContain('## Warnings');
+    expect(output).toContain('step-1-grammar-1 [grammar-spelling-specialist]: Grammar-polished output changed Markdown/list structure.');
+    expect(output).toContain('## Final Result');
+  });
+
+
+  it('compact markdown prioritizes useful final result before graph and falls back from internal tool tables', () => {
+    const degraded = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'classyfire-taxonomy-classifier', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+          { id: 'step-3', agent: 'output-formatter', status: 'completed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-2', type: 'planned' },
+          { from: 'step-2', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Classify', status: 'completed', output: 'ClassyFire tree' },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Usage', status: 'completed', output: '# Usage Classification Tree\n\nEntity: test\n\n## Usage Tree\n\n| Level | Usage Classification |\n| --- | --- |\n| Level 1 | Biomarker |' },
+        { id: 'step-3', agent: 'output-formatter', task: 'Format', status: 'completed', output: '| Agent | Tool | Parameter |\n| :--- | :--- | :--- |\n| grammar-spelling-specialist | web-search | test |' },
+      ],
+    };
+
+    const output = formatMapOutput(degraded, 'markdown', { compact: true });
+
+    expect(output.indexOf('## Final Result')).toBeLessThan(output.indexOf('## Agent Graph'));
+    expect(output).toContain('# Usage Classification Tree');
+    expect(output).toContain('Biomarker');
+    expect(output).not.toContain('grammar-spelling-specialist | web-search');
+  });
+
+
+  it('compact markdown falls back from lossy formatter tables to richer upstream report', () => {
+    const lossy = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'classyfire-taxonomy-classifier', status: 'completed', duration: 1 },
+          { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+          { id: 'step-2-grammar-1', agent: 'grammar-spelling-specialist', status: 'completed', duration: 1 },
+          { id: 'step-3', agent: 'output-formatter', status: 'completed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-1-grammar-1', type: 'planned' },
+          { from: 'step-1-grammar-1', to: 'step-2', type: 'planned' },
+          { from: 'step-2', to: 'step-2-grammar-1', type: 'planned' },
+          { from: 'step-2-grammar-1', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Classify', status: 'completed', output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: X\n\n## Taxonomy Tree\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |\n| Superclass | Organic acids and derivatives |' },
+        { id: 'step-2-grammar-1', agent: 'grammar-spelling-specialist', task: 'Usage', status: 'completed', output: '# Usage Classification Tree\n\nEntity: X\n\n## Usage Tree\n\n### Tree 1: Metabolomics and Biomarker Identification\n\n| Level | Usage Classification |\n| --- | --- |\n| Level 1 | Secondary metabolite |\n| Level 2 | Phenolic glycoside |\n| Level 3 | Phenylpropanoid-derived metabolite |\n| Level 4 | Analytical target (Metabolomics) |\n\n## Notes\n\n- Useful metabolomics caveat.' },
+        { id: 'step-3', agent: 'output-formatter', task: 'Format XLS cells', status: 'completed', output: '| Entity | Usage Domain | Source Method | Confidence | Level 1 | Level 2 | Level 3 | Level 4 | Level 5 | Level 6 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| X | research | evidence-backed inference | medium | Metabolite | Secondary metabolite | Metabolic biomarker | Metabolic profiling | unavailable | unavailable |' },
+      ],
+    };
+
+    const output = formatMapOutput(lossy, 'markdown', { compact: true });
+
+    expect(output).toContain('# Usage Classification Tree');
+    expect(output).toContain('Phenolic glycoside');
+    expect(output).toContain('Useful metabolomics caveat');
+    expect(output).not.toContain('| Entity | Usage Domain | Source Method | Confidence |');
+  });
+
+
+  it('compact markdown combines taxonomy and usage reports instead of dropping the taxonomy branch', () => {
+    const combined = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'classyfire-taxonomy-classifier', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+          { id: 'step-3', agent: 'output-formatter', status: 'failed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-2', type: 'planned' },
+          { from: 'step-2', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Classify', status: 'completed', output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: X\n\n## Taxonomy Tree\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |\n| Superclass | Organic oxygen compounds |' },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Usage', status: 'completed', output: '# Usage Classification Tree\n\nEntity: X\n\n## Usage Tree\n\n| Level | Usage Classification |\n| --- | --- |\n| Level 1 | Biomarker |' },
+        { id: 'step-3', agent: 'output-formatter', task: 'Format', status: 'failed', error: 'Formatter dropped required sections or labels: Usage Classification Tree, Usage Tree' },
+      ],
+    };
+
+    const output = formatMapOutput(combined, 'markdown', { compact: true });
+
+    expect(output).toContain('# ClassyFire / ChemOnt Taxonomic Classification');
+    expect(output).toContain('## Taxonomy Tree');
+    expect(output).toContain('Organic compounds');
+    expect(output).toContain('# Usage Classification Tree');
+    expect(output).toContain('## Usage Tree');
+    expect(output).toContain('Biomarker');
+  });
+
 });
