@@ -24,11 +24,11 @@ export function createDbConnectionTool(config: DbConnectionToolConfig): Tool {
       }
 
       const readOnly = config.readOnly !== false;
-      if (readOnly && !isReadOnlyQuery(query)) {
+      if (readOnly && !isSafeReadOnlyQuery(query)) {
         return {
           success: false,
           output: '',
-          error: 'db-connection is read-only by default; only SELECT, WITH, EXPLAIN, and SHOW are allowed',
+          error: 'db-connection is read-only by default; only a single read-only statement (SELECT, WITH, EXPLAIN, or SHOW) is allowed',
         };
       }
 
@@ -56,7 +56,15 @@ export function createDbConnectionTool(config: DbConnectionToolConfig): Tool {
   };
 }
 
-function isReadOnlyQuery(query: string): boolean {
-  const normalized = query.replace(/^\s*--.*$/gm, '').trim().toLowerCase();
-  return /^(select|with|explain|show)\b/.test(normalized);
+function isSafeReadOnlyQuery(query: string): boolean {
+  const withoutLineComments = query.replace(/^\s*--.*$/gm, '').trim();
+  const statements = withoutLineComments
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  if (statements.length !== 1) return false;
+
+  const normalized = statements[0]!.toLowerCase();
+  if (!/^(select|with|explain|show)\b/.test(normalized)) return false;
+  return !/\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|merge|call|copy)\b/.test(normalized);
 }

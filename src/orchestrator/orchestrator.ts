@@ -9,12 +9,14 @@ import { injectToolCatalog } from '../tools/inject.js';
 import { runWithFailover } from '../adapters/failover-runner.js';
 import type { VerboseReporter } from '../utils/verbose-reporter.js';
 import { runSecurityGate } from '../security/gate.js';
-import type { SecurityConfig, SecurityFinding } from '../security/types.js';
+import type { SecurityConfig } from '../security/types.js';
 import { shouldGateStep } from '../security/should-gate.js';
 import { isAbortError } from '../utils/error.js';
 import { recordLearningCandidate } from '../knowledge/index.js';
 import { normalizeTerminalText } from '../utils/terminal-text.js';
 import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
+import { maybeScheduleGrammarReview } from './grammar-review.js';
+import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -123,6 +125,7 @@ export async function executeDAG(
             id: step.id,
             agent: step.agent,
             task: step.task,
+            dependsOn: [...step.dependsOn],
             status: 'skipped',
             reason,
           });
@@ -230,6 +233,7 @@ export async function executeDAG(
               provider: agent.adapter,
               model: agent.model,
               task: step.task,
+              dependsOn: [...step.dependsOn],
               status: 'completed',
               outputType: agent.output.type,
               output: normalizeTerminalText(output),
@@ -343,6 +347,7 @@ export async function executeDAG(
                 provider: agent.adapter,
                 model: agent.model,
                 task: step.task,
+                dependsOn: [...step.dependsOn],
                 status: 'failed',
                 error: lastError,
                 duration,
@@ -387,6 +392,7 @@ export async function executeDAG(
         id: step.id,
         agent: step.agent,
         task: step.task,
+        dependsOn: [...step.dependsOn],
         status: 'pending' as StepStatus,
         provider: agents.get(step.agent)?.adapter,
         model: agents.get(step.agent)?.model,
@@ -482,110 +488,6 @@ async function persistLearningCandidate(
   } catch {
     // Learning writeback is best-effort.
   }
-}
-
-interface GrammarReviewOptions {
-  step: DAGPlan['plan'][number];
-  result: StepResult;
-  plan: DAGPlan;
-  allIds: Set<string>;
-  agents: Map<string, AgentDefinition>;
-  results: Map<string, StepResult>;
-  settled: Set<string>;
-}
-
-function maybeScheduleGrammarReview(options: GrammarReviewOptions): void {
-  const grammarAgent = 'grammar-spelling-specialist';
-  if (!shouldGrammarReview(options.step, options.result, options.agents, grammarAgent)) return;
-
-  const grammarId = nextAvailableId(`${options.step.id}-grammar`, options.allIds);
-  const grammarStep = {
-    id: grammarId,
-    agent: grammarAgent,
-    task: buildGrammarReviewTask(options.step, options.result.output ?? ''),
-    dependsOn: [options.step.id],
-    parentStepId: options.step.id,
-  };
-  const stepIndex = options.plan.plan.findIndex((candidate) => candidate.id === options.step.id);
-  if (stepIndex === -1) {
-    options.plan.plan.push(grammarStep);
-  } else {
-    options.plan.plan.splice(stepIndex + 1, 0, grammarStep);
-  }
-  options.allIds.add(grammarId);
-
-  for (const candidate of options.plan.plan) {
-    if (candidate.id === options.step.id || candidate.id === grammarId || options.settled.has(candidate.id)) {
-      continue;
-    }
-    candidate.dependsOn = candidate.dependsOn.map((dep) =>
-      dep === options.step.id ? grammarId : dep,
-    );
-  }
-
-  options.results.set(grammarId, {
-    id: grammarId,
-    agent: grammarAgent,
-    task: buildGrammarReviewTask(options.step, options.result.output ?? ''),
-    status: 'pending',
-    parentStepId: options.step.id,
-    edgeType: 'handoff',
-    spawnedByAgent: options.step.agent,
-  });
-}
-
-function shouldGrammarReview(
-  step: DAGPlan['plan'][number],
-  result: StepResult,
-  agents: Map<string, AgentDefinition>,
-  grammarAgent: string,
-): boolean {
-  if (!agents.has(grammarAgent)) return false;
-  if (step.agent === grammarAgent) return false;
-  if (step.agent === 'adviser') return false;
-  if (result.outputType !== 'answer' && result.outputType !== 'presentation') return false;
-  const output = result.output?.trim();
-  if (!output) return false;
-  if (looksMachineReadable(output)) return false;
-  return true;
-}
-
-function looksMachineReadable(output: string): boolean {
-  const trimmed = output.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      JSON.parse(trimmed);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
-function nextAvailableId(base: string, allIds: Set<string>): string {
-  for (let index = 1; ; index += 1) {
-    const candidate = `${base}-${index}`;
-    if (!allIds.has(candidate)) return candidate;
-  }
-}
-
-function buildGrammarReviewTask(
-  step: DAGPlan['plan'][number],
-  output: string,
-): string {
-  return [
-    'Polish grammar, spelling, punctuation, and readability for the generated text below.',
-    'Preserve technical meaning, Markdown structure, citations, code identifiers, URLs, and factual claims.',
-    'Return only the corrected text with no commentary.',
-    '',
-    `Original step: ${step.id}`,
-    `Original agent: ${step.agent}`,
-    `Original task: ${step.task}`,
-    '',
-    'Generated text:',
-    output,
-  ].join('\n');
 }
 
 function scheduleReadySteps(
@@ -830,6 +732,7 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
     id: helperId,
     agent: helperAgent,
     task: buildRecoveryTask(options.step, options.failure),
+    dependsOn: [],
     status: 'pending',
     parentStepId: rootId,
     edgeType: 'recovery',
@@ -840,6 +743,7 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
     id: retryId,
     agent: options.step.agent,
     task: options.step.task,
+    dependsOn: retryDependsOn,
     status: 'pending',
     parentStepId: rootId,
     edgeType: 'recovery',
@@ -913,45 +817,6 @@ function buildRecoveryTask(step: DAGPlan['plan'][number], failure: StepResult): 
   recoveryInstructions.push(`If you are unsure how to fix this, describe your analysis and ask for help first.`);
   
   return recoveryInstructions.join('\n');
-}
-
-function appendSecurityRemediationContext(
-  context: string,
-  remediationContext?: string,
-): string {
-  if (!remediationContext) return context;
-  return `${context}\n\n${remediationContext}`;
-}
-
-function buildSecurityRemediationContext(
-  findings: SecurityFinding[],
-  rejectedOutput: string,
-): string {
-  const formattedFindings = findings.length > 0
-    ? findings.map(formatSecurityFinding).join('\n')
-    : '- Security gate failed without structured findings. Re-check the output for unsafe behavior.';
-  const outputExcerpt = rejectedOutput.length > 2_000
-    ? `${rejectedOutput.slice(0, 2_000)}\n[truncated]`
-    : rejectedOutput;
-
-  return [
-    '--- Security remediation required before this step can be accepted. ---',
-    'The previous output was rejected by the security gate. Fix the issues below and return a corrected, complete output for the original task.',
-    '',
-    'Security findings:',
-    formattedFindings,
-    '',
-    'Rejected output excerpt:',
-    outputExcerpt,
-    '',
-    'Do not argue with the security review or restate these findings as the final answer. Produce the secure corrected result.',
-  ].join('\n');
-}
-
-function formatSecurityFinding(finding: SecurityFinding): string {
-  const location = finding.line !== undefined ? ` line ${finding.line}` : '';
-  const snippet = finding.snippet ? ` Snippet: ${finding.snippet}` : '';
-  return `- ${finding.severity.toUpperCase()} ${finding.rule}${location}: ${finding.message}.${snippet}`;
 }
 
 function buildStepContext(

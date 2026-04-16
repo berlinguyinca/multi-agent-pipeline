@@ -21,7 +21,11 @@ export function createHttpApiTool(config: HttpApiToolConfig): Tool {
       }
 
       try {
-        const url = new URL(path, config.baseUrl);
+        const baseUrl = new URL(config.baseUrl);
+        const url = new URL(path, baseUrl);
+        if (url.origin !== baseUrl.origin) {
+          return { success: false, output: '', error: 'path resolves outside configured base URL origin' };
+        }
         const method = typeof params['method'] === 'string' ? params['method'].toUpperCase() : 'GET';
         const body = typeof params['body'] === 'string' && method !== 'GET' ? params['body'] : undefined;
         const response = await fetch(url, {

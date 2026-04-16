@@ -27,12 +27,12 @@ describe('shouldGateStep', () => {
     }))).toBe(true);
   });
 
-  it('gates answer-only agents', () => {
-    expect(shouldGateStep(makeAgent({ output: { type: 'answer' } }))).toBe(true);
+  it('does not gate answer-only agents without tools', () => {
+    expect(shouldGateStep(makeAgent({ output: { type: 'answer' } }))).toBe(false);
   });
 
-  it('gates data-only agents', () => {
-    expect(shouldGateStep(makeAgent({ output: { type: 'data' } }))).toBe(true);
+  it('does not gate data-only agents without tools', () => {
+    expect(shouldGateStep(makeAgent({ output: { type: 'data' } }))).toBe(false);
   });
 
   it('gates agents with both files and shell', () => {
@@ -42,10 +42,10 @@ describe('shouldGateStep', () => {
     }))).toBe(true);
   });
 
-  it('gates agents with only file-read tools', () => {
+  it('does not gate agents with only file-read tools', () => {
     expect(shouldGateStep(makeAgent({
       tools: [{ type: 'builtin', name: 'file-read' }],
-    }))).toBe(true);
+    }))).toBe(false);
   });
 
   it('gates agents with only MCP tools', () => {

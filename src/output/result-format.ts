@@ -1,4 +1,6 @@
 import { stringify as stringifyYaml } from 'yaml';
+import { getPreferredTerminalStepIds } from '../dag/final-step.js';
+import type { DAGPlan } from '../types/dag.js';
 
 export type MapOutputFormat = 'json' | 'yaml' | 'markdown';
 
@@ -138,6 +140,16 @@ function buildSimplifiedGraph(data: Record<string, unknown>): string[] {
 
 function extractFinalResult(data: Record<string, unknown>): string | null {
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const terminalIds = getPreferredTerminalStepIds(toDagPlan(data));
+
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index]!;
+    if (terminalIds.size > 0 && !terminalIds.has(String(step['id'] ?? ''))) continue;
+    if (step['status'] !== 'completed' && step['status'] !== 'recovered') continue;
+    const output = typeof step['output'] === 'string' ? step['output'].trim() : '';
+    if (output) return output;
+  }
+
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
     if (step['status'] !== 'completed' && step['status'] !== 'recovered') continue;
@@ -156,6 +168,29 @@ function extractFinalResult(data: Record<string, unknown>): string | null {
   if (typeof result === 'string' && result.trim()) return result.trim();
 
   return null;
+}
+
+
+
+
+function toDagPlan(data: Record<string, unknown>): DAGPlan {
+  const dag = isRecord(data['dag']) ? data['dag'] : undefined;
+  const nodes = Array.isArray(dag?.['nodes']) ? dag['nodes'].filter(isRecord) : [];
+  const edges = Array.isArray(dag?.['edges']) ? dag['edges'].filter(isRecord) : [];
+  return {
+    plan: nodes.map((node) => {
+      const id = String(node['id'] ?? '');
+      return {
+        id,
+        agent: String(node['agent'] ?? ''),
+        task: '',
+        dependsOn: edges
+          .filter((edge) => String(edge['to'] ?? '') === id)
+          .map((edge) => String(edge['from'] ?? '')),
+        ...(node['final'] === true ? { final: true } : {}),
+      };
+    }),
+  };
 }
 
 function asStringArray(value: unknown): string[] | undefined {

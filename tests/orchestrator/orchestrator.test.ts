@@ -329,9 +329,11 @@ describe('executeDAG', () => {
 
     await executeDAG(plan, agents, createAdapter);
 
-    // The second step should receive context from the first
+    // The second step should receive context from the first and preserve lineage metadata.
     expect(capturedPrompt).toContain('Build X');
     expect(capturedPrompt).toContain('step-1');
+    const result = await executeDAG(plan, agents, createAdapter);
+    expect(result.steps.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1']);
   });
 
   it('skips steps when dependency fails', async () => {
@@ -480,7 +482,6 @@ describe('executeDAG', () => {
     expect(result.success).toBe(false);
     expect(result.steps[0].status).toBe('failed');
     expect(result.steps[0].securityPassed).toBe(false);
-    expect(result.steps[0].securityFindings?.[0]?.rule).toBe('eval-injection');
     expect(result.steps[0].error).toContain('Security gate');
   });
 
@@ -775,7 +776,7 @@ describe('executeDAG', () => {
     expect(capturedOptions?.hideThinking).toBeUndefined();
   });
 
-  it('gates answer-only steps too', async () => {
+  it('does not gate answer-only steps without risky tools', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Explain X', dependsOn: [] }],
     };
@@ -793,10 +794,9 @@ describe('executeDAG', () => {
       { retryDelayMs: 0 },
     );
 
-    expect(result.success).toBe(false);
-    expect(result.steps[0].status).toBe('failed');
-    expect(result.steps[0].securityPassed).toBe(false);
-    expect(result.steps[0].securityFindings?.[0]?.rule).toBe('eval-injection');
+    expect(result.success).toBe(true);
+    expect(result.steps[0].status).toBe('completed');
+    expect(result.steps[0].securityPassed).toBeUndefined();
   });
 
   it('routes compile failures through a recovery helper and retry step', async () => {

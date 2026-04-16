@@ -20,6 +20,13 @@ export function createShellTool(config: ShellToolConfig): Tool {
       const command = params['command'] as string;
 
       if (config.allowedCommands && config.allowedCommands.length > 0) {
+        if (/[;&|`$<>\n\r]/.test(command)) {
+          return {
+            success: false,
+            output: '',
+            error: 'Command contains shell metacharacters and cannot run with allowedCommands restrictions',
+          };
+        }
         const baseCommand = command.split(/\s+/)[0];
         if (!config.allowedCommands.includes(baseCommand)) {
           return {
