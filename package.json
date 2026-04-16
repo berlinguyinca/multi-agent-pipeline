@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:llm-agents": "vitest run tests/agents/llm-integration.test.ts"
   },
   "keywords": [
     "ai",

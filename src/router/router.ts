@@ -198,7 +198,7 @@ function finalizeRouterOutput(output: string, agents: Map<string, AgentDefinitio
     throw new Error(`Router returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
 
-  const cleanedDecision = cleanRouterDecision(decision);
+  const cleanedDecision = cleanRouterDecision(decision, agents);
 
   if (cleanedDecision.kind === 'no-match') {
     return cleanedDecision;
@@ -495,7 +495,10 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
   throw new Error('Router returned neither a plan nor a no-match decision');
 }
 
-function cleanRouterDecision(decision: RouterDecision): RouterDecision {
+function cleanRouterDecision(
+  decision: RouterDecision,
+  agents: Map<string, AgentDefinition>,
+): RouterDecision {
   if (decision.kind === 'no-match') {
     return decision;
   }
@@ -506,12 +509,30 @@ function cleanRouterDecision(decision: RouterDecision): RouterDecision {
       plan: decision.plan.plan.map((step) => ({
         ...step,
         id: step.id.trim(),
-        agent: step.agent.trim(),
+        agent: normalizeRouterAgentName(step.agent.trim(), agents),
         task: cleanRouterTaskText(step.task),
         dependsOn: step.dependsOn.map((dep) => dep.trim()),
       })),
     },
   };
+}
+
+
+function normalizeRouterAgentName(agent: string, agents: Map<string, AgentDefinition>): string {
+  if (agents.has(agent)) return agent;
+
+  const withoutAgentPrefix = agent.replace(/^agent[-_]/i, '');
+  if (agents.has(withoutAgentPrefix)) return withoutAgentPrefix;
+
+  const withoutAgentSuffix = agent.replace(/[-_]agent$/i, '');
+  if (agents.has(withoutAgentSuffix)) return withoutAgentSuffix;
+
+  const normalized = agent.toLowerCase().replace(/_/g, '-');
+  for (const candidate of [normalized, normalized.replace(/^agent-/, ''), normalized.replace(/-agent$/, '')]) {
+    if (agents.has(candidate)) return candidate;
+  }
+
+  return agent;
 }
 
 function cleanRouterTaskText(task: string): string {

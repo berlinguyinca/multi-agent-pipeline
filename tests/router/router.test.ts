@@ -37,6 +37,17 @@ const agents = new Map<string, AgentDefinition>([
     output: { type: 'answer' },
     tools: [],
   }],
+  ['adviser', {
+    name: 'adviser',
+    description: 'Workflow adviser',
+    adapter: 'ollama',
+    model: 'gemma4',
+    prompt: 'You advise.',
+    pipeline: [{ name: 'advise' }],
+    handles: 'workflow advice',
+    output: { type: 'answer' },
+    tools: [],
+  }],
   ['coder', {
     name: 'coder',
     description: 'Coding agent',
@@ -93,6 +104,18 @@ describe('routeTask', () => {
 
     expect(result.plan.plan).toHaveLength(2);
     expect(result.plan.plan[1].dependsOn).toEqual(['step-1']);
+  });
+
+
+  it('normalizes common router agent aliases to registered agent names', async () => {
+    const json = '{"kind":"plan","plan":[{"id":"step-1","agent":"agent-adviser","task":"Advise workflow","dependsOn":[]}]}';
+    const adapter = mockAdapter(json);
+
+    const result = await routeTask('Use the adviser', agents, adapter, routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan[0].agent).toBe('adviser');
   });
 
   it('throws on invalid JSON', async () => {

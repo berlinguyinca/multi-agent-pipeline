@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown` or `--output-format yaml` when those are easier for people or downstream tools to read. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, or `text` when those are easier for people or downstream tools to read. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -324,6 +324,8 @@ map --headless --output-dir ./output/pantry "Investigate a specific question"
 # Print the final MAP result as readable Markdown or YAML
 map --headless --output-format markdown "Investigate a specific question"
 map --headless --output-format yaml "Investigate a specific question"
+map --headless --output-format html "Investigate a specific question"
+map --headless --output-format text "Investigate a specific question"
 
 # Print only the utilized agent graph and the final output
 map --headless --compact "Investigate a specific question"
@@ -456,7 +458,7 @@ Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; whe
 
 ### Compact Output
 
-Use `--compact` when you only want the utilized agent path and the final answer. Compact output suppresses the full JSON/YAML payload and prints two human-readable sections:
+Use `--compact` when you only want the utilized agent path and the final answer. Compact is independent from `--output-format`: it reduces whichever selected format you choose to graph plus final result.
 
 ```markdown
 ## Agent Graph
@@ -786,6 +788,35 @@ spec-writer
 If the spec is not clearly reviewed and QA-approved, `adviser` should route back to spec QA instead of recommending execution.
 
 
+
+
+### Real LLM Agent Integration Tests
+
+Real LLM agent integration tests are mission-critical and run as part of the normal test suite. They validate selected agents against a live Ollama model.
+
+Run just the LLM contract suite with:
+
+```bash
+npm run test:llm-agents
+```
+
+By default this uses each agent's configured Ollama model. Override it with:
+
+```bash
+MAP_LLM_TEST_MODEL=gemma4:26b npm run test:llm-agents
+```
+
+These tests exercise the grammar/spelling, ClassyFire/ChemOnt taxonomy, usage-classification, and researcher contracts with real model output. They require local Ollama/model availability and should fail loudly if the model runtime is unavailable.
+
+### Classification Agents
+
+MAP includes two separate classification specialists:
+
+- `classyfire-taxonomy-classifier` produces ClassyFire/ChemOnt-style chemical ontology trees. It must never use the ClassyFire API; that API is treated as broken/unreliable for this workflow.
+- `usage-classification-tree` produces evidence-backed usage trees, such as drug/supplement/food/topical/biomarker use hierarchies up to six levels deep when medically or biologically sensible.
+
+Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for.
+
 ### Automatic Text Polishing
 
 Whenever a DAG step produces human-facing text (`answer` or `presentation` output), MAP automatically schedules `grammar-spelling-specialist` immediately after that step when the agent is available. Pending downstream steps are rewired to depend on the polished output, so later agents consume corrected prose instead of raw model text.
@@ -806,6 +837,9 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
+| `output-formatter` | `answer` | Formats final MAP results into requested output/report structures without changing meaning. |
+| `usage-classification-tree` | `answer` | Evidence-backed usage trees for drugs, foods, supplements, ointments, biomarkers, and related entities. |
+| `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
@@ -949,8 +983,8 @@ Options:
   --spec-file <path>     Use a local spec file as input
   --v2                   Deprecated compatibility flag; smart routing is the default
   --output-dir <path>    Output directory for generated projects
-  --output-format <fmt>  Print result as json, yaml, or markdown
-  --compact              Print only agent graph and Final Result
+  --output-format <fmt>  Print result as json, yaml, markdown, html, or text
+  --compact              Reduce output to agent graph and Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -1032,4 +1066,10 @@ The v2 foundation is now in place. Useful next steps:
 
 ## License
 
-MIT
+GPL-3.0-or-later. See [LICENSE](LICENSE) for the full license text.
+
+Redistributed copies and modified versions must preserve the copyright,
+license, and attribution notices required by the GPL. If you publish work
+that builds on MAP, cite or reference this project:
+
+> Multi-Agent Pipeline (MAP), https://github.com/berlinguyinca/multi-agent-pipeline

@@ -17,6 +17,7 @@ import { normalizeTerminalText } from '../utils/terminal-text.js';
 import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
 import { maybeScheduleGrammarReview } from './grammar-review.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
+import { validateStepHandoff } from './handoff-validation.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -42,6 +43,9 @@ export interface DAGRetryOptions {
   adaptiveReplanning?: {
     enabled?: boolean;
     refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+  };
+  handoffValidation?: {
+    reviewedSpecContent?: string;
   };
 }
 
@@ -288,7 +292,29 @@ export async function executeDAG(
               reporter?.securityGatePassed(step.id, Date.now() - securityStartedAt);
             }
 
+            const handoffValidation = validateStepHandoff({
+              step,
+              result,
+              priorResults: results,
+              reviewedSpecContent: retry?.handoffValidation?.reviewedSpecContent,
+            });
+            result.handoffPassed = handoffValidation.handoffPassed;
+            result.handoffFindings = handoffValidation.handoffFindings;
+            result.specConformance = handoffValidation.specConformance;
+
             results.set(step.id, result);
+            if (!handoffValidation.handoffPassed) {
+              result.status = 'failed';
+              result.error = handoffValidation.handoffFindings
+                .filter((finding) => finding.severity === 'high')
+                .map((finding) => finding.message)
+                .join('; ') || 'Handoff validation failed';
+              failed.add(step.id);
+              settled.add(step.id);
+              reporter?.dagStepFailed(step.id, step.agent, result.error);
+              break;
+            }
+
             completed.add(step.id);
             settled.add(step.id);
             if (retry?.adaptiveReplanning?.enabled && step.agent === 'adviser') {
