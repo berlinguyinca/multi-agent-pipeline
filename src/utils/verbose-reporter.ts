@@ -197,6 +197,21 @@ export class VerboseReporter {
     this.log('✔', `Step ${stepId} [${agent}] complete (${formatElapsed(duration)})`);
   }
 
+  dagStepOutput(stepId: string, agent: string, output: string): void {
+    const cleaned = normalizeTerminalText(output)
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) return;
+    const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
+    const truncated = truncateText(cleaned, Math.max(40, width * 2));
+    this.log('☷', `Output ${stepId} [${agent}] — ${truncated}`);
+  }
+
   dagStepFailed(stepId: string, agent: string, error: string): void {
     this.log('✘', `Step ${stepId} [${agent}] failed: ${error}`);
   }
@@ -256,6 +271,7 @@ export class SilentReporter extends VerboseReporter {
   override dagRoutingComplete(): void {}
   override dagStepStart(): void {}
   override dagStepComplete(): void {}
+  override dagStepOutput(): void {}
   override dagStepFailed(): void {}
   override dagStepRetry(): void {}
   override dagStepSkipped(): void {}

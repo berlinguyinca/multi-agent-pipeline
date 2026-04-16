@@ -13,7 +13,7 @@ map
 
 MAP supports two execution modes:
 
-- **Smart routing v2**: the default. A router reads registered agents from `agents/`, creates a DAG plan, and runs independent agent steps in parallel where possible.
+- **Smart routing v2**: the default. A router reads registered agents from `agents/`, creates a DAG plan, runs reviewed specs through the `adviser` workflow gate for coding tasks, and executes independent agent steps in parallel where possible.
 - **Classic pipeline**: optional fixed-stage mode for spec generation, spec review, spec QA, user feedback, TDD execution, code QA, and Markdown docs.
 
 The core idea is the same in both modes: invest in the spec and verification path before spending expensive implementation cycles.
@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is structured JSON on stdout, and progress (when `--verbose` is set) goes to stderr. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown` or `--output-format yaml` when those are easier for people or downstream tools to read. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -320,6 +320,13 @@ map --headless --classic "Research the best approach, plan the work, and review 
 
 # Write output to a specific directory
 map --headless --output-dir ./output/pantry "Investigate a specific question"
+
+# Print the final MAP result as readable Markdown or YAML
+map --headless --output-format markdown "Investigate a specific question"
+map --headless --output-format yaml "Investigate a specific question"
+
+# Print only the utilized agent graph and the final output
+map --headless --compact "Investigate a specific question"
 
 # Inject a personality or tone into all AI prompts
 map --headless \
@@ -440,13 +447,33 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--inactivity-timeout` | `headless.inactivityTimeoutMs` | 10m | Maximum silence from the AI backend before aborting |
 | `--poll-interval` | `headless.pollIntervalMs` | 10s | How often MAP checks the timeout clocks |
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
+| `--router-model` | `router.model` | config value | Override the smart-routing router model for this run |
+| `--router-consensus-models` | `router.consensus.models` | disabled | Enable router consensus with up to 3 comma-separated Ollama models |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; when a step times out, MAP retries it and doubles the next step timeout budget by default.
 
+
+### Compact Output
+
+Use `--compact` when you only want the utilized agent path and the final answer. Compact output suppresses the full JSON/YAML payload and prints two human-readable sections:
+
+```markdown
+## Agent Graph
+
+- step-1 [researcher] -> step-1-grammar-1 [grammar-spelling-specialist]
+- step-1-grammar-1 [grammar-spelling-specialist] -> step-2 [writer]
+
+## Final Result
+
+<final output from the last completed agent>
+```
+
+The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, and automatic grammar/spelling polishing steps.
+
 ### Verbose Progress
 
-Pass `--verbose` (or `-V`) to emit human-readable progress on stderr while JSON goes to stdout. Useful for cron logs and daemon monitoring:
+Pass `--verbose` (or `-V`) to emit human-readable progress on stderr while pretty-printed JSON goes to stdout. Useful for cron logs and daemon monitoring:
 
 ```bash
 map --headless --verbose "Explain a technical concept" > result.json 2> progress.log
@@ -615,19 +642,44 @@ Run it with:
 map --headless "Research the task, plan the steps, and assess readiness"
 ```
 
-The router uses the registered agents' `name`, `description`, `handles`, and `output.type` to produce JSON:
+The router uses the registered agents' `name`, `description`, `handles`, `output.type`, and role contract summary to produce JSON. For coding workflows, a reviewed and QA-approved specification should pass through `adviser` before execution agents so the launch order, parallelizable lanes, custom-agent needs, and registry-refresh requirements are explicit:
 
 ```json
 {
   "plan": [
     { "id": "step-1", "agent": "spec-writer", "task": "Create an implementation-ready specification", "dependsOn": [] },
-    { "id": "step-2", "agent": "tdd-engineer", "task": "Write failing tests", "dependsOn": ["step-1"] },
-    { "id": "step-3", "agent": "implementation-coder", "task": "Implement the behavior", "dependsOn": ["step-2"] }
+    { "id": "step-2", "agent": "spec-qa-reviewer", "task": "Review the specification for ambiguity, missing tests, and implementation risk", "dependsOn": ["step-1"] },
+    { "id": "step-3", "agent": "adviser", "task": "Recommend the best agent launch workflow from the reviewed and QA-approved spec", "dependsOn": ["step-2"] },
+    { "id": "step-4", "agent": "tdd-engineer", "task": "Write failing tests from the reviewed specification", "dependsOn": ["step-3"] },
+    { "id": "step-5", "agent": "implementation-coder", "task": "Implement the behavior", "dependsOn": ["step-4"] },
+    { "id": "step-6", "agent": "code-qa-analyst", "task": "Review implementation quality and test adequacy", "dependsOn": ["step-5"] }
   ]
 }
 ```
 
 Steps with no unmet dependencies run concurrently. Dependent steps receive previous step outputs as context. If a dependency fails, downstream steps are skipped with a clear reason.
+
+### Router Plan Hygiene and Consensus
+
+MAP cleans router-produced task text before a plan is displayed or executed. This catches common local-model failure modes such as repeated tokens, slash-delimited loops, and overlong task fields. Mild repetition is collapsed into a readable task; fully degenerate task text is rejected so agents do not execute nonsense plans.
+
+For Ollama routers, MAP can also run a small consensus pass across up to three local models. Enable it in `pipeline.yaml`:
+
+```yaml
+router:
+  adapter: ollama
+  model: gemma4:26b
+  consensus:
+    enabled: true
+    models:
+      - gemma4:26b
+      - qwen3:latest
+      - llama3.1:8b
+    scope: router
+    mode: majority
+```
+
+Consensus is router-only. MAP asks each listed model for a DAG plan, parses and cleans each result, drops invalid or degenerate candidates, then uses majority-agreed plan steps when at least two models match. If there is no majority, MAP falls back to the best valid cleaned plan. If all candidates fail, routing fails with per-model rejection reasons.
 
 ## Agent Registry
 
@@ -675,7 +727,11 @@ Supported tool declarations:
 
 - `builtin: shell` for bounded shell command access.
 - `builtin: file-read` for file reads with path traversal protection.
-- `mcp` for future MCP-backed tool catalogs.
+- `builtin: http-api` for configured REST/GraphQL-style endpoints.
+- `builtin: db-connection` for read-only PostgreSQL queries through `psql`.
+- `mcp` for MCP servers reachable over HTTP-style endpoints; these are exposed through generated `mcp-*` JSON-RPC proxy tools.
+
+Built-ins currently include `shell`, `file-read`, `web-search`, `knowledge-search`, `http-api`, and `db-connection`.
 
 Deployment overrides live in `pipeline.yaml` under `agentOverrides`. Scalar fields replace the agent definition; tools are merged by name.
 
@@ -687,6 +743,55 @@ agentOverrides:
     enabled: false
 ```
 
+## Adviser Workflow Gate
+
+`adviser` is the adaptive planning gate for coding work that already has a reviewed and QA-approved spec. It does not implement the feature. Instead, it reads the approved spec and can return a machine-readable `adviser-workflow` that replaces the pending downstream DAG before coding begins.
+
+Use `adviser` to decide:
+
+- which existing agents to launch;
+- the safest launch order and DAG dependencies;
+- which steps can run in parallel;
+- whether specialized custom agents should be created for uncovered work lanes;
+- whether the agent registry/list must be refreshed before downstream execution.
+
+When `adviser` returns JSON like this, MAP refreshes the agent registry when requested, removes pending downstream steps from the current DAG, and executes the replacement workflow:
+
+```json
+{
+  "kind": "adviser-workflow",
+  "refreshAgents": true,
+  "plan": [
+    { "id": "step-4", "agent": "tdd-engineer", "task": "Write failing tests from the reviewed specification", "dependsOn": ["step-3"] },
+    { "id": "step-5", "agent": "implementation-coder", "task": "Implement the behavior covered by the tests", "dependsOn": ["step-4"] },
+    { "id": "step-6", "agent": "code-qa-analyst", "task": "Review implementation quality and test adequacy", "dependsOn": ["step-5"] }
+  ]
+}
+```
+
+This makes the agent network dynamic at runtime: the initial router plan can deliberately stop at `adviser`, and `adviser` can reshape the rest of the workflow after inspecting the approved spec and any newly created agents.
+
+A typical feature path is:
+
+```text
+spec-writer
+  -> spec-qa-reviewer
+  -> adviser
+  -> tdd-engineer
+  -> implementation-coder
+  -> code-qa-analyst
+  -> docs-maintainer / stabilization-reviewer / release-readiness-reviewer as needed
+```
+
+If the spec is not clearly reviewed and QA-approved, `adviser` should route back to spec QA instead of recommending execution.
+
+
+### Automatic Text Polishing
+
+Whenever a DAG step produces human-facing text (`answer` or `presentation` output), MAP automatically schedules `grammar-spelling-specialist` immediately after that step when the agent is available. Pending downstream steps are rewired to depend on the polished output, so later agents consume corrected prose instead of raw model text.
+
+This post-processing does not run for code/file outputs, machine-readable JSON, adviser workflow JSON, or the grammar specialist itself. Its job is limited to grammar, spelling, punctuation, readability, and visible terminal-artifact cleanup without changing technical meaning.
+
 ## Built-In Agents
 
 MAP ships with a software-delivery bundle. These agents default to `adapter: ollama` and `model: gemma4:26b`:
@@ -696,14 +801,17 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `software-delivery` | `files` | Full spec -> QA -> TDD -> implementation -> code QA lifecycle. |
 | `spec-writer` | `answer` | Requirements, acceptance criteria, constraints, implementation-ready specs. |
 | `spec-qa-reviewer` | `answer` | Spec ambiguity, missing tests, edge cases, implementation risk. |
+| `adviser` | `answer` | Reviewed/QA-approved spec workflow advice, agent launch order, custom-agent and registry-refresh recommendations. |
 | `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
 | `refactor-cleaner` | `files` | Behavior-preserving cleanup using existing patterns. |
 | `docs-maintainer` | `files` | Markdown docs updates after implementation and QA. |
+| `stabilization-reviewer` | `answer` | Capability truth, spec/doc mismatch checks, integration risks, and hardening recommendations. |
 | `release-readiness-reviewer` | `answer` | Final readiness, evidence, risk, and handoff status. |
 
 Example DAG flows are documented in [docs/agents/software-delivery-flows.md](docs/agents/software-delivery-flows.md).
@@ -717,12 +825,16 @@ Agent definitions can be inspected and generated from the CLI:
 ```bash
 map agent list
 map agent test implementation-coder
+map agent test implementation-coder --prompt "Summarize how you would implement a small CLI"
+map agent edit implementation-coder
 map agent create --adapter ollama --model gemma4:26b
 ```
 
 `map agent list` loads `agents/` and prints each agent's adapter, model, output type, pipeline, and tool count.
 
-`map agent test <name>` validates the agent definition and prints its routing metadata.
+`map agent test <name>` validates the agent definition, builds a tool-aware smoke-test prompt, and runs the agent adapter with an optional sample task.
+
+`map agent edit <name>` opens `agents/<name>/prompt.md` in `$EDITOR` or `$VISUAL`.
 
 `map agent create` asks what the agent should do, calls the configured agent-creation adapter, and writes `agents/<name>/agent.yaml` plus `prompt.md`. Review generated files before committing them.
 
@@ -775,6 +887,11 @@ agents:
 router:
   adapter: ollama
   model: gemma4:26b
+  consensus:
+    enabled: false
+    models: [] # up to 3 Ollama models, e.g. [gemma4:26b, qwen3:latest, llama3.1:8b]
+    scope: router
+    mode: majority
   maxSteps: 10
   timeoutMs: 5m
 
@@ -812,25 +929,28 @@ Usage:
   map "your idea"        Start pipeline with a prompt
   map --resume [id]      Resume a saved pipeline
   map --config <path>    Use custom config file
-  map --headless "idea"  Run non-interactively, outputs JSON to stdout
+  map --headless "idea"  Run non-interactively, outputs pretty JSON to stdout
   map --classic "idea"   Use the classic fixed-stage pipeline
   map --spec-file <path> Start from a local spec file
   map --github-issue <url>
                          Use a GitHub issue as prompt and post final report
   map agent list         List registered agents
   map agent create       Generate a new agent definition
-  map agent test <name>  Validate and inspect one agent
+  map agent test <name>  Run one agent with a smoke-test prompt
+  map agent edit <name>  Edit one agent prompt
 
 Options:
   --help, -h             Show help
   --version, -v          Show version
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
-  --headless             Run without TUI, print JSON result to stdout
+  --headless             Run without TUI, print result to stdout
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
   --v2                   Deprecated compatibility flag; smart routing is the default
   --output-dir <path>    Output directory for generated projects
+  --output-format <fmt>  Print result as json, yaml, or markdown
+  --compact              Print only agent graph and Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -907,7 +1027,6 @@ The v2 foundation is now in place. Useful next steps:
 - Token usage tracking per stage and per DAG step.
 - Retry/failover policies for quota or transient backend failures.
 - Mid-stage resume instead of only stage-boundary checkpoints.
-- Additional built-in tools and MCP-backed tool execution.
 - Full interactive v2 approval/editing flow in the TUI.
 - Browser-based UI for long-running pipelines.
 

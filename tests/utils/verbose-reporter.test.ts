@@ -165,6 +165,15 @@ describe('VerboseReporter', () => {
     expect(line).toContain('…');
   });
 
+
+  it('logs sanitized DAG step output snippets for live inspection', () => {
+    reporter.dagStepOutput('s1', 'researcher', 'Ths output\ncontains details\n'.repeat(8));
+    const line = writer.output.find((s) => s.includes('Output s1') && s.includes('[researcher]'));
+    expect(line).toBeDefined();
+    expect(line).toContain('Ths output');
+    expect(line).toContain('contains details');
+  });
+
   it('logs DAG step complete', () => {
     reporter.dagStepComplete('s1', 'coder', 5000);
     const line = writer.output.find((s) => s.includes('Step s1') && s.includes('complete'));
@@ -222,6 +231,7 @@ describe('SilentReporter', () => {
     reporter.dagRoutingComplete(5, 1000);
     reporter.dagStepStart('s1', 'a', 'b');
     reporter.dagStepComplete('s1', 'a', 1000);
+    reporter.dagStepOutput('s1', 'a', 'output');
     reporter.dagStepFailed('s1', 'a', 'err');
     reporter.dagStepSkipped('s1', 'reason');
     reporter.dagComplete(true, 1000);

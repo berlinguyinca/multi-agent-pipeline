@@ -1,4 +1,5 @@
 import type { ExecutionResult, QaAssessment } from '../types/spec.js';
+import { withAgentConduct } from '../utils/agent-conduct.js';
 
 export function buildDocsPrompt({
   reviewedSpecContent,
@@ -16,7 +17,7 @@ export function buildDocsPrompt({
     ? `${finalCodeQa.passed ? 'passed' : 'failed'}${finalCodeQa.summary ? `: ${finalCodeQa.summary}` : ''}`
     : 'No code QA summary was recorded.';
 
-  return `You are a senior technical writer documenting a generated software project after implementation and QA.
+  return withAgentConduct(`You are a senior technical writer documenting a generated software project after implementation and QA.
 
 Your job is to create or update Markdown documentation based only on the project that exists in the current working directory.
 
@@ -43,5 +44,5 @@ Current project snapshot:
 
 ${projectSnapshot}
 
-Update the Markdown documentation in the current working directory now.`;
+Update the Markdown documentation in the current working directory now.`);
 }

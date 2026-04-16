@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAgentList } from '../../src/cli/agent-commands.js';
+import { buildAgentTestPrompt, formatAgentList } from '../../src/cli/agent-commands.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 
 describe('formatAgentList', () => {
@@ -31,5 +31,31 @@ describe('formatAgentList', () => {
   it('returns message for empty registry', () => {
     const output = formatAgentList(new Map());
     expect(output).toContain('No agents');
+  });
+});
+
+describe('buildAgentTestPrompt', () => {
+  const agent: AgentDefinition = {
+    name: 'researcher',
+    description: 'Synthesizes answers',
+    adapter: 'ollama',
+    model: 'gemma4',
+    prompt: 'You research.',
+    pipeline: [{ name: 'research' }],
+    handles: 'research questions',
+    output: { type: 'answer' },
+    tools: [],
+  };
+
+  it('builds a smoke-test prompt from agent metadata', () => {
+    const prompt = buildAgentTestPrompt(agent);
+    expect(prompt).toContain('MAP agent smoke test');
+    expect(prompt).toContain('researcher');
+    expect(prompt).toContain('research questions');
+  });
+
+  it('uses a caller-provided sample task', () => {
+    const prompt = buildAgentTestPrompt(agent, 'Summarize queueing theory');
+    expect(prompt).toContain('Summarize queueing theory');
   });
 });

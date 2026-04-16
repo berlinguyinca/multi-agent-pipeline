@@ -1,5 +1,7 @@
+import { withAgentConduct } from '../utils/agent-conduct.js';
+
 export function buildReviewPrompt(specContent: string): string {
-  return `You are a senior software architect reviewing a specification. Your job is to:
+  return withAgentConduct(`You are a senior software architect reviewing a specification. Your job is to:
 
 1. Evaluate the spec for completeness, testability, and clarity
 2. Identify missing requirements, edge cases, or ambiguities
@@ -22,5 +24,5 @@ SCORES: completeness=X.X testability=X.X specificity=X.X
 
 Here is the specification to review:
 
-${specContent}`;
+${specContent}`);
 }

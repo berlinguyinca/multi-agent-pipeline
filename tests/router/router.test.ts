@@ -3,7 +3,7 @@ import { routeTask } from '../../src/router/router.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 import type { AgentAdapter } from '../../src/types/adapter.js';
 
-function mockAdapter(response: string) {
+function mockAdapter(response: string, model = 'gemma4') {
   const state: {
     prompt?: string;
     options?: Record<string, unknown>;
@@ -11,7 +11,7 @@ function mockAdapter(response: string) {
 
   return {
     type: 'ollama',
-    model: 'gemma4',
+    model,
     detect: vi.fn(),
     cancel: vi.fn(),
     state,
@@ -54,6 +54,14 @@ const routerConfig = {
   model: 'gemma4',
   maxSteps: 10,
   timeoutMs: 30_000,
+  maxStepRetries: 4,
+  retryDelayMs: 3_000,
+  consensus: {
+    enabled: false,
+    models: [],
+    scope: 'router' as const,
+    mode: 'majority' as const,
+  },
 };
 
 describe('routeTask', () => {
@@ -265,6 +273,148 @@ describe('routeTask', () => {
 
     expect(result.plan.plan).toHaveLength(1);
     expect(result.plan.plan[0].agent).toBe('researcher');
+  });
+
+  it('cleans repeated router task token runs before returning the plan', async () => {
+    const response = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Synthesize capabilities and create introduction/introduction/introduction/introduction/introduction/step-1',
+        dependsOn: [],
+      }],
+    });
+    const adapter = mockAdapter(response);
+
+    const result = await routeTask('Introduce the agent', agents, adapter, routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+    expect(result.plan.plan[0].task).toBe('Synthesize capabilities and create introduction step-1');
+  });
+
+  it('cleans repeated router task words before returning the plan', async () => {
+    const response = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research capabilities capabilities capabilities capabilities and mission',
+        dependsOn: [],
+      }],
+    });
+    const adapter = mockAdapter(response);
+
+    const result = await routeTask('Explain capabilities', agents, adapter, routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+    expect(result.plan.plan[0].task).toBe('Research capabilities and mission');
+  });
+
+  it('rejects fully degenerate repeated router task text', async () => {
+    const response = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'introduction/introduction/introduction/introduction/introduction',
+        dependsOn: [],
+      }],
+    });
+    const adapter = mockAdapter(response);
+
+    await expect(routeTask('Introduce the agent', agents, adapter, routerConfig))
+      .rejects.toThrow('degenerate repeated task text');
+  });
+
+  it('uses majority router consensus when two models agree', async () => {
+    const agreed = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research and summarize agent capabilities',
+        dependsOn: [],
+      }],
+    });
+    const degenerate = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'introduction/introduction/introduction/introduction/introduction',
+        dependsOn: [],
+      }],
+    });
+
+    const result = await routeTask('Introduce the agent', agents, [
+      mockAdapter(agreed, 'gemma4'),
+      mockAdapter(agreed, 'qwen3'),
+      mockAdapter(degenerate, 'llama3'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4', 'qwen3', 'llama3'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+    expect(result.plan.plan).toEqual([{
+      id: 'step-1',
+      agent: 'researcher',
+      task: 'Research and summarize agent capabilities',
+      dependsOn: [],
+    }]);
+  });
+
+  it('falls back to the best scored valid router plan when there is no majority', async () => {
+    const result = await routeTask('Research and build', agents, [
+      mockAdapter('{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research topic","dependsOn":[]}]}', 'gemma4'),
+      mockAdapter('{"kind":"plan","plan":[{"id":"step-1","agent":"coder","task":"Implement topic","dependsOn":[]}]}', 'qwen3'),
+      mockAdapter('{"kind":"plan","plan":[{"id":"step-1","agent":"unknown","task":"Do topic","dependsOn":[]}]}', 'llama3'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4', 'qwen3', 'llama3'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') {
+      throw new Error('Expected router to return a plan');
+    }
+    expect(result.plan.plan[0].agent).toBe('researcher');
+  });
+
+  it('reports all router consensus candidate failures when none are valid', async () => {
+    await expect(routeTask('Introduce the agent', agents, [
+      mockAdapter('not json', 'gemma4'),
+      mockAdapter('{"kind":"plan","plan":[{"id":"step-1","agent":"unknown","task":"Research","dependsOn":[]}]}', 'qwen3'),
+      mockAdapter('{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"intro/intro/intro/intro/intro","dependsOn":[]}]}', 'llama3'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4', 'qwen3', 'llama3'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    })).rejects.toThrow('Router consensus failed');
   });
 
   it('returns an explicit no-match result when no suitable agent exists', async () => {

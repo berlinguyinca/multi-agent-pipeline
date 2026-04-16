@@ -56,6 +56,34 @@ describe('buildHeadlessResultV2', () => {
     expect(result.error).toBe('Router failed');
   });
 
+
+  it('builds the graph from the mutated runtime DAG including inserted polishing steps', () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research', dependsOn: [] },
+        { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish research', dependsOn: ['step-1'] },
+        { id: 'step-2', agent: 'writer', task: 'Write with polished research', dependsOn: ['step-1-grammar-1'] },
+      ],
+    };
+    const steps: StepResult[] = [
+      { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', outputType: 'answer', output: 'Raw research' },
+      { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish research', status: 'completed', outputType: 'answer', output: 'Polished research' },
+      { id: 'step-2', agent: 'writer', task: 'Write with polished research', status: 'completed', outputType: 'answer', output: 'Final report' },
+    ];
+
+    const result = buildHeadlessResultV2(plan, steps, 1000);
+
+    expect(result.dag.nodes.map((node) => node.id)).toEqual([
+      'step-1',
+      'step-1-grammar-1',
+      'step-2',
+    ]);
+    expect(result.dag.edges).toEqual([
+      { from: 'step-1', to: 'step-1-grammar-1', type: 'planned' },
+      { from: 'step-1-grammar-1', to: 'step-2', type: 'planned' },
+    ]);
+  });
+
   it('treats recovered steps as successful terminal output', () => {
     const plan: DAGPlan = {
       plan: [

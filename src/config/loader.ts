@@ -77,6 +77,7 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
       stepTimeoutMs: override.router?.stepTimeoutMs ?? base.router.stepTimeoutMs,
       maxStepRetries: override.router?.maxStepRetries ?? base.router.maxStepRetries,
       retryDelayMs: override.router?.retryDelayMs ?? base.router.retryDelayMs,
+      consensus: override.router?.consensus ?? base.router.consensus,
     },
     agentCreation: {
       adapter: override.agentCreation?.adapter ?? base.agentCreation.adapter,

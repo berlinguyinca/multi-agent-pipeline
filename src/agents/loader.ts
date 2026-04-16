@@ -10,6 +10,7 @@ import type {
 } from '../types/agent-definition.js';
 import { isValidAgentDefinition } from '../types/agent-definition.js';
 import { buildRoleContractPrompt } from './contract-prompt.js';
+import { withAgentConduct } from '../utils/agent-conduct.js';
 
 interface RawAgentYaml {
   name: string;
@@ -93,6 +94,8 @@ async function loadPromptFile(baseDir: string, promptPath: string): Promise<stri
 
 function buildPromptWithContract(mainPrompt: string, contract: AgentContract | undefined): string {
   const contractPrompt = buildRoleContractPrompt(contract);
-  if (!contractPrompt) return mainPrompt;
-  return `${contractPrompt}\n${mainPrompt}`.trim();
+  return withAgentConduct([contractPrompt, mainPrompt]
+    .filter((section) => section.trim().length > 0)
+    .join('\n\n')
+    .trim());
 }

@@ -15,10 +15,13 @@ const flagsWithValues = new Set([
   '--inactivity-timeout',
   '--poll-interval',
   '--router-timeout',
+  '--router-model',
+  '--router-consensus-models',
   '--github-issue',
   '--spec-file',
   '--personality',
   '--review-pr',
+  '--output-format',
 ]);
 
 const booleanFlags = new Set([
@@ -27,6 +30,7 @@ const booleanFlags = new Set([
   '--classic',
   '--verbose',
   '-V',
+  '--compact',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {

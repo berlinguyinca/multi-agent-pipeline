@@ -1,6 +1,13 @@
 import type { AdapterType } from '../types/adapter.js';
-import type { PipelineConfig } from '../types/config.js';
+import type { PipelineConfig, RouterConsensusConfig } from '../types/config.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
+
+export const DEFAULT_ROUTER_CONSENSUS_CONFIG: RouterConsensusConfig = {
+  enabled: false,
+  models: [],
+  scope: 'router',
+  mode: 'majority',
+};
 
 export const DEFAULT_CONFIG: PipelineConfig = {
   agents: {
@@ -34,6 +41,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     stepTimeoutMs: 5 * 60 * 1000,
     maxStepRetries: 4,
     retryDelayMs: 3_000,
+    consensus: DEFAULT_ROUTER_CONSENSUS_CONFIG,
   },
   agentCreation: {
     adapter: 'ollama' as AdapterType,

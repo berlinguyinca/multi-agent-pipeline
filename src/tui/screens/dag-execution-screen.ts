@@ -29,7 +29,67 @@ function formatDuration(ms?: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function buildContent(steps: StepResult[]): string {
+function buildGraphContent(steps: StepResult[], selectedIndex: number): string {
+  const stepIds = new Set(steps.map((step) => step.id));
+  const lines: string[] = [];
+
+  for (const [index, step] of steps.entries()) {
+    const color = STATUS_COLORS[step.status] ?? '{white-fg}';
+    const icon = STATUS_ICONS[step.status] ?? '?';
+    const duration = step.duration ? ` ${formatDuration(step.duration)}` : '';
+    const selected = index === selectedIndex ? '>' : ' ';
+    const security =
+      step.securityPassed === true
+        ? ' ◊ security passed'
+        : step.securityPassed === false
+          ? ' ◊ security failed'
+          : '';
+    lines.push(
+      `${selected} ${color}${icon}{/} ${step.id} [${step.agent}] ${step.status}${duration}${security}`,
+    );
+  }
+
+  const edges = steps.flatMap((step) =>
+    (getStepDependsOn(step))
+      .filter((dep) => stepIds.has(dep))
+      .map((dep) => `${dep} -> ${step.id}`),
+  );
+
+  if (edges.length > 0) {
+    lines.push('', ...edges.map((edge) => `  ${edge}`));
+  }
+
+  return lines.join('\n');
+}
+
+function buildDetailContent(step: StepResult | undefined): string {
+  if (!step) return 'No steps yet.';
+
+  const runtime = step.provider ? `${step.provider}${step.model ? `/${step.model}` : ''}` : 'unknown';
+  const lines = [
+    `${step.id} [${step.agent}]`,
+    `Status: ${step.status}`,
+    `Runtime: ${runtime}`,
+    ...(step.task ? [`Task: ${step.task}`] : []),
+    ...(step.duration ? [`Duration: ${formatDuration(step.duration)}`] : []),
+    ...(step.error ? [`Error: ${step.error}`] : []),
+  ];
+
+  if (step.securityFindings && step.securityFindings.length > 0) {
+    lines.push('', 'Security Findings:');
+    for (const finding of step.securityFindings) {
+      lines.push(`- ${finding.severity} ${finding.rule}: ${finding.message}`);
+    }
+  }
+
+  if (step.output) {
+    lines.push('', 'Output:', step.output);
+  }
+
+  return lines.join('\n');
+}
+
+function buildLegacySummaryContent(steps: StepResult[]): string {
   return steps
     .map((step) => {
       const color = STATUS_COLORS[step.status] ?? '{white-fg}';
@@ -49,26 +109,27 @@ function buildContent(steps: StepResult[]): string {
 
 export class DAGExecutionScreen extends BaseScreen {
   private data: DAGExecutionScreenData;
-  private contentBox: blessed.Widgets.BoxElement | null = null;
+  private graphBox: blessed.Widgets.BoxElement | null = null;
+  private detailBox: blessed.Widgets.BoxElement | null = null;
   private titleBox: blessed.Widgets.BoxElement | null = null;
   private separatorBox: blessed.Widgets.BoxElement | null = null;
+  private selectedIndex = 0;
 
   constructor(parent: blessed.Widgets.BoxElement, data: DAGExecutionScreenData) {
     super(parent);
     this.data = data;
+    this.selectedIndex = initialSelectedIndex(data.steps);
   }
 
   updateData(data: Partial<DAGExecutionScreenData>): void {
     this.data = { ...this.data, ...data };
-    if (this.contentBox) {
-      this.contentBox.setContent(buildContent(this.data.steps));
-      this.parent.screen?.render();
-    }
+    this.selectedIndex = clampSelectedIndex(this.selectedIndex, this.data.steps.length);
+    this.refreshContent();
   }
 
   refreshTheme(): void {
     const theme = getTheme();
-    for (const box of [this.titleBox, this.separatorBox, this.contentBox]) {
+    for (const box of [this.titleBox, this.separatorBox, this.graphBox, this.detailBox]) {
       if (!box) continue;
       box.style = {
         ...(box.style ?? {}),
@@ -76,7 +137,7 @@ export class DAGExecutionScreen extends BaseScreen {
         bg: theme.colors.panelBg,
       };
     }
-    this.updateData({});
+    this.refreshContent();
   }
 
   activate(): void {
@@ -106,12 +167,13 @@ export class DAGExecutionScreen extends BaseScreen {
     this.separatorBox = separator;
     this.widgets.push({ destroy: () => separator.destroy() });
 
-    const content = blessed.box({
+    const graph = blessed.box({
       parent: this.parent,
       top: 3,
       left: 0,
       right: 0,
-      bottom: 0,
+      height: '45%',
+      label: ' Workflow Graph ',
       tags: true,
       wrap: true,
       scrollable: true,
@@ -124,20 +186,96 @@ export class DAGExecutionScreen extends BaseScreen {
         style: { fg: getTheme().colors.accent },
         track: { bg: getTheme().colors.scrollbarTrack },
       },
-      content: buildContent(this.data.steps),
+      content: buildGraphContent(this.data.steps, this.selectedIndex),
       style: {
         fg: getTheme().colors.panelFg,
         bg: getTheme().colors.panelBg,
       },
     });
-    this.contentBox = content;
-    this.widgets.push({ destroy: () => { content.destroy(); this.contentBox = null; } });
+    this.graphBox = graph;
+    this.widgets.push({ destroy: () => { graph.destroy(); this.graphBox = null; } });
+
+    const detail = blessed.box({
+      parent: this.parent,
+      top: '50%',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      label: ' Step Detail ',
+      tags: true,
+      wrap: true,
+      scrollable: true,
+      alwaysScroll: true,
+      keys: true,
+      vi: true,
+      mouse: false,
+      scrollbar: {
+        ch: '│',
+        style: { fg: getTheme().colors.accent },
+        track: { bg: getTheme().colors.scrollbarTrack },
+      },
+      content: buildDetailContent(this.data.steps[this.selectedIndex]) + '\n\n' + buildLegacySummaryContent(this.data.steps),
+      style: {
+        fg: getTheme().colors.panelFg,
+        bg: getTheme().colors.panelBg,
+      },
+    });
+    this.detailBox = detail;
+    this.widgets.push({ destroy: () => { detail.destroy(); this.detailBox = null; } });
+
+    const screen = this.parent.screen;
+    if (screen) {
+      const downHandler = () => {
+        this.selectedIndex = clampSelectedIndex(this.selectedIndex + 1, this.data.steps.length);
+        this.refreshContent();
+      };
+      const upHandler = () => {
+        this.selectedIndex = clampSelectedIndex(this.selectedIndex - 1, this.data.steps.length);
+        this.refreshContent();
+      };
+      screen.key(['j', 'down'], downHandler);
+      screen.key(['k', 'up'], upHandler);
+      this.widgets.push({
+        destroy: () => {
+          screen.unkey('j', downHandler);
+          screen.unkey('down', downHandler);
+          screen.unkey('k', upHandler);
+          screen.unkey('up', upHandler);
+        },
+      });
+    }
 
     this.parent.screen?.render();
   }
 
   deactivate(): void {
-    this.contentBox = null;
+    this.graphBox = null;
+    this.detailBox = null;
     super.deactivate();
   }
+
+  private refreshContent(): void {
+    this.graphBox?.setContent(buildGraphContent(this.data.steps, this.selectedIndex));
+    this.detailBox?.setContent(
+      buildDetailContent(this.data.steps[this.selectedIndex]) +
+        '\n\n' +
+        buildLegacySummaryContent(this.data.steps),
+    );
+    this.parent.screen?.render();
+  }
+}
+
+function clampSelectedIndex(index: number, count: number): number {
+  if (count <= 0) return 0;
+  return Math.max(0, Math.min(index, count - 1));
+}
+
+function initialSelectedIndex(steps: StepResult[]): number {
+  const runningIndex = steps.findIndex((step) => step.status === 'running');
+  return runningIndex >= 0 ? runningIndex : 0;
+}
+
+function getStepDependsOn(step: StepResult): string[] {
+  const value = (step as StepResult & { dependsOn?: unknown }).dependsOn;
+  return Array.isArray(value) && value.every((dep) => typeof dep === 'string') ? value : [];
 }

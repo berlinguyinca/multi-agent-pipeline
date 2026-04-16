@@ -9,15 +9,18 @@ import { injectToolCatalog } from '../tools/inject.js';
 import { runWithFailover } from '../adapters/failover-runner.js';
 import type { VerboseReporter } from '../utils/verbose-reporter.js';
 import { runSecurityGate } from '../security/gate.js';
-import type { SecurityConfig } from '../security/types.js';
+import type { SecurityConfig, SecurityFinding } from '../security/types.js';
 import { shouldGateStep } from '../security/should-gate.js';
 import { isAbortError } from '../utils/error.js';
 import { recordLearningCandidate } from '../knowledge/index.js';
+import { normalizeTerminalText } from '../utils/terminal-text.js';
+import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
 
 export interface DAGExecutionResult {
   success: boolean;
   steps: StepResult[];
   plan: DAGPlan;
+  replans?: AdviserReplanEvent[];
 }
 
 type AdapterFactory = (config: AdapterConfig) => AgentAdapter;
@@ -34,6 +37,10 @@ export interface DAGRetryOptions {
   adapterDefaults?: AdapterDefaultsMap;
   workingDir?: string;
   knowledgeCwd?: string;
+  adaptiveReplanning?: {
+    enabled?: boolean;
+    refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+  };
 }
 
 const MAX_TOOL_CALLS = 4;
@@ -89,6 +96,7 @@ export async function executeDAG(
   const allIds = new Set(mutablePlan.plan.map((s) => s.id));
   const activeAdapters = new Set<AgentAdapter>();
   const recoveryRounds = new Map<string, number>();
+  const replans: AdviserReplanEvent[] = [];
 
   const abortActiveAdapters = () => {
     for (const adapter of activeAdapters) {
@@ -146,44 +154,50 @@ export async function executeDAG(
         let attempts = 0;
         let stepTimedOut = false;
         let timeoutMsForAttempt = stepTimeoutMs;
+        let errorRetries = 0;
+        let securityRemediationRetries = 0;
+        let securityRemediationContext: string | undefined;
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        while (true) {
           if (signal?.aborted) break;
-          attempts = attempt + 1;
+          attempts += 1;
           stepTimedOut = false;
 
-          if (attempt > 0) {
-            reporter?.dagStepRetry(step.id, step.agent, attempt, lastError ?? 'unknown');
+          if (attempts > 1) {
+            reporter?.dagStepRetry(step.id, step.agent, attempts - 1, lastError ?? 'unknown');
             await delay(retryDelayMs, signal);
             if (signal?.aborted) break;
           }
 
           try {
             const tools = createToolRegistry(agent, workingDir);
-            const rawContext = buildStepContext(step.task, step.dependsOn, results);
+            const rawContext = appendSecurityRemediationContext(
+              buildStepContext(step.task, step.dependsOn, results),
+              securityRemediationContext,
+            );
             const context = injectToolCatalog(rawContext, tools, agent.prompt);
 
-             const configs: AdapterConfig[] = [
-               { type: agent.adapter, model: agent.model },
-               ...(agent.fallbacks ?? []).map((fb) => ({
-                 type: fb.adapter,
-                 model: fb.model,
-               })),
-             ];
+            const configs: AdapterConfig[] = [
+              { type: agent.adapter, model: agent.model },
+              ...(agent.fallbacks ?? []).map((fb) => ({
+                type: fb.adapter,
+                model: fb.model,
+              })),
+            ];
 
-             // Per-step timeout: create a child AbortController that aborts
-             // when either the parent signal fires or the step timeout elapses.
-             const stepController = new AbortController();
-             let stepTimer: ReturnType<typeof setTimeout> | undefined;
-             const abortFromParent = () => stepController.abort();
-             signal?.addEventListener('abort', abortFromParent, { once: true });
-             const currentTimeoutMs = timeoutMsForAttempt;
-             if (currentTimeoutMs > 0) {
-               stepTimer = setTimeout(() => {
-                 stepTimedOut = true;
-                 stepController.abort();
-               }, currentTimeoutMs);
-             }
+            // Per-step timeout: create a child AbortController that aborts
+            // when either the parent signal fires or the step timeout elapses.
+            const stepController = new AbortController();
+            let stepTimer: ReturnType<typeof setTimeout> | undefined;
+            const abortFromParent = () => stepController.abort();
+            signal?.addEventListener('abort', abortFromParent, { once: true });
+            const currentTimeoutMs = timeoutMsForAttempt;
+            if (currentTimeoutMs > 0) {
+              stepTimer = setTimeout(() => {
+                stepTimedOut = true;
+                stepController.abort();
+              }, currentTimeoutMs);
+            }
 
             // Resolve thinking: agent-level > adapter-default > undefined
             const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
@@ -218,16 +232,16 @@ export async function executeDAG(
               task: step.task,
               status: 'completed',
               outputType: agent.output.type,
-              output,
+              output: normalizeTerminalText(output),
               duration,
               attempts,
             };
 
-            if (security && shouldGateStep(agent) && output) {
+            if (security && shouldGateStep(agent) && result.output) {
               reporter?.securityGateStart(step.id, step.agent);
               const securityStartedAt = Date.now();
               const securityResult = await runSecurityGate({
-                content: output,
+                content: result.output,
                 agentName: step.agent,
                 task: step.task,
                 config: security.config,
@@ -241,16 +255,28 @@ export async function executeDAG(
               });
 
               if (!securityResult.passed) {
+                lastError = `Security gate failed with ${securityResult.findings.length} finding${securityResult.findings.length === 1 ? '' : 's'}`;
+                securityRemediationContext = buildSecurityRemediationContext(
+                  securityResult.findings,
+                  output,
+                );
+                reporter?.securityGateFailed(step.id, securityResult.findings.length);
+
+                if (securityRemediationRetries < security.config.maxRemediationRetries) {
+                  securityRemediationRetries += 1;
+                  continue;
+                }
+
                 results.set(step.id, {
                   ...result,
                   status: 'failed',
                   securityPassed: false,
                   securityFindings: securityResult.findings,
-                  error: `Security gate failed with ${securityResult.findings.length} finding${securityResult.findings.length === 1 ? '' : 's'}`,
+                  error: lastError,
                 });
                 failed.add(step.id);
-                reporter?.securityGateFailed(step.id, securityResult.findings.length);
-                return;
+                settled.add(step.id);
+                break;
               }
 
               result.securityPassed = true;
@@ -261,12 +287,38 @@ export async function executeDAG(
             results.set(step.id, result);
             completed.add(step.id);
             settled.add(step.id);
+            if (retry?.adaptiveReplanning?.enabled && step.agent === 'adviser') {
+              const replan = await maybeApplyAdviserWorkflow({
+                adviserStepId: step.id,
+                output: result.output ?? '',
+                plan: mutablePlan,
+                agents,
+                completed,
+                settled,
+                running,
+                allIds,
+                refreshAgents: retry.adaptiveReplanning.refreshAgents,
+              });
+              if (replan) {
+                replans.push(replan);
+              }
+            }
+            maybeScheduleGrammarReview({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+            });
             if (step.agent === 'result-judge' && result.output?.trim()) {
               await persistLearningCandidate(step, result.output, knowledgeCwd);
             }
+            reporter?.dagStepOutput(step.id, step.agent, result.output ?? '');
             reporter?.dagStepComplete(step.id, step.agent, duration);
             lastError = undefined;
-            break; // Success — exit retry loop
+            break; // Success - exit retry loop
           } catch (err: unknown) {
             if (isAbortError(err)) {
               lastError = signal?.aborted
@@ -283,7 +335,7 @@ export async function executeDAG(
             const retryBudget = stepTimedOut
               ? (configuredMaxRetries ?? DEFAULT_MAX_STEP_RETRIES)
               : (configuredMaxRetries ?? 0);
-            if (!isRetryable(err) || attempt >= retryBudget) {
+            if (!isRetryable(err) || errorRetries >= retryBudget) {
               const duration = Date.now() - startedAt;
               const baseFailure: StepResult = {
                 id: step.id,
@@ -314,8 +366,9 @@ export async function executeDAG(
                 failed.add(step.id);
                 reporter?.dagStepFailed(step.id, step.agent, lastError);
               }
-              break; // Non-retryable or retries exhausted — exit retry loop
+              break; // Non-retryable or retries exhausted - exit retry loop
             }
+            errorRetries += 1;
           }
         }
 
@@ -362,7 +415,54 @@ export async function executeDAG(
     success: failed.size === 0,
     steps: stepResults,
     plan: mutablePlan,
+    ...(replans.length > 0 ? { replans } : {}),
   };
+}
+
+interface AdviserWorkflowOptions {
+  adviserStepId: string;
+  output: string;
+  plan: DAGPlan;
+  agents: Map<string, AgentDefinition>;
+  completed: Set<string>;
+  settled: Set<string>;
+  running: Set<string>;
+  allIds: Set<string>;
+  refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+}
+
+async function maybeApplyAdviserWorkflow(
+  options: AdviserWorkflowOptions,
+): Promise<AdviserReplanEvent | null> {
+  const workflow = parseAdviserWorkflow(options.output);
+  if (!workflow) return null;
+
+  const refreshedAgents =
+    workflow.refreshAgents && options.refreshAgents
+      ? await options.refreshAgents()
+      : null;
+  const agentSource = refreshedAgents ?? options.agents;
+
+  const event = applyAdviserWorkflow({
+    adviserStepId: options.adviserStepId,
+    workflow,
+    plan: options.plan,
+    agents: agentSource,
+    completed: options.completed,
+    settled: options.settled,
+    running: options.running,
+    allIds: options.allIds,
+    refreshedAgents: refreshedAgents !== null,
+  });
+
+  if (refreshedAgents) {
+    options.agents.clear();
+    for (const [name, agentDefinition] of refreshedAgents) {
+      options.agents.set(name, agentDefinition);
+    }
+  }
+
+  return event;
 }
 
 async function persistLearningCandidate(
@@ -382,6 +482,110 @@ async function persistLearningCandidate(
   } catch {
     // Learning writeback is best-effort.
   }
+}
+
+interface GrammarReviewOptions {
+  step: DAGPlan['plan'][number];
+  result: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+}
+
+function maybeScheduleGrammarReview(options: GrammarReviewOptions): void {
+  const grammarAgent = 'grammar-spelling-specialist';
+  if (!shouldGrammarReview(options.step, options.result, options.agents, grammarAgent)) return;
+
+  const grammarId = nextAvailableId(`${options.step.id}-grammar`, options.allIds);
+  const grammarStep = {
+    id: grammarId,
+    agent: grammarAgent,
+    task: buildGrammarReviewTask(options.step, options.result.output ?? ''),
+    dependsOn: [options.step.id],
+    parentStepId: options.step.id,
+  };
+  const stepIndex = options.plan.plan.findIndex((candidate) => candidate.id === options.step.id);
+  if (stepIndex === -1) {
+    options.plan.plan.push(grammarStep);
+  } else {
+    options.plan.plan.splice(stepIndex + 1, 0, grammarStep);
+  }
+  options.allIds.add(grammarId);
+
+  for (const candidate of options.plan.plan) {
+    if (candidate.id === options.step.id || candidate.id === grammarId || options.settled.has(candidate.id)) {
+      continue;
+    }
+    candidate.dependsOn = candidate.dependsOn.map((dep) =>
+      dep === options.step.id ? grammarId : dep,
+    );
+  }
+
+  options.results.set(grammarId, {
+    id: grammarId,
+    agent: grammarAgent,
+    task: buildGrammarReviewTask(options.step, options.result.output ?? ''),
+    status: 'pending',
+    parentStepId: options.step.id,
+    edgeType: 'handoff',
+    spawnedByAgent: options.step.agent,
+  });
+}
+
+function shouldGrammarReview(
+  step: DAGPlan['plan'][number],
+  result: StepResult,
+  agents: Map<string, AgentDefinition>,
+  grammarAgent: string,
+): boolean {
+  if (!agents.has(grammarAgent)) return false;
+  if (step.agent === grammarAgent) return false;
+  if (step.agent === 'adviser') return false;
+  if (result.outputType !== 'answer' && result.outputType !== 'presentation') return false;
+  const output = result.output?.trim();
+  if (!output) return false;
+  if (looksMachineReadable(output)) return false;
+  return true;
+}
+
+function looksMachineReadable(output: string): boolean {
+  const trimmed = output.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function nextAvailableId(base: string, allIds: Set<string>): string {
+  for (let index = 1; ; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!allIds.has(candidate)) return candidate;
+  }
+}
+
+function buildGrammarReviewTask(
+  step: DAGPlan['plan'][number],
+  output: string,
+): string {
+  return [
+    'Polish grammar, spelling, punctuation, and readability for the generated text below.',
+    'Preserve technical meaning, Markdown structure, citations, code identifiers, URLs, and factual claims.',
+    'Return only the corrected text with no commentary.',
+    '',
+    `Original step: ${step.id}`,
+    `Original agent: ${step.agent}`,
+    `Original task: ${step.task}`,
+    '',
+    'Generated text:',
+    output,
+  ].join('\n');
 }
 
 function scheduleReadySteps(
@@ -709,6 +913,45 @@ function buildRecoveryTask(step: DAGPlan['plan'][number], failure: StepResult): 
   recoveryInstructions.push(`If you are unsure how to fix this, describe your analysis and ask for help first.`);
   
   return recoveryInstructions.join('\n');
+}
+
+function appendSecurityRemediationContext(
+  context: string,
+  remediationContext?: string,
+): string {
+  if (!remediationContext) return context;
+  return `${context}\n\n${remediationContext}`;
+}
+
+function buildSecurityRemediationContext(
+  findings: SecurityFinding[],
+  rejectedOutput: string,
+): string {
+  const formattedFindings = findings.length > 0
+    ? findings.map(formatSecurityFinding).join('\n')
+    : '- Security gate failed without structured findings. Re-check the output for unsafe behavior.';
+  const outputExcerpt = rejectedOutput.length > 2_000
+    ? `${rejectedOutput.slice(0, 2_000)}\n[truncated]`
+    : rejectedOutput;
+
+  return [
+    '--- Security remediation required before this step can be accepted. ---',
+    'The previous output was rejected by the security gate. Fix the issues below and return a corrected, complete output for the original task.',
+    '',
+    'Security findings:',
+    formattedFindings,
+    '',
+    'Rejected output excerpt:',
+    outputExcerpt,
+    '',
+    'Do not argue with the security review or restate these findings as the final answer. Produce the secure corrected result.',
+  ].join('\n');
+}
+
+function formatSecurityFinding(finding: SecurityFinding): string {
+  const location = finding.line !== undefined ? ` line ${finding.line}` : '';
+  const snippet = finding.snippet ? ` Snippet: ${finding.snippet}` : '';
+  return `- ${finding.severity.toUpperCase()} ${finding.rule}${location}: ${finding.message}.${snippet}`;
 }
 
 function buildStepContext(

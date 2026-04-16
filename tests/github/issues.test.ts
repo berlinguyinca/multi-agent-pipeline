@@ -122,7 +122,7 @@ describe('buildGitHubReport', () => {
     const report = buildGitHubReport(makeResult(), makeIssueContext());
 
     expect(report).toContain('MAP Pipeline Report');
-    expect(report).toContain('Status: ❌ Failed');
+    expect(report).toContain('Status: Failed');
     expect(report).toContain('Final Generated Spec');
     expect(report).toContain('Spec QA iteration 1');
     expect(report).toContain('Error: QA failed');
@@ -134,7 +134,7 @@ describe('buildGitHubReportV2', () => {
     const report = buildGitHubReportV2(makeResultV2(), makeIssueContext());
 
     expect(report).toContain('MAP Smart Routing Report');
-    expect(report).toContain('Status: ❌ Failed');
+    expect(report).toContain('Status: Failed');
     expect(report).toContain('Outcome: failed');
     expect(report).toContain('step-1 [researcher]: completed');
     expect(report).toContain('step-2 [coder]: failed');

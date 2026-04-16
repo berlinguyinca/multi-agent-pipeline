@@ -7,7 +7,7 @@ import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
 import { isAbortError } from '../utils/error.js';
 
-type RouterConfig = Pick<PipelineRouterConfig, 'maxSteps' | 'timeoutMs' | 'maxStepRetries' | 'retryDelayMs'>;
+type RouterConfig = Pick<PipelineRouterConfig, 'maxSteps' | 'timeoutMs' | 'maxStepRetries' | 'retryDelayMs' | 'consensus'>;
 
 const DEFAULT_MAX_STEP_RETRIES = 4;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
@@ -43,12 +43,85 @@ export type RouterDecision = RouterPlanDecision | RouterNoMatchDecision;
 export async function routeTask(
   userTask: string,
   agents: Map<string, AgentDefinition>,
-  routerAdapter: AgentAdapter,
+  routerAdapter: AgentAdapter | AgentAdapter[],
   config: RouterConfig,
   signal?: AbortSignal,
   onChunk?: (chunk: string) => void,
 ): Promise<RouterDecision> {
   const prompt = buildRouterPrompt(agents, userTask, config.maxSteps);
+  const adapters = Array.isArray(routerAdapter) ? routerAdapter : [routerAdapter];
+
+  if (shouldUseRouterConsensus(adapters, config)) {
+    return routeTaskWithConsensus(prompt, agents, adapters.slice(0, 3), config, signal, onChunk);
+  }
+
+  const output = await runRouterAdapter(prompt, adapters[0]!, config, signal, onChunk);
+  return finalizeRouterOutput(output, agents);
+}
+
+function shouldUseRouterConsensus(adapters: AgentAdapter[], config: RouterConfig): boolean {
+  return Boolean(config.consensus?.enabled && config.consensus.scope === 'router' && adapters.length > 1);
+}
+
+async function routeTaskWithConsensus(
+  prompt: string,
+  agents: Map<string, AgentDefinition>,
+  adapters: AgentAdapter[],
+  config: RouterConfig,
+  signal?: AbortSignal,
+  onChunk?: (chunk: string) => void,
+): Promise<RouterDecision> {
+  const candidates = await Promise.all(
+    adapters.map(async (adapter) => {
+      const modelName = adapter.model ?? adapter.type;
+      try {
+        onChunk?.(`\n[router:${modelName}]\n`);
+        const output = await runRouterAdapter(prompt, adapter, config, signal, onChunk);
+        const decision = finalizeRouterOutput(output, agents);
+        return { model: modelName, decision, score: scoreRouterDecision(decision) };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { model: modelName, error: message };
+      }
+    }),
+  );
+
+  const valid = candidates.filter(
+    (candidate): candidate is { model: string; decision: RouterDecision; score: number } =>
+      'decision' in candidate,
+  );
+
+  if (valid.length === 0) {
+    const errors = candidates
+      .map((candidate) => `${candidate.model}: ${'error' in candidate ? candidate.error : 'unknown failure'}`)
+      .join('; ');
+    throw new Error(`Router consensus failed: no valid candidates. ${errors}`);
+  }
+
+  const planCandidates = valid.filter(
+    (candidate): candidate is { model: string; decision: RouterPlanDecision; score: number } =>
+      candidate.decision.kind === 'plan',
+  );
+
+  if (planCandidates.length === 0) {
+    return valid.sort((a, b) => b.score - a.score)[0]!.decision;
+  }
+
+  const consensusPlan = buildMajorityPlan(planCandidates.map((candidate) => candidate.decision.plan));
+  if (consensusPlan !== null) {
+    return { kind: 'plan', plan: consensusPlan };
+  }
+
+  return planCandidates.sort((a, b) => b.score - a.score)[0]!.decision;
+}
+
+async function runRouterAdapter(
+  prompt: string,
+  routerAdapter: AgentAdapter,
+  config: RouterConfig,
+  signal?: AbortSignal,
+  onChunk?: (chunk: string) => void,
+): Promise<string> {
   let output = '';
   let timeoutMsForAttempt = config.timeoutMs;
   const maxRetries = config.maxStepRetries ?? DEFAULT_MAX_STEP_RETRIES;
@@ -114,6 +187,10 @@ export async function routeTask(
     }
   }
 
+  return output;
+}
+
+function finalizeRouterOutput(output: string, agents: Map<string, AgentDefinition>): RouterDecision {
   const decision = parseRouterDecision(output);
 
   if (!decision) {
@@ -121,11 +198,13 @@ export async function routeTask(
     throw new Error(`Router returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
 
-  if (decision.kind === 'no-match') {
-    return decision;
+  const cleanedDecision = cleanRouterDecision(decision);
+
+  if (cleanedDecision.kind === 'no-match') {
+    return cleanedDecision;
   }
 
-  for (const step of decision.plan.plan) {
+  for (const step of cleanedDecision.plan.plan) {
     if (!agents.has(step.agent)) {
       throw new Error(
         `Router referenced unknown agent: "${step.agent}". Available: ${[...agents.keys()].join(', ')}`,
@@ -133,12 +212,12 @@ export async function routeTask(
     }
   }
 
-  const validation = validateDAGPlan(decision.plan);
+  const validation = validateDAGPlan(cleanedDecision.plan);
   if (!validation.valid) {
     throw new Error(`Router produced invalid DAG: ${validation.error}`);
   }
 
-  return decision;
+  return cleanedDecision;
 }
 
 function extractRouterPayload(text: string): string {
@@ -414,6 +493,143 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
   }
 
   throw new Error('Router returned neither a plan nor a no-match decision');
+}
+
+function cleanRouterDecision(decision: RouterDecision): RouterDecision {
+  if (decision.kind === 'no-match') {
+    return decision;
+  }
+
+  return {
+    kind: 'plan',
+    plan: {
+      plan: decision.plan.plan.map((step) => ({
+        ...step,
+        id: step.id.trim(),
+        agent: step.agent.trim(),
+        task: cleanRouterTaskText(step.task),
+        dependsOn: step.dependsOn.map((dep) => dep.trim()),
+      })),
+    },
+  };
+}
+
+function cleanRouterTaskText(task: string): string {
+  const rawTokens = tokenizeTask(task);
+  const significantTokens = rawTokens.map(normalizeTaskToken).filter((token) => token.length > 0);
+  const uniqueTokens = new Set(significantTokens);
+
+  if (significantTokens.length >= 4 && uniqueTokens.size <= 1) {
+    throw new Error('Router produced degenerate repeated task text');
+  }
+
+  const collapsedTokens: string[] = [];
+  let previousNormalized = '';
+  for (const token of rawTokens) {
+    const normalized = normalizeTaskToken(token);
+    if (normalized.length === 0) {
+      continue;
+    }
+    if (normalized === previousNormalized) {
+      continue;
+    }
+    collapsedTokens.push(token);
+    previousNormalized = normalized;
+  }
+
+  let cleaned = collapsedTokens.join(' ').replace(/\s+/g, ' ').trim();
+  if (cleaned.length > 320) {
+    cleaned = trimAtWordBoundary(cleaned, 320);
+  }
+
+  if (cleaned.length === 0 || (significantTokens.length >= 4 && tokenizeTask(cleaned).length <= 1)) {
+    throw new Error('Router produced degenerate repeated task text');
+  }
+
+  return cleaned;
+}
+
+function tokenizeTask(task: string): string[] {
+  return task
+    .replace(/[|/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+}
+
+function normalizeTaskToken(token: string): string {
+  return token.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+function trimAtWordBoundary(text: string, maxLength: number): string {
+  const clipped = text.slice(0, maxLength).trim();
+  const lastSpace = clipped.lastIndexOf(' ');
+  return lastSpace > 0 ? clipped.slice(0, lastSpace).trim() : clipped;
+}
+
+function scoreRouterDecision(decision: RouterDecision): number {
+  if (decision.kind === 'no-match') {
+    return 1;
+  }
+
+  return decision.plan.plan.reduce((score, step) => {
+    const tokens = tokenizeTask(step.task).map(normalizeTaskToken).filter(Boolean);
+    const uniqueTokens = new Set(tokens);
+    const repetitionPenalty = tokens.length - uniqueTokens.size;
+    const lengthPenalty = Math.max(0, step.task.length - 120) / 20;
+    return score + 100 - repetitionPenalty * 10 - lengthPenalty - step.dependsOn.length;
+  }, 0) - decision.plan.plan.length;
+}
+
+function buildMajorityPlan(plans: DAGPlan[]): DAGPlan | null {
+  const votes = new Map<
+    string,
+    { count: number; firstPlanIndex: number; firstStepIndex: number; step: DAGPlan['plan'][number] }
+  >();
+
+  plans.forEach((plan, planIndex) => {
+    const seenInPlan = new Set<string>();
+    plan.plan.forEach((step, stepIndex) => {
+      const signature = planStepSignature(step);
+      if (seenInPlan.has(signature)) {
+        return;
+      }
+      seenInPlan.add(signature);
+      const existing = votes.get(signature);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      votes.set(signature, {
+        count: 1,
+        firstPlanIndex: planIndex,
+        firstStepIndex: stepIndex,
+        step,
+      });
+    });
+  });
+
+  const majoritySteps = [...votes.values()]
+    .filter((entry) => entry.count >= 2)
+    .sort((a, b) => a.firstPlanIndex - b.firstPlanIndex || a.firstStepIndex - b.firstStepIndex)
+    .map((entry) => ({ ...entry.step, dependsOn: [...entry.step.dependsOn] }));
+
+  if (majoritySteps.length === 0) {
+    return null;
+  }
+
+  const plan = { plan: majoritySteps };
+  const validation = validateDAGPlan(plan);
+  return validation.valid ? plan : null;
+}
+
+function planStepSignature(step: DAGPlan['plan'][number]): string {
+  const taskSignature = tokenizeTask(step.task)
+    .map(normalizeTaskToken)
+    .filter(Boolean)
+    .join(' ');
+  return `${step.agent}|${taskSignature}|${step.dependsOn.join(',')}`;
 }
 
 function normalizePlanSteps(plan: unknown[]): DAGPlan['plan'] {
