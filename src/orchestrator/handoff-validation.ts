@@ -34,6 +34,10 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     findings.push(...validateGrammarPreservation(options));
   }
 
+  if (options.step.agent === 'output-formatter') {
+    findings.push(...validateFormatterPreservation(options));
+  }
+
   const specConformance = evaluateSpecConformance(options, output);
   for (const criterion of specConformance.missingCriteria) {
     findings.push(finding('medium', `Output does not clearly address acceptance criterion: ${criterion}`, options.step.id));
@@ -61,19 +65,75 @@ function validateGrammarPreservation(options: HandoffValidationOptions): Handoff
   const ratio = outputWords.length / Math.max(1, sourceWords.length);
 
   if (ratio < 0.75 || ratio > 1.35) {
-    findings.push(finding('high', 'Grammar-polished output changed length too much; possible summary, expansion, or tone/message change.', options.step.id));
+    findings.push(finding('medium', 'Grammar-polished output changed length too much; possible summary, expansion, or tone/message change.', options.step.id));
   }
 
   const missingTerms = protectedTerms(source).filter((term) => !output.includes(term));
   if (missingTerms.length > 0) {
-    findings.push(finding('high', `Grammar-polished output dropped protected terms: ${missingTerms.slice(0, 5).join(', ')}`, options.step.id));
+    findings.push(finding('medium', `Grammar-polished output dropped protected terms: ${missingTerms.slice(0, 5).join(', ')}`, options.step.id));
   }
 
   if (countMarkdownStructure(source) !== countMarkdownStructure(output)) {
-    findings.push(finding('high', 'Grammar-polished output changed Markdown/list structure.', options.step.id));
+    findings.push(finding('medium', 'Grammar-polished output changed Markdown/list structure.', options.step.id));
   }
 
   return findings;
+}
+
+
+function validateFormatterPreservation(options: HandoffValidationOptions): HandoffFinding[] {
+  const source = combinedDependencyOutput(options.step, options.priorResults);
+  const output = options.result.output?.trim() ?? '';
+  if (!source || !output) return [];
+
+  const findings: HandoffFinding[] = [];
+  const missingLabels = requiredFormatterLabels(source).filter((label) => !containsLoose(output, label));
+  if (missingLabels.length > 0) {
+    findings.push(finding('high', `Formatter dropped required sections or labels: ${missingLabels.slice(0, 6).join(', ')}`, options.step.id));
+  }
+
+  const missingTerms = protectedTerms(source).filter((term) => !output.includes(term));
+  if (missingTerms.length > 0) {
+    findings.push(finding('high', `Formatter dropped protected terms: ${missingTerms.slice(0, 6).join(', ')}`, options.step.id));
+  }
+
+  const sourceTokens = new Set(tokenize(source).filter((token) => token.length >= 5));
+  const outputTokens = new Set(tokenize(output));
+  const missingTokenCount = [...sourceTokens].filter((token) => !outputTokens.has(token)).length;
+  if (sourceTokens.size >= 12 && missingTokenCount / sourceTokens.size > 0.45) {
+    findings.push(finding('high', 'Formatter dropped too much substantive content from the source output.', options.step.id));
+  }
+
+  return findings;
+}
+
+function requiredFormatterLabels(source: string): string[] {
+  const labels = [
+    'Usage Classification Tree',
+    'ClassyFire',
+    'ChemOnt',
+    'Taxonomy Tree',
+    'Usage Tree',
+    'Tree 1',
+    'Tree 2',
+    'Notes',
+    'Source method',
+    'Confidence',
+    'Caveat',
+  ];
+  return labels.filter((label) => containsLoose(source, label));
+}
+
+function containsLoose(text: string, needle: string): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return normalize(text).includes(normalize(needle));
+}
+
+function combinedDependencyOutput(step: DAGStep, priorResults: Map<string, StepResult>): string | null {
+  const outputs = step.dependsOn
+    .map((dep) => priorResults.get(dep)?.output?.trim())
+    .filter((output): output is string => Boolean(output));
+  return outputs.length > 0 ? outputs.join('\n\n') : null;
 }
 
 function evaluateSpecConformance(options: HandoffValidationOptions, output: string): SpecConformance {

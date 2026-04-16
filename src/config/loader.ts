@@ -40,6 +40,14 @@ async function findConfigFile(providedPath?: string): Promise<string | null> {
 }
 
 function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): PipelineConfig {
+  const adapterDefaults = { ...base.adapterDefaults };
+  for (const [adapter, defaults] of Object.entries(override.adapterDefaults ?? {})) {
+    adapterDefaults[adapter as keyof typeof adapterDefaults] = {
+      ...(base.adapterDefaults[adapter as keyof typeof adapterDefaults] ?? {}),
+      ...defaults,
+    };
+  }
+
   return {
     agents: {
       spec: override.agents?.spec ?? base.agents.spec,
@@ -83,9 +91,21 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
       adapter: override.agentCreation?.adapter ?? base.agentCreation.adapter,
       model: override.agentCreation?.model ?? base.agentCreation.model,
     },
-    adapterDefaults: {
-      ...base.adapterDefaults,
-      ...override.adapterDefaults,
+    adapterDefaults,
+    agentConsensus: {
+      ...base.agentConsensus,
+      ...override.agentConsensus,
+      outputTypes: [
+        ...(override.agentConsensus?.outputTypes ?? base.agentConsensus.outputTypes),
+      ],
+      fileOutputs: {
+        ...base.agentConsensus.fileOutputs,
+        ...override.agentConsensus?.fileOutputs,
+        verificationCommands: [
+          ...(override.agentConsensus?.fileOutputs?.verificationCommands ??
+            base.agentConsensus.fileOutputs.verificationCommands),
+        ],
+      },
     },
     agentOverrides: {
       ...base.agentOverrides,
@@ -118,6 +138,22 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       headless: { ...DEFAULT_CONFIG.headless },
       router: { ...DEFAULT_CONFIG.router },
       agentCreation: { ...DEFAULT_CONFIG.agentCreation },
+      adapterDefaults: Object.fromEntries(
+        Object.entries(DEFAULT_CONFIG.adapterDefaults).map(([adapter, defaults]) => [
+          adapter,
+          { ...defaults },
+        ]),
+      ) as PipelineConfig['adapterDefaults'],
+      agentConsensus: {
+        ...DEFAULT_CONFIG.agentConsensus,
+        outputTypes: [...DEFAULT_CONFIG.agentConsensus.outputTypes],
+        fileOutputs: {
+          ...DEFAULT_CONFIG.agentConsensus.fileOutputs,
+          verificationCommands: [
+            ...DEFAULT_CONFIG.agentConsensus.fileOutputs.verificationCommands,
+          ],
+        },
+      },
       agentOverrides: { ...DEFAULT_CONFIG.agentOverrides },
       security: { ...DEFAULT_CONFIG.security },
     };

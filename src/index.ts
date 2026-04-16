@@ -28,10 +28,18 @@ export type {
 export type {
   PipelineConfig,
   AgentAssignment,
+  AgentConsensusConfig,
+  FileOutputConsensusConfig,
+  RouterConsensusConfig,
   StageName,
   OllamaConfig,
   QualityConfig,
 } from './types/config.js';
+
+export type {
+  ConsensusDiagnostics,
+  ConsensusParticipant,
+} from './types/dag.js';
 
 export type {
   CheckpointData,

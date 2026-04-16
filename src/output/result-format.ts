@@ -61,12 +61,15 @@ export function formatCompactMapOutput(result: unknown): string {
 
 function buildCompactData(result: unknown): Record<string, unknown> {
   const data = isRecord(result) ? result : { result };
+  const consensusDiagnostics = collectConsensusDiagnostics(data);
   return {
     ...(data['success'] !== undefined ? { success: data['success'] } : {}),
     ...(data['outcome'] !== undefined ? { outcome: data['outcome'] } : {}),
     agentGraph: buildSimplifiedGraph(data),
+    ...(consensusDiagnostics.length > 0 ? { consensusDiagnostics } : {}),
     finalResult: extractFinalResult(data) ?? '',
     ...buildErrorData(data),
+    ...buildWarningData(data),
   };
 }
 
@@ -117,12 +120,55 @@ function renderHtmlErrors(data: Record<string, unknown>): string[] {
   return ['<h2>Errors</h2>', `<ul>${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>`];
 }
 
+
+function buildWarningData(data: Record<string, unknown>): { warnings?: string[] } {
+  const warnings = collectWarnings(data);
+  return warnings.length > 0 ? { warnings } : {};
+}
+
+function collectWarnings(data: Record<string, unknown>): string[] {
+  const warnings: string[] = [];
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  for (const step of steps) {
+    const findings = Array.isArray(step['handoffFindings']) ? step['handoffFindings'].filter(isRecord) : [];
+    for (const finding of findings) {
+      if (finding['severity'] === 'high') continue;
+      const message = typeof finding['message'] === 'string' ? finding['message'].trim() : '';
+      if (!message) continue;
+      warnings.push(`${String(step['id'] ?? 'step')} [${String(step['agent'] ?? 'unknown')}]: ${message}`);
+    }
+  }
+  return [...new Set(warnings)];
+}
+
+function appendWarnings(lines: string[], data: Record<string, unknown>): void {
+  const warnings = collectWarnings(data);
+  if (warnings.length === 0) return;
+  lines.push('', '## Warnings', '');
+  for (const warning of warnings) {
+    lines.push(`- ${warning}`);
+  }
+}
+
+function appendPlainWarnings(lines: string[], data: Record<string, unknown>): void {
+  const warnings = collectWarnings(data);
+  if (warnings.length === 0) return;
+  lines.push('Warnings', '--------', ...warnings.map((warning) => `- ${warning}`), '');
+}
+
+function renderHtmlWarnings(data: Record<string, unknown>): string[] {
+  const warnings = collectWarnings(data);
+  if (warnings.length === 0) return [];
+  return ['<h2>Warnings</h2>', `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>`];
+}
+
 function formatMarkdownResult(result: unknown): string {
   const data = isRecord(result) ? result : { result };
   const lines = ['# MAP Result', ''];
 
   appendSummary(lines, data);
   appendAgentGraph(lines, data);
+  appendConsensusDiagnostics(lines, data);
   appendSteps(lines, data);
   appendFinalResult(lines, data);
   appendList(lines, 'Files Created', asStringArray(data['filesCreated']));
@@ -135,9 +181,11 @@ function formatMarkdownResult(result: unknown): string {
 function formatCompactMarkdownResult(result: unknown): string {
   const data = isRecord(result) ? result : { result };
   const lines = ['# MAP Compact Result', ''];
-  appendAgentGraph(lines, data);
-  appendErrors(lines, data);
   appendFinalResult(lines, data);
+  appendErrors(lines, data);
+  appendWarnings(lines, data);
+  appendAgentGraph(lines, data);
+  appendCompactConsensusDiagnostics(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -145,17 +193,20 @@ function formatTextResult(result: unknown): string {
   const data = isRecord(result) ? result : { result };
   const lines = ['MAP Result', ''];
   appendSummary(lines, data);
-  appendPlainGraph(lines, data);
-  appendPlainErrors(lines, data);
   appendPlainFinalResult(lines, data);
+  appendPlainErrors(lines, data);
+  appendPlainWarnings(lines, data);
+  appendPlainGraph(lines, data);
+  appendPlainConsensusDiagnostics(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
 function formatCompactTextResult(result: unknown): string {
   const data = isRecord(result) ? result : { result };
   const lines = ['MAP Compact Result', ''];
-  appendPlainGraph(lines, data);
   appendPlainFinalResult(lines, data);
+  appendPlainGraph(lines, data);
+  appendPlainConsensusDiagnostics(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -200,7 +251,9 @@ function buildHtmlDocument(
     ...(compact ? [] : ['<h2>Summary</h2>', '<ul>', ...summary.map(([label, value]) => `<li><strong>${escapeHtml(String(label))}:</strong> ${escapeHtml(String(value))}</li>`), '</ul>']),
     '<h2>Agent Graph</h2>',
     graph.length > 0 ? `<ul>${graph.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '<p>No graph available.</p>',
+    ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
+    ...renderHtmlWarnings(data),
     ...(compact || steps.length === 0 ? [] : ['<h2>Steps</h2>', renderHtmlStepTable(steps)]),
     '<h2>Final Result</h2>',
     `<pre>${escapeHtml(final || 'No final result captured.')}</pre>`,
@@ -254,6 +307,83 @@ function appendAgentGraph(lines: string[], data: Record<string, unknown>): void 
   }
 }
 
+function appendConsensusDiagnostics(lines: string[], data: Record<string, unknown>): void {
+  const diagnostics = collectConsensusDiagnostics(data);
+  if (diagnostics.length === 0) return;
+  lines.push(
+    '',
+    '## Consensus Diagnostics',
+    '',
+    '| Source | Agent | Method | Run | Model | Status | Contribution |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  );
+  for (const diagnostic of diagnostics) {
+    for (const participant of diagnostic.participants) {
+      lines.push(
+        `| ${cell(diagnostic.stepId ?? diagnostic.source)} | ${cell(diagnostic.agent ?? diagnostic.source)} | ${cell(diagnostic.method)} | ${cell(participant.run)} | ${cell(formatParticipantModel(participant))} | ${cell(participant.status)} | ${cell(formatPercent(participant.contribution))} |`,
+      );
+    }
+  }
+}
+
+function appendCompactConsensusDiagnostics(lines: string[], data: Record<string, unknown>): void {
+  const diagnostics = collectConsensusDiagnostics(data);
+  if (diagnostics.length === 0) return;
+  lines.push('', '## Consensus Diagnostics', '');
+  for (const diagnostic of diagnostics) {
+    const source = diagnostic.stepId
+      ? `${diagnostic.stepId} [${diagnostic.agent ?? diagnostic.source}]`
+      : diagnostic.source;
+    const participantSummary = diagnostic.participants
+      .map((participant) =>
+        `${formatParticipantModel(participant)} run ${participant.run} ${participant.status} ${formatPercent(participant.contribution)}`,
+      )
+      .join('; ');
+    lines.push(`- ${source} ${diagnostic.method}: ${participantSummary}`);
+  }
+}
+
+function appendPlainConsensusDiagnostics(lines: string[], data: Record<string, unknown>): void {
+  const diagnostics = collectConsensusDiagnostics(data);
+  if (diagnostics.length === 0) return;
+  lines.push('Consensus Diagnostics', '---------------------');
+  for (const diagnostic of diagnostics) {
+    const source = diagnostic.stepId
+      ? `${diagnostic.stepId} [${diagnostic.agent ?? diagnostic.source}]`
+      : diagnostic.source;
+    lines.push(`${source} ${diagnostic.method}`);
+    for (const participant of diagnostic.participants) {
+      lines.push(`- ${formatParticipantModel(participant)} run ${participant.run}: ${participant.status} ${formatPercent(participant.contribution)}`);
+    }
+  }
+  lines.push('');
+}
+
+function renderHtmlConsensusDiagnostics(data: Record<string, unknown>): string[] {
+  const diagnostics = collectConsensusDiagnostics(data);
+  if (diagnostics.length === 0) return [];
+  const rows = diagnostics.flatMap((diagnostic) =>
+    diagnostic.participants.map((participant) => [
+      diagnostic.stepId ?? diagnostic.source,
+      diagnostic.agent ?? diagnostic.source,
+      diagnostic.method,
+      participant.run,
+      formatParticipantModel(participant),
+      participant.status,
+      formatPercent(participant.contribution),
+    ]),
+  );
+  return [
+    '<h2>Consensus Diagnostics</h2>',
+    '<table>',
+    '<thead><tr><th>Source</th><th>Agent</th><th>Method</th><th>Run</th><th>Model</th><th>Status</th><th>Contribution</th></tr></thead>',
+    '<tbody>',
+    ...rows.map((row) => `<tr>${row.map((cellValue) => `<td>${escapeHtml(String(cellValue ?? ''))}</td>`).join('')}</tr>`),
+    '</tbody>',
+    '</table>',
+  ];
+}
+
 function appendPlainGraph(lines: string[], data: Record<string, unknown>): void {
   const graph = buildSimplifiedGraph(data);
   if (graph.length === 0) return;
@@ -287,13 +417,13 @@ function formatSpecConformance(step: Record<string, unknown>): string {
 }
 
 function appendFinalResult(lines: string[], data: Record<string, unknown>): void {
-  const final = extractFinalResult(data);
+  const final = extractDisplayFinalResult(data);
   if (!final) return;
   lines.push('', '## Final Result', '', final);
 }
 
 function appendPlainFinalResult(lines: string[], data: Record<string, unknown>): void {
-  const final = extractFinalResult(data);
+  const final = extractDisplayFinalResult(data);
   if (!final) return;
   lines.push('Final Result', '------------', final, '');
 }
@@ -343,6 +473,137 @@ function buildSimplifiedGraph(data: Record<string, unknown>): string[] {
   }).join(' -> ')];
 }
 
+function collectConsensusDiagnostics(data: Record<string, unknown>): Array<{
+  source: string;
+  stepId?: string;
+  agent?: string;
+  method: string;
+  participants: Array<{
+    run: number;
+    provider?: string;
+    model?: string;
+    status: string;
+    contribution: number;
+  }>;
+}> {
+  const explicit = Array.isArray(data['consensusDiagnostics'])
+    ? data['consensusDiagnostics'].filter(isRecord)
+    : [];
+  const explicitDiagnostics = explicit.map(normalizeConsensusDiagnostic).filter((entry): entry is NonNullable<ReturnType<typeof normalizeConsensusDiagnostic>> => entry !== null);
+
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const stepDiagnostics = steps
+    .map((step) => {
+      const consensus = isRecord(step['consensus']) ? step['consensus'] : undefined;
+      if (!consensus) return null;
+      const participants = Array.isArray(consensus['participants'])
+        ? consensus['participants'].filter(isRecord).map(normalizeConsensusParticipant)
+        : [];
+      if (participants.length === 0) return null;
+      return {
+        source: 'agent',
+        stepId: String(step['id'] ?? ''),
+        agent: String(step['agent'] ?? ''),
+        method: String(consensus['method'] ?? 'consensus'),
+        participants,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  const seen = new Set<string>();
+  return [...explicitDiagnostics, ...stepDiagnostics].filter((diagnostic) => {
+    const key = `${diagnostic.source}:${diagnostic.stepId ?? ''}:${diagnostic.method}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeConsensusDiagnostic(value: Record<string, unknown>): {
+  source: string;
+  stepId?: string;
+  agent?: string;
+  method: string;
+  participants: Array<{
+    run: number;
+    provider?: string;
+    model?: string;
+    status: string;
+    contribution: number;
+  }>;
+} | null {
+  const participants = Array.isArray(value['participants'])
+    ? value['participants'].filter(isRecord).map(normalizeConsensusParticipant)
+    : [];
+  if (participants.length === 0) return null;
+  return {
+    source: String(value['source'] ?? 'consensus'),
+    ...(value['stepId'] !== undefined ? { stepId: String(value['stepId']) } : {}),
+    ...(value['agent'] !== undefined ? { agent: String(value['agent']) } : {}),
+    method: String(value['method'] ?? 'consensus'),
+    participants,
+  };
+}
+
+function normalizeConsensusParticipant(value: Record<string, unknown>): {
+  run: number;
+  provider?: string;
+  model?: string;
+  status: string;
+  contribution: number;
+} {
+  return {
+    run: typeof value['run'] === 'number' ? value['run'] : Number(value['run'] ?? 0),
+    ...(typeof value['provider'] === 'string' ? { provider: value['provider'] } : {}),
+    ...(typeof value['model'] === 'string' ? { model: value['model'] } : {}),
+    status: String(value['status'] ?? 'unknown'),
+    contribution: typeof value['contribution'] === 'number' ? value['contribution'] : Number(value['contribution'] ?? 0),
+  };
+}
+
+function formatParticipantModel(participant: { provider?: string; model?: string }): string {
+  if (participant.provider && participant.model) return `${participant.provider}/${participant.model}`;
+  return participant.model ?? participant.provider ?? 'unknown';
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.round(value * 100)}%`;
+}
+
+
+function extractDisplayFinalResult(data: Record<string, unknown>): string | null {
+  const combined = combineComplementaryReports(data);
+  return combined ?? extractFinalResult(data);
+}
+
+function combineComplementaryReports(data: Record<string, unknown>): string | null {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const taxonomy = findLatestUsefulOutput(steps, ['classyfire-taxonomy-classifier', 'taxonomy-classifier'], ['Taxonomy Tree', 'ChemOnt', 'ClassyFire']);
+  const usage = findLatestUsefulOutput(steps, ['usage-classification-tree'], ['Usage Tree', 'Usage Classification']);
+  if (!taxonomy || !usage) return null;
+  if (taxonomy === usage) return taxonomy;
+  return `${taxonomy}\n\n---\n\n${usage}`;
+}
+
+function findLatestUsefulOutput(
+  steps: Record<string, unknown>[],
+  agents: string[],
+  requiredMarkers: string[],
+): string | null {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index]!;
+    const agent = String(step['agent'] ?? '');
+    if (!agents.some((candidate) => agent.includes(candidate))) continue;
+    const output = usableStepOutput(step);
+    if (!output) continue;
+    if (requiredMarkers.some((marker) => output.toLowerCase().includes(marker.toLowerCase()))) {
+      return output;
+    }
+  }
+  return null;
+}
+
 function extractFinalResult(data: Record<string, unknown>): string | null {
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
   const terminalIds = getPreferredTerminalStepIds(toDagPlan(data));
@@ -350,15 +611,13 @@ function extractFinalResult(data: Record<string, unknown>): string | null {
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
     if (terminalIds.size > 0 && !terminalIds.has(String(step['id'] ?? ''))) continue;
-    if (step['status'] !== 'completed' && step['status'] !== 'recovered') continue;
-    const output = typeof step['output'] === 'string' ? step['output'].trim() : '';
+    const output = usableStepOutput(step);
     if (output) return output;
   }
 
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
-    if (step['status'] !== 'completed' && step['status'] !== 'recovered') continue;
-    const output = typeof step['output'] === 'string' ? step['output'].trim() : '';
+    const output = usableStepOutput(step);
     if (output) return output;
   }
 
@@ -373,6 +632,32 @@ function extractFinalResult(data: Record<string, unknown>): string | null {
   if (typeof result === 'string' && result.trim()) return result.trim();
 
   return null;
+}
+
+
+function usableStepOutput(step: Record<string, unknown>): string | null {
+  if (step['status'] !== 'completed' && step['status'] !== 'recovered') return null;
+  const output = typeof step['output'] === 'string' ? step['output'].trim() : '';
+  if (!output || looksLikeInternalToolTable(output) || looksLikeLossyFormatterTable(step, output)) return null;
+  return output;
+}
+
+function looksLikeInternalToolTable(output: string): boolean {
+  const normalized = output.toLowerCase();
+  return (
+    normalized.includes('| agent | tool | parameter |') ||
+    normalized.includes('--- context from previous steps ---') ||
+    (/\|\s*grammar-spelling-specialist\s*\|\s*web-search\s*\|/.test(normalized))
+  );
+}
+
+function looksLikeLossyFormatterTable(step: Record<string, unknown>, output: string): boolean {
+  if (step['agent'] !== 'output-formatter') return false;
+  const normalized = output.toLowerCase();
+  return (
+    normalized.includes('| entity | usage domain | source method | confidence |') ||
+    normalized.includes('| level 1 | level 2 | level 3 | level 4 | level 5 | level 6 |')
+  );
 }
 
 function toDagPlan(data: Record<string, unknown>): DAGPlan {

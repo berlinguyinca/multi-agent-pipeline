@@ -102,6 +102,16 @@ describe('markdown artifacts', () => {
       content: 'Final answer',
       filesCreated: ['src/index.ts'],
       rawLogPath: '/tmp/raw.log',
+      consensusDiagnostics: [{
+        source: 'router',
+        method: 'majority',
+        runs: 3,
+        selectedModel: 'gemma4',
+        participants: [
+          { run: 1, provider: 'ollama', model: 'gemma4', status: 'contributed', contribution: 1 },
+          { run: 2, provider: 'ollama', model: 'qwen3', status: 'contributed', contribution: 1 },
+        ],
+      }],
     });
 
     const saved = await fs.readFile(file, 'utf8');
@@ -109,6 +119,9 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('step-1 -> step-2');
     expect(saved).toContain('1. step-1 [researcher | ollama/gemma4:26b] completed 1.2s');
     expect(saved).toContain('Final answer');
+    expect(saved).toContain('## Consensus diagnostics');
+    expect(saved).toContain('router: majority, selected gemma4');
+    expect(saved).toContain('ollama/qwen3 run 2: contributed 100%');
     expect(saved).toContain('src/index.ts');
     expect(saved).toContain('/tmp/raw.log');
   });

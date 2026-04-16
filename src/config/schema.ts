@@ -7,14 +7,17 @@ import type {
   QualityConfig,
   RouterConfig,
   RouterConsensusConfig,
+  AgentConsensusConfig,
+  FileOutputConsensusConfig,
   AgentCreationConfig,
   AdapterDefaultsMap,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
-import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
+import { DEFAULT_AGENT_CONSENSUS_CONFIG, DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
 
 const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes'];
+const VALID_AGENT_CONSENSUS_OUTPUT_TYPES = ['answer', 'data', 'presentation'] as const;
 
 function isValidAdapter(value: unknown): value is AdapterType {
   return typeof value === 'string' && (VALID_ADAPTERS as readonly string[]).includes(value);
@@ -361,17 +364,158 @@ function validateAdapterDefaults(value: unknown): AdapterDefaultsMap {
       throw new Error(`adapterDefaults.${key} must be an object`);
     }
     const entryObj = entry as Record<string, unknown>;
-    const defaults: { think?: boolean } = {};
+    const defaults: { think?: boolean; temperature?: number; seed?: number } = {};
     if (entryObj['think'] !== undefined) {
       if (typeof entryObj['think'] !== 'boolean') {
         throw new Error(`adapterDefaults.${key}.think must be a boolean`);
       }
       defaults.think = entryObj['think'];
     }
+    if (entryObj['temperature'] !== undefined) {
+      if (
+        typeof entryObj['temperature'] !== 'number' ||
+        !Number.isFinite(entryObj['temperature']) ||
+        entryObj['temperature'] < 0
+      ) {
+        throw new Error(`adapterDefaults.${key}.temperature must be a non-negative number`);
+      }
+      defaults.temperature = entryObj['temperature'];
+    }
+    if (entryObj['seed'] !== undefined) {
+      if (
+        typeof entryObj['seed'] !== 'number' ||
+        !Number.isInteger(entryObj['seed'])
+      ) {
+        throw new Error(`adapterDefaults.${key}.seed must be an integer`);
+      }
+      defaults.seed = entryObj['seed'];
+    }
     result[key as keyof AdapterDefaultsMap] = defaults;
   }
 
   return result;
+}
+
+function validateAgentConsensusConfig(value: unknown): AgentConsensusConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('agentConsensus must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const consensus: AgentConsensusConfig = {
+    ...DEFAULT_AGENT_CONSENSUS_CONFIG,
+    outputTypes: [...DEFAULT_AGENT_CONSENSUS_CONFIG.outputTypes],
+  };
+
+  if (obj['enabled'] !== undefined) {
+    if (typeof obj['enabled'] !== 'boolean') {
+      throw new Error('agentConsensus.enabled must be a boolean');
+    }
+    consensus.enabled = obj['enabled'];
+  }
+
+  if (obj['runs'] !== undefined) {
+    consensus.runs = validatePositiveInteger(obj['runs'], 'agentConsensus.runs');
+    if (consensus.runs > 5) {
+      throw new Error('agentConsensus.runs must be at most 5');
+    }
+  }
+
+  if (obj['outputTypes'] !== undefined) {
+    if (!Array.isArray(obj['outputTypes'])) {
+      throw new Error('agentConsensus.outputTypes must be an array');
+    }
+    consensus.outputTypes = obj['outputTypes'].map((type, index) => {
+      if (
+        typeof type !== 'string' ||
+        !(VALID_AGENT_CONSENSUS_OUTPUT_TYPES as readonly string[]).includes(type)
+      ) {
+        throw new Error(
+          `agentConsensus.outputTypes[${index}] must be one of: ${VALID_AGENT_CONSENSUS_OUTPUT_TYPES.join(', ')}`,
+        );
+      }
+      return type as AgentConsensusConfig['outputTypes'][number];
+    });
+  }
+
+  if (obj['minSimilarity'] !== undefined) {
+    if (
+      typeof obj['minSimilarity'] !== 'number' ||
+      !Number.isFinite(obj['minSimilarity']) ||
+      obj['minSimilarity'] < 0 ||
+      obj['minSimilarity'] > 1
+    ) {
+      throw new Error('agentConsensus.minSimilarity must be a number between 0 and 1');
+    }
+    consensus.minSimilarity = obj['minSimilarity'];
+  }
+
+  if (obj['fileOutputs'] !== undefined) {
+    consensus.fileOutputs = validateFileOutputConsensusConfig(obj['fileOutputs']);
+  }
+
+  return consensus;
+}
+
+function validateFileOutputConsensusConfig(value: unknown): FileOutputConsensusConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('agentConsensus.fileOutputs must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const fileOutputs: FileOutputConsensusConfig = {
+    ...DEFAULT_AGENT_CONSENSUS_CONFIG.fileOutputs,
+    verificationCommands: [...DEFAULT_AGENT_CONSENSUS_CONFIG.fileOutputs.verificationCommands],
+  };
+
+  if (obj['enabled'] !== undefined) {
+    if (typeof obj['enabled'] !== 'boolean') {
+      throw new Error('agentConsensus.fileOutputs.enabled must be a boolean');
+    }
+    fileOutputs.enabled = obj['enabled'];
+  }
+
+  if (obj['runs'] !== undefined) {
+    fileOutputs.runs = validatePositiveInteger(obj['runs'], 'agentConsensus.fileOutputs.runs');
+    if (fileOutputs.runs > 5) {
+      throw new Error('agentConsensus.fileOutputs.runs must be at most 5');
+    }
+  }
+
+  if (obj['isolation'] !== undefined) {
+    if (obj['isolation'] !== 'git-worktree') {
+      throw new Error('agentConsensus.fileOutputs.isolation must be "git-worktree"');
+    }
+    fileOutputs.isolation = 'git-worktree';
+  }
+
+  if (obj['keepWorktreesOnFailure'] !== undefined) {
+    if (typeof obj['keepWorktreesOnFailure'] !== 'boolean') {
+      throw new Error('agentConsensus.fileOutputs.keepWorktreesOnFailure must be a boolean');
+    }
+    fileOutputs.keepWorktreesOnFailure = obj['keepWorktreesOnFailure'];
+  }
+
+  if (obj['verificationCommands'] !== undefined) {
+    if (!Array.isArray(obj['verificationCommands'])) {
+      throw new Error('agentConsensus.fileOutputs.verificationCommands must be an array');
+    }
+    fileOutputs.verificationCommands = obj['verificationCommands'].map((command, index) => {
+      if (typeof command !== 'string' || command.trim() === '') {
+        throw new Error(`agentConsensus.fileOutputs.verificationCommands[${index}] must be a non-empty string`);
+      }
+      return command.trim();
+    });
+  }
+
+  if (obj['selection'] !== undefined) {
+    if (obj['selection'] !== 'best-passing-minimal-diff') {
+      throw new Error('agentConsensus.fileOutputs.selection must be "best-passing-minimal-diff"');
+    }
+    fileOutputs.selection = 'best-passing-minimal-diff';
+  }
+
+  return fileOutputs;
 }
 
 function validateAgentOverrides(
@@ -506,6 +650,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     adapterDefaults = validateAdapterDefaults(obj['adapterDefaults']);
   }
 
+  let agentConsensus: AgentConsensusConfig | undefined;
+  if (obj['agentConsensus'] !== undefined) {
+    agentConsensus = validateAgentConsensusConfig(obj['agentConsensus']);
+  }
+
   let agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> | undefined;
   if (obj['agentOverrides'] !== undefined) {
     agentOverrides = validateAgentOverrides(obj['agentOverrides']);
@@ -525,6 +674,7 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(router !== undefined ? { router } : {}),
     ...(agentCreation !== undefined ? { agentCreation } : {}),
     ...(adapterDefaults !== undefined ? { adapterDefaults } : {}),
+    ...(agentConsensus !== undefined ? { agentConsensus } : {}),
     ...(agentOverrides !== undefined ? { agentOverrides } : {}),
   } as PipelineConfig;
 }

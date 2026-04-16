@@ -34,6 +34,27 @@ export interface SpecConformance {
   notes: string[];
 }
 
+export interface ConsensusParticipant {
+  run: number;
+  provider?: string;
+  model?: string;
+  status: 'selected' | 'contributed' | 'valid' | 'rejected' | 'failed';
+  contribution: number;
+  detail?: string;
+}
+
+export interface ConsensusDiagnostics {
+  source: 'router' | 'agent';
+  stepId?: string;
+  agent?: string;
+  method: string;
+  runs: number;
+  selectedRun?: number;
+  selectedModel?: string;
+  agreement?: number;
+  participants: ConsensusParticipant[];
+}
+
 export interface StepResult {
   id: string;
   agent: string;
@@ -61,6 +82,18 @@ export interface StepResult {
   handoffPassed?: boolean;
   handoffFindings?: HandoffFinding[];
   specConformance?: SpecConformance;
+  consensus?: {
+    enabled: boolean;
+    runs: number;
+    candidateCount: number;
+    selectedRun: number;
+    agreement: number;
+    method: 'exact-majority' | 'medoid-token-similarity' | 'worktree-best-passing-diff';
+    isolation?: 'git-worktree';
+    verificationPassed?: boolean;
+    changedFiles?: string[];
+    participants?: ConsensusParticipant[];
+  };
 }
 
 

@@ -450,7 +450,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--poll-interval` | `headless.pollIntervalMs` | 10s | How often MAP checks the timeout clocks |
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 | `--router-model` | `router.model` | config value | Override the smart-routing router model for this run |
-| `--router-consensus-models` | `router.consensus.models` | disabled | Enable router consensus with up to 3 comma-separated Ollama models |
+| `--router-consensus-models` | `router.consensus.models` | repeats `router.model` | Override the default router consensus candidates with up to 3 comma-separated Ollama models |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; when a step times out, MAP retries it and doubles the next step timeout budget by default.
@@ -665,7 +665,7 @@ Steps with no unmet dependencies run concurrently. Dependent steps receive previ
 
 MAP cleans router-produced task text before a plan is displayed or executed. This catches common local-model failure modes such as repeated tokens, slash-delimited loops, and overlong task fields. Mild repetition is collapsed into a readable task; fully degenerate task text is rejected so agents do not execute nonsense plans.
 
-For Ollama routers, MAP can also run a small consensus pass across up to three local models. Enable it in `pipeline.yaml`:
+For Ollama routers, MAP runs a small consensus pass by default. With `models: []`, MAP repeats `router.model` three times and keeps the majority-agreed plan. To diversify the vote, list up to three local models in `pipeline.yaml`:
 
 ```yaml
 router:
@@ -681,7 +681,64 @@ router:
     mode: majority
 ```
 
-Consensus is router-only. MAP asks each listed model for a DAG plan, parses and cleans each result, drops invalid or degenerate candidates, then uses majority-agreed plan steps when at least two models match. If there is no majority, MAP falls back to the best valid cleaned plan. If all candidates fail, routing fails with per-model rejection reasons.
+Router consensus applies to DAG planning. MAP asks each listed model for a DAG plan, parses and cleans each result, drops invalid or degenerate candidates, then uses majority-agreed plan steps when at least two models match. If there is no majority, MAP falls back to the best valid cleaned plan. If all candidates fail, routing fails with per-model rejection reasons.
+
+### Local Agent Hallucination Controls
+
+All first-party agent prompts receive shared conduct rules that require claims to be grounded in provided context, retrieved evidence, tool output, or clearly labeled assumptions. They also explicitly forbid fabricated citations, file paths, command output, test results, and verification evidence.
+
+For repeatability, Ollama defaults run with deterministic sampling:
+
+```yaml
+adapterDefaults:
+  ollama:
+    think: false
+    temperature: 0
+    seed: 42
+```
+
+MAP also repeats non-file agent outputs and selects the best-supported candidate:
+
+```yaml
+agentConsensus:
+  enabled: true
+  runs: 3
+  outputTypes: [answer, data, presentation]
+  minSimilarity: 0.35
+```
+
+`answer`, `data`, and `presentation` outputs are safe to repeat because they do not write files directly. File-producing implementation agents are intentionally excluded from automatic repetition to avoid multiple concurrent edits in the same workspace; they remain protected by TDD, security, handoff validation, code QA, and release-readiness agents. When non-file candidates disagree below `minSimilarity`, MAP fails the step instead of silently picking a hallucinated outlier.
+
+When an Ollama `seed` is configured, consensus candidates use stable seed offsets (`seed`, `seed + 1`, `seed + 2`, ...). This keeps repeated MAP runs reproducible while still allowing diversity if you choose a non-zero temperature.
+
+File-producing agents can also use consensus, but they execute through isolated git worktrees instead of repeating in the active workspace:
+
+```yaml
+agentConsensus:
+  fileOutputs:
+    enabled: true
+    runs: 3
+    isolation: git-worktree
+    keepWorktreesOnFailure: true
+    verificationCommands:
+      - npm run typecheck
+      - npm run test:core
+    selection: best-passing-minimal-diff
+```
+
+Execution order for file-output consensus:
+
+1. MAP uses the target working directory as the baseline. If it is exactly a git checkout root, the checkout must be clean. If it is an ignored output directory or non-git directory, MAP creates a temporary baseline git repository from its current contents.
+2. MAP creates candidate worktrees under `.map/worktrees/consensus/<step>/` for real repo roots, or under a temporary baseline repository for output directories.
+3. Each candidate runs the same file-producing agent from the same `HEAD`, with stable seed offsets.
+4. Each candidate stages its own changes inside its worktree, captures a binary patch, and runs `verificationCommands`.
+5. MAP selects the verified candidate with the fewest changed files and smallest patch.
+6. MAP applies the selected patch back to the original checkout.
+7. MAP reruns the same verification commands in the original checkout before marking the step complete.
+
+Worktrees are kept on failure when `keepWorktreesOnFailure` is true so the rejected candidates can be inspected. They are removed after successful selection. File-output consensus intentionally requires a clean checkout only when operating directly on a repository root; this prevents candidates from accidentally omitting or overwriting uncommitted user changes while still supporting ignored generated-output directories.
+
+Every consensus path reports diagnostics in the result graph/report. Reports include the participating provider/model per run, whether that run contributed, was selected, was merely valid, was rejected, or failed, and a contribution percentage. Router consensus contribution means the candidate supplied selected DAG steps. Agent-output consensus contribution means the candidate matched or was closest to the selected final output. File-output consensus contribution identifies the patch that passed verification and was applied.
 
 ## Agent Registry
 
@@ -792,7 +849,7 @@ If the spec is not clearly reviewed and QA-approved, `adviser` should route back
 
 ### Real LLM Agent Integration Tests
 
-Real LLM agent integration tests are mission-critical and run as part of the normal test suite. They validate selected agents against a live Ollama model.
+Real LLM agent integration tests validate selected agents against a live Ollama model. They are kept as an explicit suite instead of `test:core` because they depend on local model availability and can legitimately take longer than deterministic unit tests.
 
 Run just the LLM contract suite with:
 
@@ -1044,15 +1101,24 @@ specAssessing -> feedback -> executing -> codeAssessing
 ```bash
 npm install
 npm test
+npm run test:tui
+npm run test:ci
 npm run typecheck
 npm run build
 ```
 
 Verification baseline:
 
-- `npm test`: 70 test files, 393 tests
+- `npm test` / `npm run test:core`: stable deterministic suite, excluding `tests/tui/**`, `tests/spike/**`, and live LLM integration tests
+- `npm run test:tui`: TUI suite through `scripts/run-with-timeout.mjs` with a 60s process timeout and 10s Vitest test/hook timeouts
+- `npm run test:spike`: opt-in exploratory spike tests through the same timeout wrapper
+- `npm run test:llm-agents`: opt-in live Ollama agent contract tests through a 120s process timeout
+- `npm run test:all`: raw `vitest run` for local debugging when you explicitly want every suite in one process
+- `npm run test:ci`: `typecheck` + `test:core` + `test:tui`
 - `npm run typecheck`
 - `npm run build`
+
+The split exists because terminal UI tests use alternate-screen and event-loop behavior that can stall an otherwise healthy verification run. Core tests stay fast and deterministic; TUI/spike tests remain available but are isolated behind hard timeouts.
 
 ## Roadmap
 

@@ -101,6 +101,54 @@ router:
     });
   });
 
+  it('parses local agent consensus config', async () => {
+    const yamlContent = `
+agentConsensus:
+  enabled: true
+  runs: 5
+  outputTypes: [answer, data]
+  minSimilarity: 0.6
+  fileOutputs:
+    enabled: true
+    runs: 3
+    isolation: git-worktree
+    keepWorktreesOnFailure: false
+    verificationCommands:
+      - npm run typecheck
+    selection: best-passing-minimal-diff
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    const config = await loadConfig(configPath);
+
+    expect(config.agentConsensus).toEqual({
+      enabled: true,
+      runs: 5,
+      outputTypes: ['answer', 'data'],
+      minSimilarity: 0.6,
+      fileOutputs: {
+        enabled: true,
+        runs: 3,
+        isolation: 'git-worktree',
+        keepWorktreesOnFailure: false,
+        verificationCommands: ['npm run typecheck'],
+        selection: 'best-passing-minimal-diff',
+      },
+    });
+  });
+
+  it('rejects invalid local agent consensus output types', async () => {
+    const yamlContent = `
+agentConsensus:
+  outputTypes: [answer, files, nonsense]
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('agentConsensus.outputTypes');
+  });
+
   it('rejects more than three router consensus models', async () => {
     const yamlContent = `
 router:

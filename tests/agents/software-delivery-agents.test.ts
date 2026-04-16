@@ -109,6 +109,16 @@ describe('software delivery agent bundle', () => {
 
 
 
+
+  it('locks output-formatter to non-lossy rendering for any target format', async () => {
+    const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'output-formatter'));
+
+    expect(agent.prompt).toContain('You are a renderer, not a summarizer');
+    expect(agent.prompt).toContain('Preserve every substantive detail');
+    expect(agent.prompt).toContain('If the requested presentation format cannot hold all content cleanly');
+    expect(agent.contract?.mission).toContain('without dropping substantive content');
+  });
+
   it('instructs researcher to use plain-text chemistry formulas unless LaTeX is requested', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'researcher'));
 

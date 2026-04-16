@@ -1,4 +1,5 @@
 import type { AdapterType } from './adapter.js';
+import type { AgentDefinition } from './agent-definition.js';
 import type { SecurityConfig } from '../security/types.js';
 
 export interface AdapterFallback {
@@ -56,9 +57,28 @@ export interface AgentCreationConfig {
 
 export interface AdapterRunDefaults {
   think?: boolean;
+  temperature?: number;
+  seed?: number;
 }
 
 export type AdapterDefaultsMap = Partial<Record<AdapterType, AdapterRunDefaults>>;
+
+export interface AgentConsensusConfig {
+  enabled: boolean;
+  runs: number;
+  outputTypes: Array<AgentDefinition['output']['type']>;
+  minSimilarity: number;
+  fileOutputs: FileOutputConsensusConfig;
+}
+
+export interface FileOutputConsensusConfig {
+  enabled: boolean;
+  runs: number;
+  isolation: 'git-worktree';
+  keepWorktreesOnFailure: boolean;
+  verificationCommands: string[];
+  selection: 'best-passing-minimal-diff';
+}
 
 export interface PipelineConfig {
   agents: {
@@ -78,6 +98,7 @@ export interface PipelineConfig {
   router: RouterConfig;
   agentCreation: AgentCreationConfig;
   adapterDefaults: AdapterDefaultsMap;
+  agentConsensus: AgentConsensusConfig;
   agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }>;
   security: SecurityConfig;
 }

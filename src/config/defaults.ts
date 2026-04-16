@@ -1,12 +1,27 @@
 import type { AdapterType } from '../types/adapter.js';
-import type { PipelineConfig, RouterConsensusConfig } from '../types/config.js';
+import type { AgentConsensusConfig, PipelineConfig, RouterConsensusConfig } from '../types/config.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 
 export const DEFAULT_ROUTER_CONSENSUS_CONFIG: RouterConsensusConfig = {
-  enabled: false,
+  enabled: true,
   models: [],
   scope: 'router',
   mode: 'majority',
+};
+
+export const DEFAULT_AGENT_CONSENSUS_CONFIG: AgentConsensusConfig = {
+  enabled: true,
+  runs: 3,
+  outputTypes: ['answer', 'data', 'presentation'],
+  minSimilarity: 0.35,
+  fileOutputs: {
+    enabled: false,
+    runs: 3,
+    isolation: 'git-worktree',
+    keepWorktreesOnFailure: true,
+    verificationCommands: [],
+    selection: 'best-passing-minimal-diff',
+  },
 };
 
 export const DEFAULT_CONFIG: PipelineConfig = {
@@ -48,8 +63,9 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     model: 'gemma4',
   },
   adapterDefaults: {
-    ollama: { think: false },
+    ollama: { think: false, temperature: 0, seed: 42 },
   },
+  agentConsensus: DEFAULT_AGENT_CONSENSUS_CONFIG,
   agentOverrides: {},
   security: DEFAULT_SECURITY_CONFIG,
 };

@@ -39,12 +39,29 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.quality.maxCodeQaIterations).toBe(3);
   });
 
-  it('disables router consensus by default', () => {
+  it('enables router consensus by default', () => {
     expect(DEFAULT_CONFIG.router.consensus).toEqual({
-      enabled: false,
+      enabled: true,
       models: [],
       scope: 'router',
       mode: 'majority',
+    });
+  });
+
+  it('enables local agent consensus by default for non-file outputs', () => {
+    expect(DEFAULT_CONFIG.agentConsensus).toEqual({
+      enabled: true,
+      runs: 3,
+      outputTypes: ['answer', 'data', 'presentation'],
+      minSimilarity: 0.35,
+      fileOutputs: {
+        enabled: false,
+        runs: 3,
+        isolation: 'git-worktree',
+        keepWorktreesOnFailure: true,
+        verificationCommands: [],
+        selection: 'best-passing-minimal-diff',
+      },
     });
   });
 });

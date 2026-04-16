@@ -34,7 +34,7 @@ function modelFor(agent: AgentDefinition): string {
 }
 
 function expectIncludesAll(output: string, expected: string[]): void {
-  const normalized = output.toLowerCase();
+  const normalized = normalizeTerminalText(output).toLowerCase().replace(/\s+/g, ' ');
   for (const item of expected) {
     expect(normalized, `Expected output to include ${item}; output was:\n${output}`).toContain(item.toLowerCase());
   }
@@ -88,17 +88,35 @@ describe('real LLM agent integration contracts', () => {
     expect(normalized).not.toContain('$');
   }, 180_000);
 
-  it('output-formatter preserves graph and final result while formatting', async () => {
+  it('output-formatter preserves graph and rich final result while formatting', async () => {
     const output = await runAgent(
       'output-formatter',
       [
-        'Format this result as Markdown. Preserve graph and final result exactly in meaning.',
-        'Agent Graph: step-1 [researcher] -> step-2 [writer]',
-        'Final Result: Alanine formula C3H7NO2.',
+        'Format this result as Markdown for XLS-friendly cells. Preserve all details; do not summarize or drop notes.',
+        'Agent Graph: step-1 [usage-classification-tree] -> step-2 [output-formatter]',
+        'Final Result:',
+        '# Usage Classification Tree',
+        'Source method: evidence-backed inference',
+        'Confidence: low',
+        'Tree 1: Metabolomics and Biomarker Identification',
+        'Phenolic glycoside',
+        'Tree 2: Analytical Research',
+        'Mass spectrometry/NMR identification standard',
+        'Notes: Important caveat preserved.',
       ].join('\n'),
     );
 
-    expectIncludesAll(output, ['step-1', 'researcher', 'step-2', 'writer', 'C3H7NO2']);
+    expectIncludesAll(output, [
+      'step-1',
+      'usage-classification-tree',
+      'evidence-backed inference',
+      'Confidence',
+      'Metabolomics',
+      'Analytical Research',
+      'Phenolic glycoside',
+      'Mass spectrometry',
+      'Important caveat preserved',
+    ]);
     expect(output).not.toContain('C_3');
     expect(output).not.toContain('\\text');
   }, 180_000);

@@ -11,6 +11,8 @@ import type { ExecutionResult, QaAssessment } from '../../src/types/spec.js';
 const CONDUCT_RULE = 'Use a professional engineering tone: direct, factual, and free of cheerleading.';
 const NO_EMOJI_RULE = 'Do not use emoji, pictographs, decorative symbols, or playful reaction markers.';
 const READABLE_OUTPUT_RULE = 'Generate code and text output in a human-readable form.';
+const EVIDENCE_RULE = 'Ground factual claims in provided context, retrieved evidence, tool output, or clearly labeled assumptions.';
+const UNCERTAINTY_RULE = 'When evidence is missing or conflicting, say what is unknown instead of inventing certainty.';
 const BINARY_EXCEPTION_RULE = 'Exceptions are allowed only for explicitly requested binary or media artifacts';
 
 const executionResult: ExecutionResult = {
@@ -57,6 +59,8 @@ describe('classic agent prompt conduct', () => {
       expect(prompt).toContain(CONDUCT_RULE);
       expect(prompt).toContain(NO_EMOJI_RULE);
       expect(prompt).toContain(READABLE_OUTPUT_RULE);
+      expect(prompt).toContain(EVIDENCE_RULE);
+      expect(prompt).toContain(UNCERTAINTY_RULE);
       expect(prompt).toContain(BINARY_EXCEPTION_RULE);
     }
   });

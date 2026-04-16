@@ -17,7 +17,28 @@ describe('result formatting', () => {
       ],
     },
     steps: [
-      { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Raw research', handoffPassed: true, specConformance: { checked: false, passed: true, missingCriteria: [], notes: [] } },
+      {
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research',
+        status: 'completed',
+        output: 'Raw research',
+        handoffPassed: true,
+        specConformance: { checked: false, passed: true, missingCriteria: [], notes: [] },
+        consensus: {
+          enabled: true,
+          runs: 3,
+          candidateCount: 3,
+          selectedRun: 1,
+          agreement: 2 / 3,
+          method: 'exact-majority',
+          participants: [
+            { run: 1, provider: 'ollama', model: 'gemma4:26b', status: 'contributed', contribution: 1 },
+            { run: 2, provider: 'ollama', model: 'gemma4:26b', status: 'rejected', contribution: 0 },
+            { run: 3, provider: 'ollama', model: 'gemma4:26b', status: 'contributed', contribution: 1 },
+          ],
+        },
+      },
       { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish', status: 'completed', output: 'Polished research' },
       { id: 'step-2', agent: 'writer', task: 'Write', status: 'completed', output: 'Final polished answer' },
     ],
@@ -31,6 +52,8 @@ describe('result formatting', () => {
     expect(output).toContain('## Final Result');
     expect(output).toContain('Final polished answer');
     expect(output).toContain('| step-1 | researcher | completed | pass | not checked | Research |');
+    expect(output).toContain('## Consensus Diagnostics');
+    expect(output).toContain('| step-1 | researcher | exact-majority | 1 | ollama/gemma4:26b | contributed | 100% |');
   });
 
   it('prints compact output with only simplified graph and final result', () => {
@@ -39,6 +62,8 @@ describe('result formatting', () => {
     expect(output).toContain('# MAP Compact Result');
     expect(output).toContain('## Agent Graph');
     expect(output).toContain('step-1-grammar-1 [grammar-spelling-specialist] -> step-2 [writer]');
+    expect(output).toContain('## Consensus Diagnostics');
+    expect(output).toContain('step-1 [researcher] exact-majority: ollama/gemma4:26b run 1 contributed 100%');
     expect(output).toContain('## Final Result');
     expect(output).toContain('Final polished answer');
     expect(output).not.toContain('## Result Data');

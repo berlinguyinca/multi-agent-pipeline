@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { StepResult } from '../types/dag.js';
+import type { ConsensusDiagnostics, ConsensusParticipant } from '../types/dag.js';
 import { normalizeTerminalText } from '../utils/terminal-text.js';
 
 export interface ExecutionGraphEntry {
@@ -12,6 +13,11 @@ export interface ExecutionGraphEntry {
   status: string;
   duration?: number;
   dependsOn: string[];
+  consensus?: {
+    method: string;
+    selectedRun: number;
+    participants?: ConsensusParticipant[];
+  };
 }
 
 export interface SaveStageMarkdownOptions {
@@ -42,6 +48,7 @@ export interface SaveFinalReportMarkdownOptions {
   content: string;
   filesCreated?: string[];
   rawLogPath?: string;
+  consensusDiagnostics?: ConsensusDiagnostics[];
 }
 
 function slugify(value: string): string {
@@ -124,9 +131,18 @@ export async function saveFinalReportMarkdown(
       step.dependsOn.length > 0
         ? `   depends on: ${step.dependsOn.join(', ')}`
         : '   ready to start',
+      ...(step.consensus
+        ? [
+          `   consensus: ${step.consensus.method}, selected run ${step.consensus.selectedRun}`,
+          ...(step.consensus.participants ?? []).map((participant) =>
+            `   - ${participant.provider && participant.model ? `${participant.provider}/${participant.model}` : participant.model ?? participant.provider ?? 'unknown'} run ${participant.run}: ${participant.status} ${Math.round(participant.contribution * 100)}%`,
+          ),
+        ]
+        : []),
     ];
   });
   const fileLines = (options.filesCreated ?? []).map((file) => `- ${file}`);
+  const consensusLines = formatConsensusDiagnostics(options.consensusDiagnostics ?? []);
 
   const content = [
     `# ${options.title}`,
@@ -136,6 +152,7 @@ export async function saveFinalReportMarkdown(
     `Connections: ${edges.length > 0 ? edges.join(', ') : 'none'}`,
     '',
     ...graphLines,
+    ...(consensusLines.length > 0 ? ['', '## Consensus diagnostics', '', ...consensusLines] : []),
     '',
     '## Generated output',
     '',
@@ -148,6 +165,25 @@ export async function saveFinalReportMarkdown(
   ].join('\n');
 
   return writeMarkdown(path.join(runDir, 'final-report.md'), content);
+}
+
+function formatConsensusDiagnostics(diagnostics: ConsensusDiagnostics[]): string[] {
+  return diagnostics.flatMap((diagnostic) => {
+    const source = diagnostic.stepId
+      ? `${diagnostic.stepId} [${diagnostic.agent ?? diagnostic.source}]`
+      : diagnostic.source;
+    return [
+      `- ${source}: ${diagnostic.method}${diagnostic.selectedModel ? `, selected ${diagnostic.selectedModel}` : ''}`,
+      ...diagnostic.participants.map((participant) =>
+        `  - ${formatParticipantModel(participant)} run ${participant.run}: ${participant.status} ${Math.round(participant.contribution * 100)}%`,
+      ),
+    ];
+  });
+}
+
+function formatParticipantModel(participant: ConsensusParticipant): string {
+  if (participant.provider && participant.model) return `${participant.provider}/${participant.model}`;
+  return participant.model ?? participant.provider ?? 'unknown';
 }
 
 export interface GenerateAgentSummaryOptions {

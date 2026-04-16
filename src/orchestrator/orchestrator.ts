@@ -1,7 +1,7 @@
 // src/orchestrator/orchestrator.ts
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
-import type { AdapterDefaultsMap } from '../types/config.js';
+import type { AdapterDefaultsMap, AgentConsensusConfig } from '../types/config.js';
 import type { DAGPlan, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
@@ -18,6 +18,7 @@ import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } f
 import { maybeScheduleGrammarReview } from './grammar-review.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
 import { validateStepHandoff } from './handoff-validation.js';
+import { runFileConsensusInWorktrees } from './file-consensus.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -47,6 +48,7 @@ export interface DAGRetryOptions {
   handoffValidation?: {
     reviewedSpecContent?: string;
   };
+  agentConsensus?: AgentConsensusConfig;
 }
 
 const MAX_TOOL_CALLS = 4;
@@ -92,6 +94,7 @@ export async function executeDAG(
   const retryDelayMs = retry?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const stepTimeoutMs = retry?.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
   const adapterDefaults = retry?.adapterDefaults;
+  const agentConsensus = retry?.agentConsensus;
   const workingDir = retry?.workingDir ?? process.cwd();
   const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
   const results = new Map<string, StepResult>();
@@ -177,12 +180,10 @@ export async function executeDAG(
           }
 
           try {
-            const tools = createToolRegistry(agent, workingDir);
             const rawContext = appendSecurityRemediationContext(
               buildStepContext(step.task, step.dependsOn, results),
               securityRemediationContext,
             );
-            const context = injectToolCatalog(rawContext, tools, agent.prompt);
 
             const configs: AdapterConfig[] = [
               { type: agent.adapter, model: agent.model },
@@ -198,7 +199,10 @@ export async function executeDAG(
             let stepTimer: ReturnType<typeof setTimeout> | undefined;
             const abortFromParent = () => stepController.abort();
             signal?.addEventListener('abort', abortFromParent, { once: true });
-            const currentTimeoutMs = timeoutMsForAttempt;
+            const consensusConfig = resolveAgentConsensus(agent, agentConsensus);
+            const fileConsensusConfig = resolveFileOutputConsensus(agent, agentConsensus);
+            const currentTimeoutMs =
+              timeoutMsForAttempt * (fileConsensusConfig?.runs ?? consensusConfig?.runs ?? 1);
             if (currentTimeoutMs > 0) {
               stepTimer = setTimeout(() => {
                 stepTimedOut = true;
@@ -208,10 +212,12 @@ export async function executeDAG(
 
             // Resolve thinking: agent-level > adapter-default > undefined
             const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
-
-            let output: string;
-            try {
-              output = await runStepWithTools({
+            const resolvedTemperature = adapterDefaults?.[agent.adapter]?.temperature;
+            const resolvedSeed = adapterDefaults?.[agent.adapter]?.seed;
+            const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
+              const tools = createToolRegistry(agent, candidateWorkingDir);
+              const context = injectToolCatalog(rawContext, tools, agent.prompt);
+              return runStepWithTools({
                 context,
                 tools,
                 configs,
@@ -223,8 +229,40 @@ export async function executeDAG(
                 stepController,
                 signal,
                 resolvedThink,
-                workingDir,
+                resolvedTemperature,
+                resolvedSeed: resolvedSeed !== undefined ? resolvedSeed + seedOffset : undefined,
+                workingDir: candidateWorkingDir,
               });
+            };
+
+            let output: string;
+            let consensusSelection: ConsensusSelection | undefined;
+            try {
+              if (fileConsensusConfig) {
+                const fileConsensus = await runFileConsensusInWorktrees({
+                  workingDir,
+                  stepId: step.id,
+                  config: fileConsensusConfig,
+                  provider: agent.adapter,
+                  model: agent.model,
+                  runCandidate: (candidateWorkingDir, candidateIndex) =>
+                    runOnce(candidateWorkingDir, candidateIndex),
+                });
+                consensusSelection = {
+                  output: fileConsensus.output,
+                  metadata: fileConsensus.metadata,
+                };
+                output = fileConsensus.output;
+              } else if (consensusConfig) {
+                const candidates: string[] = [];
+                for (let candidateIndex = 0; candidateIndex < consensusConfig.runs; candidateIndex += 1) {
+                  candidates.push(await runOnce(workingDir, candidateIndex));
+                }
+                consensusSelection = selectConsensusOutput(candidates, consensusConfig, agent);
+                output = consensusSelection.output;
+              } else {
+                output = await runOnce(workingDir);
+              }
             } finally {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
               signal?.removeEventListener('abort', abortFromParent);
@@ -243,6 +281,7 @@ export async function executeDAG(
               output: normalizeTerminalText(output),
               duration,
               attempts,
+              ...(consensusSelection ? { consensus: consensusSelection.metadata } : {}),
             };
 
             if (security && shouldGateStep(agent) && result.output) {
@@ -539,6 +578,148 @@ function scheduleReadySteps(
   return [...remoteReady, localGpuReady[0]!];
 }
 
+interface ConsensusSelection {
+  output: string;
+  metadata: NonNullable<StepResult['consensus']>;
+}
+
+function resolveAgentConsensus(
+  agent: AgentDefinition,
+  config: AgentConsensusConfig | undefined,
+): AgentConsensusConfig | null {
+  if (!config?.enabled || config.runs <= 1) {
+    return null;
+  }
+  if (!config.outputTypes.includes(agent.output.type)) {
+    return null;
+  }
+  return config;
+}
+
+function resolveFileOutputConsensus(
+  agent: AgentDefinition,
+  config: AgentConsensusConfig | undefined,
+): AgentConsensusConfig['fileOutputs'] | null {
+  if (!config?.enabled || !config.fileOutputs?.enabled || config.fileOutputs.runs <= 1) {
+    return null;
+  }
+  if (agent.output.type !== 'files') {
+    return null;
+  }
+  return config.fileOutputs;
+}
+
+function selectConsensusOutput(
+  outputs: string[],
+  config: AgentConsensusConfig,
+  agent: AgentDefinition,
+): ConsensusSelection {
+  const normalized = outputs.map(normalizeConsensusText);
+  const exactCounts = new Map<string, { count: number; firstIndex: number }>();
+
+  normalized.forEach((output, index) => {
+    const existing = exactCounts.get(output);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    exactCounts.set(output, { count: 1, firstIndex: index });
+  });
+
+  const majority = [...exactCounts.values()]
+    .filter((entry) => entry.count > outputs.length / 2)
+    .sort((a, b) => b.count - a.count || a.firstIndex - b.firstIndex)[0];
+
+  if (majority) {
+    return {
+      output: outputs[majority.firstIndex]!,
+      metadata: {
+        enabled: true,
+        runs: config.runs,
+        candidateCount: outputs.length,
+        selectedRun: majority.firstIndex + 1,
+        agreement: majority.count / outputs.length,
+        method: 'exact-majority',
+        participants: outputs.map((_output, index) => ({
+          run: index + 1,
+          provider: agent.adapter,
+          model: agent.model,
+          status: normalized[index] === normalized[majority.firstIndex] ? 'contributed' : 'rejected',
+          contribution: normalized[index] === normalized[majority.firstIndex] ? 1 : 0,
+        })),
+      },
+    };
+  }
+
+  const tokenSets = normalized.map((text) => new Set(tokenizeConsensusText(text)));
+  let bestIndex = 0;
+  let bestAgreement = -1;
+
+  for (let index = 0; index < tokenSets.length; index += 1) {
+    const comparisons = tokenSets
+      .map((tokens, otherIndex) => otherIndex === index ? null : jaccard(tokenSets[index]!, tokens))
+      .filter((score): score is number => score !== null);
+    const agreement =
+      comparisons.length > 0
+        ? comparisons.reduce((sum, score) => sum + score, 0) / comparisons.length
+        : 1;
+    if (agreement > bestAgreement) {
+      bestAgreement = agreement;
+      bestIndex = index;
+    }
+  }
+
+  if (bestAgreement < config.minSimilarity) {
+    throw new Error(
+      `Agent consensus failed: best agreement ${bestAgreement.toFixed(2)} below minimum ${config.minSimilarity.toFixed(2)}`,
+    );
+  }
+
+  return {
+    output: outputs[bestIndex]!,
+    metadata: {
+      enabled: true,
+      runs: config.runs,
+      candidateCount: outputs.length,
+      selectedRun: bestIndex + 1,
+      agreement: Math.max(0, bestAgreement),
+      method: 'medoid-token-similarity',
+      participants: outputs.map((_output, index) => ({
+        run: index + 1,
+        provider: agent.adapter,
+        model: agent.model,
+        status: index === bestIndex ? 'selected' : 'valid',
+        contribution: jaccard(tokenSets[bestIndex]!, tokenSets[index]!),
+      })),
+    },
+  };
+}
+
+function normalizeConsensusText(text: string): string {
+  return normalizeTerminalText(text).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function tokenizeConsensusText(text: string): string[] {
+  return text
+    .split(/[^a-z0-9._/-]+/i)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function jaccard(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 && right.size === 0) {
+    return 1;
+  }
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      intersection += 1;
+    }
+  }
+  const union = new Set([...left, ...right]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
 interface RunStepWithToolsOptions {
   context: string;
   tools: ReturnType<typeof createToolRegistry>;
@@ -551,6 +732,8 @@ interface RunStepWithToolsOptions {
   stepController: AbortController;
   signal?: AbortSignal;
   resolvedThink?: boolean;
+  resolvedTemperature?: number;
+  resolvedSeed?: number;
   workingDir: string;
 }
 
@@ -570,6 +753,10 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
             ...(options.resolvedThink !== undefined
               ? { think: options.resolvedThink, hideThinking: !options.resolvedThink }
               : {}),
+            ...(options.resolvedTemperature !== undefined
+              ? { temperature: options.resolvedTemperature }
+              : {}),
+            ...(options.resolvedSeed !== undefined ? { seed: options.resolvedSeed } : {}),
           },
         )) {
           out += chunk;

@@ -1,10 +1,17 @@
 // tests/orchestrator/orchestrator.test.ts
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { executeDAG } from '../../src/orchestrator/orchestrator.js';
 import type { DAGPlan } from '../../src/types/dag.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 import type { AgentAdapter } from '../../src/types/adapter.js';
 import type { SecurityConfig } from '../../src/security/types.js';
+
+const execFileAsync = promisify(execFile);
 
 function mockAdapter(output: string): AgentAdapter {
   return {
@@ -133,6 +140,162 @@ describe('executeDAG', () => {
     });
 
     expect(capturedCwd).toBe('/tmp/generated');
+  });
+
+  it('runs non-file local agents multiple times and selects exact consensus', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const outputs = ['Use the stable API', 'Use the unstable API', 'Use the stable API'];
+    const createAdapter = vi.fn(() => mockAdapter(outputs.shift() ?? 'missing'));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      agentConsensus: {
+        enabled: true,
+        runs: 3,
+        outputTypes: ['answer'],
+        minSimilarity: 0.35,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(createAdapter).toHaveBeenCalledTimes(3);
+    expect(result.steps[0].output).toBe('Use the stable API');
+    expect(result.steps[0].consensus).toMatchObject({
+      enabled: true,
+      runs: 3,
+      candidateCount: 3,
+      selectedRun: 1,
+      agreement: 2 / 3,
+      method: 'exact-majority',
+      participants: [
+        { run: 1, status: 'contributed', contribution: 1 },
+        { run: 2, status: 'rejected', contribution: 0 },
+        { run: 3, status: 'contributed', contribution: 1 },
+      ],
+    });
+  });
+
+  it('does not repeat file-output agents during local agent consensus', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement X', dependsOn: [] }],
+    };
+    const agents = new Map([['implementation-coder', makeAgent('implementation-coder', 'files')]]);
+    const createAdapter = vi.fn(() => mockAdapter('Created files'));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      agentConsensus: {
+        enabled: true,
+        runs: 3,
+        outputTypes: ['answer', 'data', 'presentation'],
+        minSimilarity: 0.35,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(createAdapter).toHaveBeenCalledTimes(1);
+    expect(result.steps[0].output).toBe('Created files');
+    expect(result.steps[0].consensus).toBeUndefined();
+  });
+
+  it('runs file-output consensus in isolated git worktrees and applies the best verified patch', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-file-consensus-'));
+    await execFileAsync('git', ['init'], { cwd: workingDir });
+    await execFileAsync('git', ['config', 'user.email', 'map@example.test'], { cwd: workingDir });
+    await execFileAsync('git', ['config', 'user.name', 'MAP Test'], { cwd: workingDir });
+    await fs.writeFile(path.join(workingDir, '.gitignore'), '.map/\n', 'utf8');
+    await fs.writeFile(path.join(workingDir, 'result.txt'), 'initial\n', 'utf8');
+    await fs.writeFile(
+      path.join(workingDir, 'verify.mjs'),
+      "import { readFileSync } from 'node:fs';\nif (readFileSync('result.txt', 'utf8') !== 'good\\n') process.exit(1);\n",
+      'utf8',
+    );
+    await execFileAsync('git', ['add', '.'], { cwd: workingDir });
+    await execFileAsync('git', ['commit', '-m', 'baseline'], { cwd: workingDir });
+
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement X', dependsOn: [] }],
+    };
+    const agents = new Map([['implementation-coder', makeAgent('implementation-coder', 'files')]]);
+    const writes = ['bad\n', 'good\n', 'also-bad\n'];
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, options?: { cwd?: string }) {
+        const value = writes.shift() ?? 'missing\n';
+        await fs.writeFile(path.join(options?.cwd ?? workingDir, 'result.txt'), value, 'utf8');
+        yield `wrote ${value.trim()}`;
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      retryDelayMs: 0,
+      maxStepRetries: 0,
+      agentConsensus: {
+        enabled: true,
+        runs: 3,
+        outputTypes: ['answer', 'data', 'presentation'],
+        minSimilarity: 0.35,
+        fileOutputs: {
+          enabled: true,
+          runs: 3,
+          isolation: 'git-worktree',
+          keepWorktreesOnFailure: false,
+          verificationCommands: ['node verify.mjs'],
+          selection: 'best-passing-minimal-diff',
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(createAdapter).toHaveBeenCalledTimes(3);
+    await expect(fs.readFile(path.join(workingDir, 'result.txt'), 'utf8')).resolves.toBe('good\n');
+    expect(result.steps[0].output).toBe('wrote good');
+    expect(result.steps[0].consensus).toMatchObject({
+      enabled: true,
+      runs: 3,
+      candidateCount: 3,
+      selectedRun: 2,
+      method: 'worktree-best-passing-diff',
+      isolation: 'git-worktree',
+    });
+  });
+
+  it('passes deterministic adapter defaults to local model runs', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const researcher = makeAgent('researcher');
+    researcher.adapter = 'ollama';
+    researcher.model = 'gemma4:26b';
+    const agents = new Map([['researcher', researcher]]);
+    const runOptions: Array<Record<string, unknown> | undefined> = [];
+    const createAdapter = vi.fn(() => ({
+      type: 'ollama' as const,
+      model: 'gemma4:26b',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, options?: Record<string, unknown>) {
+        runOptions.push(options);
+        yield 'Deterministic output';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      adapterDefaults: { ollama: { think: false, temperature: 0, seed: 42 } },
+    });
+
+    expect(result.success).toBe(true);
+    expect(runOptions[0]).toMatchObject({
+      think: false,
+      hideThinking: true,
+      temperature: 0,
+      seed: 42,
+    });
   });
 
   it('executes parallel steps concurrently', async () => {
@@ -361,6 +524,23 @@ describe('executeDAG', () => {
       missingCriteria: ['User can export CSV reports'],
     });
     expect(result.steps[0].handoffPassed).toBe(true);
+  });
+
+
+  it('does not run grammar polishing after output-formatter terminal output', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'output-formatter', task: 'Format final XLS text', dependsOn: [] }],
+    };
+    const agents = new Map([
+      ['output-formatter', makeAgent('output-formatter', 'answer')],
+      ['grammar-spelling-specialist', makeAgent('grammar-spelling-specialist', 'answer')],
+    ]);
+    const createAdapter = vi.fn(() => mockAdapter('Entity,Usage Domain\nAlanine,biomarker'));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual(['step-1']);
   });
 
   it('passes dependency output as context', async () => {
