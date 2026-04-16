@@ -1,5 +1,6 @@
 import { exec, execFile, spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { FileOutputConsensusConfig } from '../types/config.js';
@@ -40,13 +41,9 @@ interface CandidateResult {
 export async function runFileConsensusInWorktrees(
   options: FileConsensusOptions,
 ): Promise<FileConsensusResult> {
-  const repoRoot = await gitOutput(options.workingDir, ['rev-parse', '--show-toplevel']);
-  const status = await gitOutput(repoRoot, ['status', '--porcelain']);
-  if (status.trim().length > 0) {
-    throw new Error('File-output consensus requires a clean git working tree before creating candidate worktrees');
-  }
-
-  const head = await gitOutput(repoRoot, ['rev-parse', 'HEAD']);
+  const prepared = await prepareConsensusRepository(options.workingDir);
+  const repoRoot = prepared.repoRoot;
+  const head = await gitOutput(prepared.repoRoot, ['rev-parse', 'HEAD']);
   const worktreeRoot = path.join(
     repoRoot,
     '.map',
@@ -57,6 +54,7 @@ export async function runFileConsensusInWorktrees(
   await fs.mkdir(worktreeRoot, { recursive: true });
 
   const candidates: CandidateResult[] = [];
+  let completedSuccessfully = false;
   try {
     for (let index = 0; index < options.config.runs; index += 1) {
       candidates.push(await runCandidateWorktree({
@@ -69,8 +67,9 @@ export async function runFileConsensusInWorktrees(
     }
 
     const selected = selectBestCandidate(candidates);
-    await applyPatch(repoRoot, selected.patch);
-    await runVerificationCommands(repoRoot, options.config.verificationCommands);
+    await applyPatch(prepared.applyDir, selected.patch);
+    await runVerificationCommands(prepared.applyDir, options.config.verificationCommands);
+    completedSuccessfully = true;
 
     return {
       output: selected.output ?? '',
@@ -101,13 +100,52 @@ export async function runFileConsensusInWorktrees(
       },
     };
   } finally {
-    if (!options.config.keepWorktreesOnFailure) {
+    if (completedSuccessfully || !options.config.keepWorktreesOnFailure) {
       await Promise.allSettled(
         candidates.map((candidate) => removeWorktree(repoRoot, candidate.worktreePath)),
       );
       await fs.rm(worktreeRoot, { recursive: true, force: true });
     }
+    if (prepared.cleanupRepoRoot && (completedSuccessfully || !options.config.keepWorktreesOnFailure)) {
+      await fs.rm(prepared.repoRoot, { recursive: true, force: true });
+    }
   }
+}
+
+async function prepareConsensusRepository(workingDir: string): Promise<{
+  repoRoot: string;
+  applyDir: string;
+  cleanupRepoRoot: boolean;
+}> {
+  const resolvedWorkingDir = path.resolve(workingDir);
+  const existingRepoRoot = await gitOutput(resolvedWorkingDir, ['rev-parse', '--show-toplevel']).catch(() => null);
+
+  if (existingRepoRoot && path.resolve(existingRepoRoot) === resolvedWorkingDir) {
+    const status = await gitOutput(existingRepoRoot, ['status', '--porcelain']);
+    if (status.trim().length > 0) {
+      throw new Error('File-output consensus requires a clean git working tree before creating candidate worktrees');
+    }
+    return { repoRoot: existingRepoRoot, applyDir: resolvedWorkingDir, cleanupRepoRoot: false };
+  }
+
+  const scratchRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'map-file-consensus-'));
+  const scratchRepo = path.join(scratchRoot, 'repo');
+  await fs.mkdir(scratchRepo, { recursive: true });
+  await fs.mkdir(resolvedWorkingDir, { recursive: true });
+  await fs.cp(resolvedWorkingDir, scratchRepo, {
+    recursive: true,
+    force: true,
+    filter: (source) => {
+      const base = path.basename(source);
+      return base !== '.git' && !(base === 'worktrees' && source.includes(`${path.sep}.map${path.sep}`));
+    },
+  });
+  await execFileAsync('git', ['init'], { cwd: scratchRepo });
+  await execFileAsync('git', ['config', 'user.email', 'map@example.test'], { cwd: scratchRepo });
+  await execFileAsync('git', ['config', 'user.name', 'MAP'], { cwd: scratchRepo });
+  await execFileAsync('git', ['add', '-A'], { cwd: scratchRepo });
+  await execFileAsync('git', ['commit', '--allow-empty', '-m', 'baseline'], { cwd: scratchRepo });
+  return { repoRoot: scratchRepo, applyDir: resolvedWorkingDir, cleanupRepoRoot: true };
 }
 
 async function runCandidateWorktree(

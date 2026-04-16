@@ -30,8 +30,8 @@ Consensus diagnostics are part of the reporting contract. Results should show ev
 
 When `agentConsensus.fileOutputs.enabled` is true for a `files` agent:
 
-1. Require the target working directory to be a clean git checkout.
-2. Create candidate worktrees under `.map/worktrees/consensus/<step>/`.
+1. Use the target working directory as the baseline. If it is exactly a git checkout root, require it to be clean. If it is an ignored output directory or non-git directory, create a temporary baseline git repository from its current contents.
+2. Create candidate worktrees under `.map/worktrees/consensus/<step>/` for repo roots or under the temporary baseline repo for output directories.
 3. Run the file-producing agent once per candidate worktree.
 4. Stage candidate changes inside each worktree and collect `git diff --cached --binary HEAD`.
 5. Run `agentConsensus.fileOutputs.verificationCommands` in each candidate.

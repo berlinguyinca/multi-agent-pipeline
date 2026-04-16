@@ -728,15 +728,15 @@ agentConsensus:
 
 Execution order for file-output consensus:
 
-1. MAP verifies the target working directory is a clean git checkout.
-2. MAP creates candidate worktrees under `.map/worktrees/consensus/<step>/`.
+1. MAP uses the target working directory as the baseline. If it is exactly a git checkout root, the checkout must be clean. If it is an ignored output directory or non-git directory, MAP creates a temporary baseline git repository from its current contents.
+2. MAP creates candidate worktrees under `.map/worktrees/consensus/<step>/` for real repo roots, or under a temporary baseline repository for output directories.
 3. Each candidate runs the same file-producing agent from the same `HEAD`, with stable seed offsets.
 4. Each candidate stages its own changes inside its worktree, captures a binary patch, and runs `verificationCommands`.
 5. MAP selects the verified candidate with the fewest changed files and smallest patch.
 6. MAP applies the selected patch back to the original checkout.
 7. MAP reruns the same verification commands in the original checkout before marking the step complete.
 
-Worktrees are kept on failure when `keepWorktreesOnFailure` is true so the rejected candidates can be inspected. They are removed after successful selection when that setting is false. File-output consensus intentionally requires a clean git checkout; this prevents candidates from accidentally omitting or overwriting uncommitted user changes.
+Worktrees are kept on failure when `keepWorktreesOnFailure` is true so the rejected candidates can be inspected. They are removed after successful selection. File-output consensus intentionally requires a clean checkout only when operating directly on a repository root; this prevents candidates from accidentally omitting or overwriting uncommitted user changes while still supporting ignored generated-output directories.
 
 Every consensus path reports diagnostics in the result graph/report. Reports include the participating provider/model per run, whether that run contributed, was selected, was merely valid, was rejected, or failed, and a contribution percentage. Router consensus contribution means the candidate supplied selected DAG steps. Agent-output consensus contribution means the candidate matched or was closest to the selected final output. File-output consensus contribution identifies the patch that passed verification and was applied.
 
