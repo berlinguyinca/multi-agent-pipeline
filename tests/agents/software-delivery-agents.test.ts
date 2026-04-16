@@ -17,6 +17,7 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'tdd-engineer',
   'implementation-coder',
   'code-qa-analyst',
+  'grammar-spelling-specialist',
   'github-review-merge-specialist',
   'bug-debugger',
   'build-fixer',
@@ -80,6 +81,29 @@ describe('software delivery agent bundle', () => {
     }
   });
 
+  it('loads every first-party agent with professional no-emoji conduct rules', async () => {
+    const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, entry.name));
+
+      expect(agent.prompt, `${entry.name} is missing no-emoji guidance`).toContain(
+        'Do not use emoji, pictographs, decorative symbols, or playful reaction markers.',
+      );
+      expect(agent.prompt, `${entry.name} is missing professional conduct guidance`).toContain(
+        'Use a professional engineering tone: direct, factual, and free of cheerleading.',
+      );
+      expect(agent.prompt, `${entry.name} is missing human-readable output guidance`).toContain(
+        'Generate code and text output in a human-readable form.',
+      );
+      expect(agent.prompt, `${entry.name} is missing binary/media exception guidance`).toContain(
+        'Exceptions are allowed only for explicitly requested binary or media artifacts',
+      );
+    }
+  });
+
   it('exposes the new agents to the router prompt', async () => {
     const agents = await loadAgentRegistry(AGENTS_DIR);
     const prompt = buildRouterPrompt(agents, 'Build a feature with TDD and QA review');
@@ -91,6 +115,7 @@ describe('software delivery agent bundle', () => {
     expect(prompt).toContain('github-review-merge-specialist');
     expect(prompt).toContain('test-driven development');
     expect(prompt).toContain('release-readiness-reviewer');
+    expect(prompt).toContain('grammar-spelling-specialist');
     expect(prompt).toContain('stabilization-reviewer');
     expect(prompt).toContain('Mission:');
     expect(prompt).toContain('Capabilities:');

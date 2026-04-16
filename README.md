@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is pretty-printed JSON on stdout, and progress (when `--verbose` is set) goes to stderr. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown` or `--output-format yaml` when those are easier for people or downstream tools to read. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -320,6 +320,13 @@ map --headless --classic "Research the best approach, plan the work, and review 
 
 # Write output to a specific directory
 map --headless --output-dir ./output/pantry "Investigate a specific question"
+
+# Print the final MAP result as readable Markdown or YAML
+map --headless --output-format markdown "Investigate a specific question"
+map --headless --output-format yaml "Investigate a specific question"
+
+# Print only the utilized agent graph and the final output
+map --headless --compact "Investigate a specific question"
 
 # Inject a personality or tone into all AI prompts
 map --headless \
@@ -445,6 +452,24 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; when a step times out, MAP retries it and doubles the next step timeout budget by default.
+
+
+### Compact Output
+
+Use `--compact` when you only want the utilized agent path and the final answer. Compact output suppresses the full JSON/YAML payload and prints two human-readable sections:
+
+```markdown
+## Agent Graph
+
+- step-1 [researcher] -> step-1-grammar-1 [grammar-spelling-specialist]
+- step-1-grammar-1 [grammar-spelling-specialist] -> step-2 [writer]
+
+## Final Result
+
+<final output from the last completed agent>
+```
+
+The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, and automatic grammar/spelling polishing steps.
 
 ### Verbose Progress
 
@@ -760,6 +785,13 @@ spec-writer
 
 If the spec is not clearly reviewed and QA-approved, `adviser` should route back to spec QA instead of recommending execution.
 
+
+### Automatic Text Polishing
+
+Whenever a DAG step produces human-facing text (`answer` or `presentation` output), MAP automatically schedules `grammar-spelling-specialist` immediately after that step when the agent is available. Pending downstream steps are rewired to depend on the polished output, so later agents consume corrected prose instead of raw model text.
+
+This post-processing does not run for code/file outputs, machine-readable JSON, adviser workflow JSON, or the grammar specialist itself. Its job is limited to grammar, spelling, punctuation, readability, and visible terminal-artifact cleanup without changing technical meaning.
+
 ## Built-In Agents
 
 MAP ships with a software-delivery bundle. These agents default to `adapter: ollama` and `model: gemma4:26b`:
@@ -773,6 +805,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
@@ -911,11 +944,13 @@ Options:
   --version, -v          Show version
   --config <path>        Path to pipeline.yaml config
   --resume [id]          Resume a saved pipeline
-  --headless             Run without TUI, print pretty JSON result to stdout
+  --headless             Run without TUI, print result to stdout
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
   --v2                   Deprecated compatibility flag; smart routing is the default
   --output-dir <path>    Output directory for generated projects
+  --output-format <fmt>  Print result as json, yaml, or markdown
+  --compact              Print only agent graph and Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m

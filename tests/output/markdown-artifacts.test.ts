@@ -113,6 +113,42 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('/tmp/raw.log');
   });
 
+
+  it('removes terminal cursor rewrite escapes from step and final report markdown', async () => {
+    const outputRoot = await makeTempDir();
+    const noisy = [
+      String.raw`The primary mission of the Researcher Agent is to generate accurate, eviden\e[6D\e[Kevidence-based conclusions.`,
+      'The mandate extends beyond simple information summarization; the agent is d\u001b[1D\u001b[Kdesigned to synthesize.',
+    ].join('\n');
+
+    const stepFile = await saveStepMarkdown({
+      outputRoot,
+      pipelineId: 'pipe-escapes',
+      order: 1,
+      stepId: 'research',
+      agent: 'researcher',
+      task: 'Research',
+      status: 'completed',
+      content: noisy,
+    });
+    const finalFile = await saveFinalReportMarkdown({
+      outputRoot,
+      pipelineId: 'pipe-escapes',
+      title: 'Generated Report',
+      executionGraph: [],
+      content: noisy,
+    });
+
+    const stepSaved = await fs.readFile(stepFile, 'utf8');
+    const finalSaved = await fs.readFile(finalFile, 'utf8');
+    expect(stepSaved).not.toContain(String.raw`\e[`);
+    expect(finalSaved).not.toContain(String.raw`\e[`);
+    expect(stepSaved).toContain('evidence-based conclusions');
+    expect(finalSaved).toContain('evidence-based conclusions');
+    expect(stepSaved).toContain('designed to synthesize');
+    expect(finalSaved).toContain('designed to synthesize');
+  });
+
   it('generates an agent summary markdown report', async () => {
     const outputRoot = await makeTempDir();
 
@@ -149,9 +185,9 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('# Pipeline Execution Summary');
     expect(saved).toContain('**Pipeline ID:** pipe-4');
     expect(saved).toContain('### researcher');
-    expect(saved).toContain('**Status:** ✅ fully successful');
+    expect(saved).toContain('**Status:** fully successful');
     expect(saved).toContain('### writer');
-    expect(saved).toContain('**Status:** ⚠️ had failures');
+    expect(saved).toContain('**Status:** had failures');
     expect(saved).toContain('Model response was empty');
   });
 

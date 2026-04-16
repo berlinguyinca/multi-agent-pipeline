@@ -57,6 +57,47 @@ describe('executeDAG', () => {
     expect(result.steps[0].outputType).toBe('answer');
   });
 
+
+  it('normalizes terminal cursor rewrite escapes in step output before returning results', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const createAdapter = vi.fn(() => mockAdapter([
+      String.raw`Emerging Technology Research: Investigating fields (e.g., \e[K`,
+      String.raw`up-t\e[4D\e[Kup-to-date web and knowledge searches.`,
+    ].join('\n')));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+
+    expect(result.steps[0].output).not.toContain(String.raw`\e[`);
+    expect(result.steps[0].output).toContain('Emerging Technology Research: Investigating fields (e.g.,');
+    expect(result.steps[0].output).toContain('up-to-date web and knowledge searches.');
+  });
+
+
+  it('reports completed step output to verbose reporter for live inspection', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const createAdapter = vi.fn(() => mockAdapter('Research result details'));
+    const reporter = {
+      dagStepStart: vi.fn(),
+      dagStepComplete: vi.fn(),
+      onChunk: vi.fn(),
+      dagStepOutput: vi.fn(),
+    };
+
+    await executeDAG(plan, agents, createAdapter, reporter as never);
+
+    expect(reporter.dagStepOutput).toHaveBeenCalledWith(
+      'step-1',
+      'researcher',
+      'Research result details',
+    );
+  });
+
   it('streams raw step chunks to the optional callback', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
@@ -185,6 +226,84 @@ describe('executeDAG', () => {
     expect(peak).toBeGreaterThan(1);
   });
 
+
+  it('automatically runs grammar and spelling specialist after text output and rewires downstream context', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use polished research', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['researcher', makeAgent('researcher', 'answer')],
+      ['grammar-spelling-specialist', makeAgent('grammar-spelling-specialist', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: string[] = [];
+    let writerPrompt = '';
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Polish grammar, spelling, punctuation')) {
+          calls.push('grammar-spelling-specialist');
+          yield prompt.includes('Used polished research')
+            ? 'Used polished research.'
+            : 'This research has spelling mistakes.';
+          return;
+        }
+        if (prompt.includes('Research X')) {
+          calls.push('researcher');
+          yield 'Ths research has speling mistakes.';
+          return;
+        }
+        if (prompt.includes('Use polished research')) {
+          calls.push('writer');
+          writerPrompt = prompt;
+          yield 'Used polished research';
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual([
+      'researcher',
+      'grammar-spelling-specialist',
+      'writer',
+      'grammar-spelling-specialist',
+    ]);
+    expect(result.steps.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-grammar-1',
+      'step-2',
+      'step-2-grammar-1',
+    ]);
+    expect(result.steps.find((step) => step.id === 'step-1-grammar-1')?.output).toBe(
+      'This research has spelling mistakes.',
+    );
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1-grammar-1',
+    ]);
+    expect(writerPrompt).toContain('[step-1-grammar-1: grammar-spelling-specialist]');
+    expect(writerPrompt).toContain('This research has spelling mistakes.');
+    expect(writerPrompt).not.toContain('Ths research has speling mistakes.');
+  });
+
   it('passes dependency output as context', async () => {
     const plan: DAGPlan = {
       plan: [
@@ -305,7 +424,45 @@ describe('executeDAG', () => {
     expect(failed).toHaveLength(1);
   });
 
-  it('fails gated file output when the security gate finds issues', async () => {
+  it('reruns gated file output with security findings until it is fixed', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'coder', task: 'Build X', dependsOn: [] }],
+    };
+    const agents = new Map([['coder', makeAgent('coder', 'files')]]);
+    const prompts: string[] = [];
+    let callCount = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        callCount += 1;
+        yield callCount === 1 ? 'eval(userInput);' : 'const value = Number(userInput);';
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      { config: securityConfig },
+      undefined,
+      undefined,
+      { retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0].status).toBe('completed');
+    expect(result.steps[0].securityPassed).toBe(true);
+    expect(result.steps[0].attempts).toBe(2);
+    expect(prompts[1]).toContain('Security remediation required before this step can be accepted.');
+    expect(prompts[1]).toContain('eval-injection');
+  });
+
+  it('fails gated file output when the remediation budget is exhausted', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'coder', task: 'Build X', dependsOn: [] }],
     };
@@ -317,7 +474,7 @@ describe('executeDAG', () => {
       agents,
       createAdapter,
       undefined,
-      { config: securityConfig },
+      { config: { ...securityConfig, maxRemediationRetries: 0 } },
     );
 
     expect(result.success).toBe(false);
@@ -631,6 +788,9 @@ describe('executeDAG', () => {
       createAdapter,
       undefined,
       { config: securityConfig },
+      undefined,
+      undefined,
+      { retryDelayMs: 0 },
     );
 
     expect(result.success).toBe(false);

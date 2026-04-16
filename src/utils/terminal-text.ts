@@ -1,14 +1,6 @@
-const ANSI_ESCAPE_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const ANSI_SINGLE_CHAR_PATTERN = /\u001b[@-Z\\-_]/g;
 
 export function normalizeTerminalText(text: string): string {
-  const withoutAnsi = text
-    .replace(ANSI_ESCAPE_PATTERN, '')
-    .replace(ANSI_SINGLE_CHAR_PATTERN, '')
-    .replace(/\u0007/g, '')
-    .replace(/\u0008/g, '\b')
-    .replace(/\u007f/g, '\b');
-
   let result = '';
   let line: string[] = [];
   let cursor = 0;
@@ -31,10 +23,86 @@ export function normalizeTerminalText(text: string): string {
     cursor += 1;
   }
 
-  for (let index = 0; index < withoutAnsi.length; index += 1) {
-    const char = withoutAnsi[index];
+  function eraseLine(mode: number): void {
+    if (mode === 1) {
+      line.splice(0, cursor);
+      cursor = 0;
+      return;
+    }
+    if (mode === 2) {
+      line = [];
+      cursor = 0;
+      return;
+    }
+    line.splice(cursor);
+  }
 
-    if (char === '\b') {
+  function parseCsi(start: number): number | null {
+    const markerLength = text[start] === '\u001b' ? 2 : 3;
+    let end = start + markerLength;
+    while (end < text.length && !/[A-Za-z~]/.test(text[end]!)) {
+      end += 1;
+    }
+    if (end >= text.length) return null;
+
+    const final = text[end]!;
+    const params = text.slice(start + markerLength, end);
+    const firstParam = Number.parseInt(params.split(';')[0] || '0', 10);
+    const amount = Number.isFinite(firstParam) && firstParam > 0 ? firstParam : 1;
+
+    switch (final) {
+      case 'C':
+        cursor += amount;
+        break;
+      case 'D':
+        cursor = Math.max(0, cursor - amount);
+        break;
+      case 'G':
+        cursor = Math.max(0, amount - 1);
+        break;
+      case 'K':
+        eraseLine(Number.isFinite(firstParam) ? firstParam : 0);
+        break;
+      default:
+        break;
+    }
+
+    return end;
+  }
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+
+    if (char === '\u001b' && text[index + 1] === '[') {
+      const end = parseCsi(index);
+      if (end !== null) {
+        index = end;
+        continue;
+      }
+    }
+
+    if (char === '\\' && text[index + 1] === 'e' && text[index + 2] === '[') {
+      const end = parseCsi(index);
+      if (end !== null) {
+        index = end;
+        continue;
+      }
+    }
+
+    if (char === '\u001b') {
+      const single = text.slice(index, index + 2);
+      if (ANSI_SINGLE_CHAR_PATTERN.test(single)) {
+        ANSI_SINGLE_CHAR_PATTERN.lastIndex = 0;
+        index += 1;
+        continue;
+      }
+      ANSI_SINGLE_CHAR_PATTERN.lastIndex = 0;
+      continue;
+    }
+
+    if (char === '\u0007') continue;
+
+    if (char === '\u0008' || char === '\u007f') {
       if (cursor > 0) {
         cursor -= 1;
         line.splice(cursor, 1);
@@ -66,7 +134,6 @@ export function normalizeTerminalText(text: string): string {
 
   return result + line.join('');
 }
-
 export function truncateText(text: string, maxWidth: number): string {
   if (maxWidth <= 0) return '';
   if (text.length <= maxWidth) return text;

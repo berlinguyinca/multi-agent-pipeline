@@ -63,6 +63,17 @@ describe('cli argument parsing', () => {
     expect(extractPrompt(args)).toBe('');
   });
 
+  it('excludes --output-format value from the prompt', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--output-format',
+      'markdown',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
   it('does not treat --classic as prompt text', () => {
     const prompt = extractPrompt([
       '--headless',
@@ -72,4 +83,15 @@ describe('cli argument parsing', () => {
 
     expect(prompt).toBe('Build a tiny pantry CLI');
   });
+
+  it('does not treat --compact as prompt text', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--compact',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
 });

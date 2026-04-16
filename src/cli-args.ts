@@ -21,6 +21,7 @@ const flagsWithValues = new Set([
   '--spec-file',
   '--personality',
   '--review-pr',
+  '--output-format',
 ]);
 
 const booleanFlags = new Set([
@@ -29,6 +30,7 @@ const booleanFlags = new Set([
   '--classic',
   '--verbose',
   '-V',
+  '--compact',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {

@@ -41,6 +41,7 @@ ${cleanTask}
 10. For knowledge-heavy tasks, prefer a knowledge-aware plan that can use the shared 2nd brain and knowledge hygiene when stale or external knowledge matters.
 11. For high-stakes judgment-heavy tasks, you may plan multiple candidate-producing steps followed by a result-judge step that selects the best outcome.
 12. Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents. The adviser recommends the launch order, parallelization, custom agents to create, and whether the agent list must be refreshed. Adviser may replace pending downstream steps at runtime by returning adviser-workflow JSON.
+13. Do not explicitly add grammar-spelling-specialist steps for ordinary text polishing; the orchestrator automatically schedules that specialist after human-facing text outputs.
 
 ## Output Format
 

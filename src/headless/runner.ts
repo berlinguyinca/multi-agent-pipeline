@@ -1196,7 +1196,7 @@ export async function runHeadlessV2(
         outputRoot: outputDir,
         pipelineId,
         title: finalStep ? `Generated Report - ${finalStep.id} [${finalStep.agent}]` : 'Generated Report',
-        executionGraph: plan.plan.map((step) => {
+        executionGraph: dagResult.plan.plan.map((step) => {
           const result = dagResult.steps.find((candidate) => candidate.id === step.id);
           return {
             id: step.id,
@@ -1225,7 +1225,7 @@ export async function runHeadlessV2(
       );
     }
     reporter.dagComplete(dagResult.success, duration);
-    return await finish(buildHeadlessResultV2(plan, dagResult.steps, duration, undefined, {
+    return await finish(buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
       outputDir,
       markdownFiles,
     }));

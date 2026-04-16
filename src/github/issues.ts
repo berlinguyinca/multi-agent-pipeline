@@ -163,12 +163,11 @@ export function buildGitHubReport(
   context: GitHubIssueContext,
 ): string {
   const status = result.success ? 'Passed' : 'Failed';
-  const statusIcon = result.success ? '✅' : '❌';
   const qaLines = (result.qaAssessments ?? []).map(
     (assessment, index) =>
       `- ${assessment.target === 'spec' ? 'Spec QA' : 'Code QA'} iteration ${index + 1}: ${
         assessment.passed ? 'pass' : 'fail'
-      }${assessment.summary ? ` — ${assessment.summary}` : ''}`,
+      }${assessment.summary ? ` - ${assessment.summary}` : ''}`,
   );
   const requiredChanges = (result.qaAssessments ?? [])
     .flatMap((assessment) => assessment.requiredChanges)
@@ -176,7 +175,7 @@ export function buildGitHubReport(
 
   return `## MAP Pipeline Report
 
-Status: ${statusIcon} ${status}
+Status: ${status}
 Issue: ${context.url}
 Output: ${result.outputDir || '(none)'}
 Duration: ${(result.duration / 1000).toFixed(1)}s
@@ -219,7 +218,6 @@ export function buildGitHubReportV2(
   context: GitHubIssueContext,
 ): string {
   const status = result.success ? 'Passed' : 'Failed';
-  const statusIcon = result.success ? '✅' : '❌';
   const completedSteps = result.steps.filter((step) => step.status === 'completed');
   const failedSteps = result.steps.filter((step) => step.status === 'failed');
   const skippedSteps = result.steps.filter((step) => step.status === 'skipped');
@@ -227,12 +225,12 @@ export function buildGitHubReportV2(
 
   const stepLines = result.steps.map((step) => {
     const detail = step.error ?? step.reason ?? step.output?.slice(0, 160);
-    return `- ${step.id} [${step.agent}]: ${step.status}${detail ? ` — ${detail}` : ''}`;
+    return `- ${step.id} [${step.agent}]: ${step.status}${detail ? ` - ${detail}` : ''}`;
   });
 
   return `## MAP Smart Routing Report
 
-Status: ${statusIcon} ${status}
+Status: ${status}
 Issue: ${context.url}
 Output: ${result.outputDir || '(none)'}
 Duration: ${(result.duration / 1000).toFixed(1)}s

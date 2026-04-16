@@ -2,6 +2,7 @@ import { parse as parseYaml } from 'yaml';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createAdapter } from '../adapters/adapter-factory.js';
+import { AGENT_CONDUCT_PROMPT } from '../utils/agent-conduct.js';
 
 export interface AgentCreationPreferences {
   name?: string;
@@ -29,7 +30,9 @@ Generate two files:
 
 1. An agent.yaml configuration file with fields: name, description, adapter (claude/codex/ollama/hermes), model (optional), prompt: prompt.md, pipeline (list of stage names), handles (comma-separated capabilities), output type (answer/data/files), tools (array, use [] if none).
 
-2. A prompt.md file with a rich system prompt in markdown.
+2. A prompt.md file with a rich system prompt in markdown. The prompt must include this conduct section exactly:
+
+${AGENT_CONDUCT_PROMPT}
 
 Output the two files separated by markers:
 

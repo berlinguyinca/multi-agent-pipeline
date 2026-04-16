@@ -117,6 +117,62 @@ describe('runCli', () => {
     expect(stdoutSpy).toHaveBeenCalledWith('{\n  "version": 2,\n  "success": true\n}\n');
   });
 
+  it('prints headless smart routing output as Markdown when requested', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'markdown', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('# MAP Result\n'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('- Version: 2\n'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('- Success: true\n'));
+  });
+
+  it('prints headless smart routing output as YAML when requested', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'yaml', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('version: 2\n'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('success: true\n'));
+  });
+
+
+  it('prints compact headless output with graph and final result only', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'researcher', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'writer', status: 'completed', duration: 1 },
+        ],
+        edges: [{ from: 'step-1', to: 'step-2', type: 'planned' }],
+      },
+      steps: [
+        { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Raw research' },
+        { id: 'step-2', agent: 'writer', task: 'Write', status: 'completed', output: 'Final answer' },
+      ],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--compact', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
+    expect(output).toContain('# MAP Compact Result');
+    expect(output).toContain('## Agent Graph');
+    expect(output).toContain('step-1 [researcher] -> step-2 [writer]');
+    expect(output).toContain('## Final Result');
+    expect(output).toContain('Final answer');
+    expect(output).not.toContain('## Result Data');
+    expect(output).not.toContain('Raw research');
+  });
+
   it('runs headless classic mode when --classic is provided', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -142,6 +198,17 @@ describe('runCli', () => {
     expect(stdoutSpy).toHaveBeenCalledWith('{\n  "version": 1,\n  "success": true\n}\n');
   });
 
+  it('prints classic headless output using the requested format', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--classic', '--output-format', 'markdown', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('# MAP Result\n'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('- Version: 1\n'));
+  });
+
   it('pretty-prints PR review JSON to stdout', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -150,6 +217,31 @@ describe('runCli', () => {
     ).rejects.toThrow('process.exit:0');
 
     expect(stdoutSpy).toHaveBeenCalledWith('{\n  "success": true,\n  "verdict": "comment"\n}\n');
+  });
+
+  it('prints PR review output using the requested format', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--review-pr', 'https://github.com/owner/repo/pull/1', '--output-format', 'markdown']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('# MAP Result\n'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('- Success: true\n'));
+  });
+
+  it('rejects unsupported output formats', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      runCli(['--headless', '--output-format', 'xml', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:1');
+
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('--output-format must be one of'));
+    expect(runHeadlessMock).not.toHaveBeenCalled();
+    expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
   });
 
   it('rejects conflicting --classic and --v2 flags', async () => {

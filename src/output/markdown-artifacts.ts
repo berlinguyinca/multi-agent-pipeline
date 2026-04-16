@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { StepResult } from '../types/dag.js';
+import { normalizeTerminalText } from '../utils/terminal-text.js';
 
 export interface ExecutionGraphEntry {
   id: string;
@@ -60,7 +61,8 @@ function formatDuration(ms?: number): string {
 
 async function writeMarkdown(filePath: string, content: string): Promise<string> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${content.trimEnd()}\n`, 'utf8');
+  const normalized = normalizeTerminalText(content);
+  await fs.writeFile(filePath, `${normalized.trimEnd()}\n`, 'utf8');
   return filePath;
 }
 
@@ -245,7 +247,7 @@ export async function generateAgentSummary(options: GenerateAgentSummaryOptions)
     '',
     `**Duration:** ${duration}`,
     `**Pipeline ID:** ${options.pipelineId}`,
-    `**Status:** ${options.success ? '✅ Completed' : '❌ Failed'}`,
+    `**Status:** ${options.success ? 'Completed' : 'Failed'}`,
     '',
     '## Overall Statistics',
     '',
@@ -263,8 +265,8 @@ export async function generateAgentSummary(options: GenerateAgentSummaryOptions)
     const status = data.steps.length === 0 
       ? '_not used_'
       : failedSteps > 0 
-        ? '⚠️ had failures'
-        : '✅ fully successful';
+        ? 'had failures'
+        : 'fully successful';
     
     const stepHistory = data.steps
       .map((step, idx) => {

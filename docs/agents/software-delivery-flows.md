@@ -15,6 +15,7 @@ All software-delivery agents added in PR #1 use `adapter: ollama` and `model: ge
 | `tdd-engineer` | `files` | Create test-first plans and failing tests. |
 | `implementation-coder` | `files` | Implement minimal code changes that satisfy tests. |
 | `code-qa-analyst` | `answer` | Review code against specs, tests, and maintainability expectations. |
+| `grammar-spelling-specialist` | `answer` | Automatically polish generated prose for grammar, spelling, punctuation, readability, and terminal-artifact cleanup. |
 | `github-review-merge-specialist` | `answer` | Review GitHub pull requests and merge them when checks and findings are clean. |
 | `bug-debugger` | `answer` | Reproduce defects and isolate root cause. |
 | `build-fixer` | `files` | Fix build, typecheck, lint, and toolchain failures. |
@@ -28,6 +29,7 @@ All software-delivery agents added in PR #1 use `adapter: ollama` and `model: ge
 The router sees each agent's `description`, `handles`, and output type. Keep step tasks specific and dependency edges explicit:
 
 - Use `answer` agents for analysis, review, and decision points.
+- Human-facing text outputs (`answer` or `presentation`) automatically route through `grammar-spelling-specialist` before downstream agents consume them; code/file outputs and machine-readable JSON are left untouched.
 - For coding workflows with a reviewed and QA-approved spec, route through `adviser` before execution agents so launch order, parallel work, custom agents, and registry refresh needs are explicit. If `adviser` returns `kind: "adviser-workflow"` JSON, MAP refreshes the agent registry when requested and replaces pending downstream DAG steps with the advised workflow.
 - Use `files` agents when the step is expected to create or modify files.
 - Put QA/review agents after implementation or docs steps when their output should gate downstream work.

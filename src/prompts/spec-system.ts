@@ -1,4 +1,5 @@
 import type { FeedbackLoop } from '../types/spec.js';
+import { withAgentConduct } from '../utils/agent-conduct.js';
 
 export function buildSpecPrompt(userPrompt: string, feedback?: FeedbackLoop): string {
   const base = `You are a software specification writer. Your task is to create a clear, detailed specification from a user's idea.
@@ -24,14 +25,14 @@ User's request:
 ${userPrompt}`;
 
   if (feedback) {
-    return `${base}
+    return withAgentConduct(`${base}
 
 IMPORTANT: This is iteration ${feedback.iteration + 1} of the specification. The previous version had issues. Here is the user's feedback to incorporate:
 
 ${feedback.feedbackText}
 
-Rewrite the entire specification from scratch, incorporating this feedback. Do not reference the previous version — produce a complete, standalone specification.`;
+Rewrite the entire specification from scratch, incorporating this feedback. Do not reference the previous version. Produce a complete, standalone specification.`);
   }
 
-  return base;
+  return withAgentConduct(base);
 }
