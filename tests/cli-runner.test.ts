@@ -141,10 +141,31 @@ describe('runCli', () => {
   });
 
 
-  it('prints compact headless output with graph and final result only', async () => {
+
+  it('prints html headless output when requested', async () => {
     runHeadlessV2Mock.mockResolvedValueOnce({
       version: 2,
       success: true,
+      outcome: 'success',
+      dag: { nodes: [], edges: [] },
+      steps: [{ id: 'step-1', agent: 'writer', task: 'Write', status: 'completed', output: 'Final answer' }],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'html', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
+    expect(output).toContain('<!doctype html>');
+    expect(output).toContain('<h2>Final Result</h2>');
+  });
+
+  it('prints compact json when --compact is combined with default output format', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outcome: 'success',
       dag: {
         nodes: [
           { id: 'step-1', agent: 'researcher', status: 'completed', duration: 1 },
@@ -163,14 +184,13 @@ describe('runCli', () => {
       runCli(['--headless', '--compact', 'Build a tested Node CLI with docs and error handling']),
     ).rejects.toThrow('process.exit:0');
 
-    const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
-    expect(output).toContain('# MAP Compact Result');
-    expect(output).toContain('## Agent Graph');
-    expect(output).toContain('step-1 [researcher] -> step-2 [writer]');
-    expect(output).toContain('## Final Result');
-    expect(output).toContain('Final answer');
-    expect(output).not.toContain('## Result Data');
-    expect(output).not.toContain('Raw research');
+    const parsed = JSON.parse(String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+    expect(parsed).toEqual({
+      success: true,
+      outcome: 'success',
+      agentGraph: ['step-1 [researcher] -> step-2 [writer]'],
+      finalResult: 'Final answer',
+    });
   });
 
   it('runs headless classic mode when --classic is provided', async () => {

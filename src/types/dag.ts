@@ -19,6 +19,21 @@ export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipp
 export type StepTerminalOutcome = 'success' | 'blocked' | 'failed' | 'cancelled';
 export type DAGEdgeType = 'planned' | 'handoff' | 'recovery' | 'spawned';
 
+
+export interface HandoffFinding {
+  severity: 'high' | 'medium' | 'low';
+  message: string;
+  sourceStepId: string;
+  targetStepId?: string;
+}
+
+export interface SpecConformance {
+  checked: boolean;
+  passed: boolean;
+  missingCriteria: string[];
+  notes: string[];
+}
+
 export interface StepResult {
   id: string;
   agent: string;
@@ -43,7 +58,11 @@ export interface StepResult {
   failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'unknown';
   blockerKind?: 'credentials' | 'external-service' | 'user-decision' | 'repo-state' | 'no-progress' | 'unknown';
   replacementStepId?: string;
+  handoffPassed?: boolean;
+  handoffFindings?: HandoffFinding[];
+  specConformance?: SpecConformance;
 }
+
 
 export interface DAGNode {
   id: string;

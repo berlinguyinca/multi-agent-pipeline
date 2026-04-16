@@ -1172,6 +1172,9 @@ export async function runHeadlessV2(
         enabled: true,
         refreshAgents: () => loadEnabledAgentRegistry(agentsDir, config),
       },
+      handoffValidation: {
+        reviewedSpecContent: options.initialSpec,
+      },
     });
 
     const duration = Date.now() - startTime;

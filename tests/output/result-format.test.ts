@@ -17,7 +17,7 @@ describe('result formatting', () => {
       ],
     },
     steps: [
-      { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Raw research' },
+      { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Raw research', handoffPassed: true, specConformance: { checked: false, passed: true, missingCriteria: [], notes: [] } },
       { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish', status: 'completed', output: 'Polished research' },
       { id: 'step-2', agent: 'writer', task: 'Write', status: 'completed', output: 'Final polished answer' },
     ],
@@ -30,6 +30,7 @@ describe('result formatting', () => {
     expect(output).toContain('step-1 [researcher] -> step-1-grammar-1 [grammar-spelling-specialist]');
     expect(output).toContain('## Final Result');
     expect(output).toContain('Final polished answer');
+    expect(output).toContain('| step-1 | researcher | completed | pass | not checked | Research |');
   });
 
   it('prints compact output with only simplified graph and final result', () => {

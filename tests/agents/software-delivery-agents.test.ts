@@ -18,6 +18,9 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'implementation-coder',
   'code-qa-analyst',
   'grammar-spelling-specialist',
+  'output-formatter',
+  'usage-classification-tree',
+  'classyfire-taxonomy-classifier',
   'github-review-merge-specialist',
   'bug-debugger',
   'build-fixer',
@@ -105,6 +108,27 @@ describe('software delivery agent bundle', () => {
   });
 
 
+
+  it('instructs researcher to use plain-text chemistry formulas unless LaTeX is requested', async () => {
+    const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'researcher'));
+
+    expect(agent.prompt).toContain('Use plain-text chemical formulas by default');
+    expect(agent.prompt).toContain('Never write chemical formulas using LaTeX');
+  });
+
+
+  it('loads classification agents with source-specific guardrails', async () => {
+    const classyfire = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'classyfire-taxonomy-classifier'));
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(classyfire.prompt).toContain('Never call, depend on, or suggest using the ClassyFire API');
+    expect(classyfire.prompt).toContain('ClassyFire / ChemOnt');
+    expect(classyfire.prompt).toContain('chemical ontology classification, not biological taxonomy');
+    expect(usage.prompt).toContain('what the entity is used for, not what its chemical taxonomy is');
+    expect(usage.prompt).toContain('Six levels is the maximum');
+    expect(usage.prompt).toContain('Do not output ClassyFire/ChemOnt hierarchy here');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 
@@ -126,6 +150,9 @@ describe('software delivery agent bundle', () => {
     expect(prompt).toContain('test-driven development');
     expect(prompt).toContain('release-readiness-reviewer');
     expect(prompt).toContain('grammar-spelling-specialist');
+    expect(prompt).toContain('output-formatter');
+    expect(prompt).toContain('classyfire-taxonomy-classifier');
+    expect(prompt).toContain('usage-classification-tree');
     expect(prompt).toContain('stabilization-reviewer');
     expect(prompt).toContain('Mission:');
     expect(prompt).toContain('Capabilities:');

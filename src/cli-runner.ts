@@ -8,7 +8,7 @@ import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
 import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
-import { formatCompactMapOutput, formatMapOutput, parseMapOutputFormat, type MapOutputFormat } from './output/result-format.js';
+import { formatMapOutput, parseMapOutputFormat, type MapOutputFormat } from './output/result-format.js';
 
 export async function runCli(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -37,8 +37,8 @@ Options:
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
   --output-dir <path>    Output directory for generated files and Markdown artifacts
-  --output-format <fmt>  Print final result as json, yaml, or markdown (default: json)
-  --compact              Print only a simplified agent graph and Final Result section
+  --output-format <fmt>  Print final result as json, yaml, markdown, html, or text (default: json)
+  --compact              Reduce the selected output format to graph plus Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -333,5 +333,5 @@ function buildV2SpecFilePrompt(
 }
 
 function writeFormattedResult(result: unknown, format: MapOutputFormat, compact = false): void {
-  process.stdout.write(compact ? formatCompactMapOutput(result) : formatMapOutput(result, format));
+  process.stdout.write(formatMapOutput(result, format, { compact }));
 }

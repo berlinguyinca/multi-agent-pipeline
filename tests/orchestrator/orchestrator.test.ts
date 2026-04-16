@@ -304,6 +304,65 @@ describe('executeDAG', () => {
     expect(writerPrompt).not.toContain('Ths research has speling mistakes.');
   });
 
+
+  it('blocks dependent steps when handoff validation fails', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Write X', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['researcher', makeAgent('researcher', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const createAdapter = vi.fn(() => mockAdapter(''));
+
+    const result = await executeDAG(plan, agents, createAdapter);
+
+    expect(result.success).toBe(false);
+    expect(result.steps.find((step) => step.id === 'step-1')).toMatchObject({
+      status: 'failed',
+      handoffPassed: false,
+    });
+    expect(result.steps.find((step) => step.id === 'step-2')).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('step-1'),
+    });
+  });
+
+  it('records spec conformance metadata on implementation-like steps', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement', dependsOn: [] }],
+    };
+    const agents = new Map([
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+    ]);
+    const createAdapter = vi.fn(() => mockAdapter('Implemented login only.'));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        handoffValidation: {
+          reviewedSpecContent: '# Spec\n\n- [ ] User can export CSV reports',
+        },
+      },
+    );
+
+    expect(result.steps[0].specConformance).toMatchObject({
+      checked: true,
+      passed: false,
+      missingCriteria: ['User can export CSV reports'],
+    });
+    expect(result.steps[0].handoffPassed).toBe(true);
+  });
+
   it('passes dependency output as context', async () => {
     const plan: DAGPlan = {
       plan: [
