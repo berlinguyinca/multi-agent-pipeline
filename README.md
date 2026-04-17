@@ -892,7 +892,7 @@ These tests exercise the grammar/spelling, ClassyFire/ChemOnt taxonomy, usage-cl
 MAP includes two separate classification specialists:
 
 - `classyfire-taxonomy-classifier` produces ClassyFire/ChemOnt-style chemical ontology trees. It must never use the ClassyFire API; that API is treated as broken/unreliable for this workflow.
-- `usage-classification-tree` produces evidence-backed usage trees and an LCB-ready exposure summary. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries.
+- `usage-classification-tree` produces evidence-backed usage trees, an LCB-ready exposure summary, and a Usage Commonness Ranking. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries. It also ranks supported usage applications or exposure origins by an ordinal 0-100 commonness score plus a label (`very common`, `common`, `less common`, `rare`, or `unavailable`), and honors prompts that request the top N rows sorted by score.
 
 Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for. MAP's compact report renderer knows this pairing and will display both reports together when both branches complete, even if a downstream judge/formatter step exists in the graph.
 
@@ -917,7 +917,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
-| `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
+| `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries and commonness rankings/scores for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |

@@ -196,6 +196,24 @@ describe('software delivery agent bundle', () => {
     expect(usage.contract?.handoff.includes).toContain('LCB exposure summary');
   });
 
+  it('requires the usage classifier to score and rank commonness without becoming a formatter', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(usage.prompt).toContain('Usage Commonness Ranking');
+    expect(usage.prompt).toContain('Commonness score');
+    expect(usage.prompt).toContain('very common | common | less common | rare | unavailable');
+    expect(usage.prompt).toContain('If the user requests top N');
+    expect(usage.prompt).toContain('sort ranking rows by Commonness score descending');
+    expect(usage.prompt).toContain('Do not act as a report formatter');
+    expect(usage.contract?.capabilities).toContain(
+      'Score and rank usage applications or exposure origins by evidence-backed commonness, with optional top-N truncation when requested.',
+    );
+    expect(usage.contract?.nonGoals).toContain(
+      'Do not perform downstream report formatting, polishing, or custom presentation transformations.',
+    );
+    expect(usage.contract?.handoff.includes).toContain('Commonness ranking and score');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 
