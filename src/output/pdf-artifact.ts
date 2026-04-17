@@ -26,7 +26,7 @@ export async function writeHtmlArtifact(
   const htmlPath = path.join(outputDir, `map-result-${stamp}.html`);
   const artifactManifest = await createReportVisualArtifacts(result, { outputDir });
   const resultWithArtifacts = attachArtifacts(result, artifactManifest);
-  const html = makePrintFriendlyHtml(formatMapOutput(resultWithArtifacts, 'html', { compact: options.compact }));
+  const html = makePrintFriendlyHtml(formatMapOutput(resultWithArtifacts, 'pdf', { compact: options.compact }));
   await fs.writeFile(htmlPath, html, 'utf8');
   return { htmlPath };
 }

@@ -68,4 +68,35 @@ describe('writePdfArtifact', () => {
     expect(await fs.stat(path.join(outputDir, 'artifacts', 'usage-commonness-ranking.svg'))).toBeTruthy();
     expect(await fs.stat(path.join(outputDir, 'artifacts', 'manifest.json'))).toBeTruthy();
   });
+
+  it('writes PDF HTML as a pretty report without raw embedded Markdown result data', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-pdf-pretty-markdown-'));
+    const result = await writePdfArtifact(
+      {
+        version: 2,
+        success: true,
+        outputDir,
+        dag: {
+          nodes: [{ id: 'step-1', agent: 'writer', status: 'completed', duration: 1 }],
+          edges: [],
+        },
+        steps: [
+          {
+            id: 'step-1',
+            agent: 'writer',
+            task: 'Write',
+            status: 'completed',
+            output: '# Usage Classification Tree\n\n| Rank | Value |\n| --- | --- |\n| Level 1 | Pharmacological Agent |',
+          },
+        ],
+      },
+      { outputDir, renderPdf: false },
+    );
+
+    const html = await fs.readFile(result.htmlPath, 'utf8');
+    expect(html).toContain('<h1>Usage Classification Tree</h1>');
+    expect(html).toContain('<table>');
+    expect(html).not.toContain('<h2>Result Data</h2>');
+    expect(html).not.toContain('&quot;output&quot;: &quot;# Usage Classification Tree');
+  });
 });

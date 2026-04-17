@@ -42,7 +42,7 @@ export function formatMapOutput(
     case 'text':
       return options.compact ? formatCompactTextResult(normalizedResult) : formatTextResult(normalizedResult);
     case 'pdf':
-      return options.compact ? formatCompactHtmlResult(result) : formatHtmlResult(result);
+      return options.compact ? formatCompactHtmlResult(result) : formatPdfHtmlResult(result);
   }
 }
 
@@ -223,11 +223,17 @@ function formatCompactHtmlResult(result: unknown): string {
   return buildHtmlDocument('MAP Compact Result', data, true, result);
 }
 
+function formatPdfHtmlResult(result: unknown): string {
+  const data = isRecord(result) ? result : { result };
+  return buildHtmlDocument('MAP Result', data, false, result, { includeResultData: false });
+}
+
 function buildHtmlDocument(
   title: string,
   data: Record<string, unknown>,
   compact: boolean,
   rawResult: unknown,
+  options: { includeResultData?: boolean } = {},
 ): string {
   const graph = buildSimplifiedGraph(data);
   const final = extractDisplayFinalResult(data) ?? '';
@@ -241,6 +247,7 @@ function buildHtmlDocument(
     ['Error', data['error']],
   ].filter(([, value]) => value !== undefined && value !== null && value !== '');
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const includeResultData = options.includeResultData ?? !compact;
 
   return [
     '<!doctype html>',
@@ -263,7 +270,7 @@ function buildHtmlDocument(
     ...(compact || steps.length === 0 ? [] : ['<h2>Steps</h2>', renderHtmlStepTable(steps)]),
     '<h2>Final Result</h2>',
     renderFinalResultHtml(final),
-    ...(compact ? [] : ['<h2>Result Data</h2>', `<pre>${escapeHtml(JSON.stringify(rawResult, null, 2))}</pre>`]),
+    ...(includeResultData ? ['<h2>Result Data</h2>', `<pre>${escapeHtml(JSON.stringify(rawResult, null, 2))}</pre>`] : []),
     '</body>',
     '</html>',
     '',

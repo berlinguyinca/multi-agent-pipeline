@@ -94,6 +94,27 @@ describe('result formatting', () => {
     expect(output).not.toContain('&lt;table&gt;');
   });
 
+
+  it('renders pdf HTML without raw Result Data while preserving rendered Markdown', () => {
+    const markdownResult = {
+      ...result,
+      steps: [
+        { id: 'step-1', agent: 'writer', task: 'Write', status: 'completed', output: '# Report\n\n| A | B |\n| --- | --- |\n| one | two |' },
+      ],
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'writer', status: 'completed', duration: 1 }],
+        edges: [],
+      },
+    };
+
+    const output = formatMapOutput(markdownResult, 'pdf');
+
+    expect(output).toContain('<h1>Report</h1>');
+    expect(output).toContain('<table>');
+    expect(output).not.toContain('<h2>Result Data</h2>');
+    expect(output).not.toContain('&quot;output&quot;: &quot;# Report');
+  });
+
   it('prints compact output with only simplified graph and final result', () => {
     const output = formatCompactMapOutput(result);
 
