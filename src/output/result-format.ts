@@ -306,7 +306,7 @@ function renderHtmlVisualArtifacts(data: Record<string, unknown>): string {
 
   const figures = artifacts
     .map((artifact) => {
-      const src = typeof artifact['src'] === 'string' ? artifact['src'] : typeof artifact['path'] === 'string' ? artifact['path'] : '';
+      const src = safeArtifactSrc(artifact);
       if (!src) return '';
       const title = String(artifact['title'] ?? artifact['id'] ?? 'Visual artifact');
       const description = String(artifact['description'] ?? title);
@@ -321,6 +321,15 @@ function renderHtmlVisualArtifacts(data: Record<string, unknown>): string {
 
   if (figures.length === 0) return '';
   return ['<h2>Visual Artifacts</h2>', '<section class="artifact-gallery">', ...figures, '</section>'].join('');
+}
+
+function safeArtifactSrc(artifact: Record<string, unknown>): string {
+  if (typeof artifact['src'] !== 'string') return '';
+  const src = artifact['src'].trim();
+  if (!/^artifacts\/[A-Za-z0-9._/-]+$/.test(src)) return '';
+  const segments = src.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return '';
+  return src;
 }
 
 function renderHtmlAgentNetwork(data: Record<string, unknown>): string {
