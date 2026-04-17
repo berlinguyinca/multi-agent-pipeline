@@ -18,6 +18,7 @@ import { executeDAG } from '../orchestrator/orchestrator.js';
 import { createAdapter } from '../adapters/adapter-factory.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
+import { probeOllamaConcurrencyCapacity } from '../adapters/ollama-capabilities.js';
 import { resolveGitHubToken } from '../github/token.js';
 import {
   buildGitHubIssuePrompt,
@@ -754,6 +755,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
       let currentV1RawOutputKey: string | null = null;
       let v2Plan: DAGPlan | null = null;
       let v2Agents: Map<string, AgentDefinition> | null = null;
+      let v2OllamaConcurrency = 1;
       let v2MessageVisible = false;
       let lastErrorMessage: string | undefined;
       let markdownFiles: string[] = [];
@@ -1273,6 +1275,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               retryDelayMs: config.router.retryDelayMs,
               adapterDefaults: config.adapterDefaults,
               agentConsensus: config.agentConsensus,
+              localModelConcurrency: v2OllamaConcurrency,
               workingDir: config.outputDir,
               knowledgeCwd: process.cwd(),
             },
@@ -1429,12 +1432,25 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           }
 
           v2Agents = enabledAgents;
+          const ollamaConcurrency =
+            config.router.adapter === 'ollama'
+              ? await probeOllamaConcurrencyCapacity({
+                  host: config.ollama.host,
+                  model: config.router.model,
+                  models:
+                    config.router.consensus?.models && config.router.consensus.models.length > 0
+                      ? config.router.consensus.models
+                      : [config.router.model, config.router.model, config.router.model],
+                  maxParallel: 3,
+                })
+              : { maxParallel: 1 };
+          v2OllamaConcurrency = ollamaConcurrency.maxParallel;
 
           const decision = await routeTask(
             resolvedPrompt,
             enabledAgents,
             createRouterAdapters(),
-            config.router,
+            { ...config.router, ollamaConcurrency: ollamaConcurrency.maxParallel },
             v2AbortController.signal,
             (chunk) => appendRawOutput(routerRawKey, 'Router', chunk),
           );

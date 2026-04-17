@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, or `text` when those are easier for people or downstream tools to read. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML and includes a flowchart-style visual agent network so stakeholders can see the orchestration graph. PDF output writes a polished print-ready HTML file and, when Chrome/Chromium is available, a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -326,6 +326,11 @@ map --headless --output-format markdown "Investigate a specific question"
 map --headless --output-format yaml "Investigate a specific question"
 map --headless --output-format html "Investigate a specific question"
 map --headless --output-format text "Investigate a specific question"
+map --headless --output-format pdf "Investigate a specific question"
+
+# Open generated HTML/PDF output automatically when finished
+map --headless --output-format html --open-output "Investigate a specific question"
+map --headless --output-format pdf --open-output "Investigate a specific question"
 
 # Print only the utilized agent graph and the final output
 map --headless --compact "Investigate a specific question"
@@ -453,7 +458,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--router-consensus-models` | `router.consensus.models` | repeats `router.model` | Override the default router consensus candidates with up to 3 comma-separated Ollama models |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
-Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`; when a step times out, MAP retries it and doubles the next step timeout budget by default.
+Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `router.stepTimeoutMs` is a per-step no-progress timeout: MAP aborts a step only when no output chunk arrives within that window. When a step times out, MAP retries it and doubles the next step timeout budget. If the retried step succeeds, MAP records the larger per-agent timeout in `.map/adaptive-timeouts.json` and uses it for later runs in the same checkout. The default retry count is intentionally low to avoid hour-scale local-model stalls.
 
 
 ### Compact Output
@@ -472,6 +477,8 @@ Use `--compact` when you only want the utilized agent path and the final answer.
 ```
 
 The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, and automatic grammar/spelling polishing steps.
+
+For ClassyFire/ChemOnt plus usage/LCB runs, compact Markdown/HTML/PDF reports preserve the two source reports as the customer-facing final result. Deterministic rendering combines the completed taxonomy and usage outputs instead of letting optional judge or formatter steps replace them with rubrics, candidate-selection notes, or lossy spreadsheet summaries.
 
 ### Verbose Progress
 
@@ -665,7 +672,7 @@ Steps with no unmet dependencies run concurrently. Dependent steps receive previ
 
 MAP cleans router-produced task text before a plan is displayed or executed. This catches common local-model failure modes such as repeated tokens, slash-delimited loops, and overlong task fields. Mild repetition is collapsed into a readable task; fully degenerate task text is rejected so agents do not execute nonsense plans.
 
-For Ollama routers, MAP runs a small consensus pass by default. With `models: []`, MAP repeats `router.model` three times and keeps the majority-agreed plan. To diversify the vote, list up to three local models in `pipeline.yaml`:
+For Ollama routers, MAP runs a small consensus pass by default. With `models: []`, MAP repeats `router.model` three times and keeps the majority-agreed plan. Before routing and DAG execution, MAP probes the local Ollama server with small streaming requests to estimate how many requests can make progress concurrently. Router consensus and ready local-model DAG steps then use that detected concurrency limit, falling back to one-at-a-time execution when probing fails or the server behaves serially. To diversify the router vote, list up to three local models in `pipeline.yaml`:
 
 ```yaml
 router:
@@ -697,17 +704,32 @@ adapterDefaults:
     seed: 42
 ```
 
-MAP also repeats non-file agent outputs and selects the best-supported candidate:
+When deterministic Ollama options are active, MAP uses Ollama's chat API in streaming mode so long-running local generations still emit progress chunks and can be cancelled or timed out cleanly.
+
+MAP can also repeat non-file agent outputs and select the best-supported candidate. Global non-file consensus is opt-in because repeating heavyweight local models can make runs slower, but critical fact-producing agents use per-agent consensus by default:
 
 ```yaml
 agentConsensus:
-  enabled: true
+  enabled: false
   runs: 3
   outputTypes: [answer, data, presentation]
   minSimilarity: 0.35
+  perAgent:
+    researcher:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+    classyfire-taxonomy-classifier:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+    usage-classification-tree:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
 ```
 
-`answer`, `data`, and `presentation` outputs are safe to repeat because they do not write files directly. File-producing implementation agents are intentionally excluded from automatic repetition to avoid multiple concurrent edits in the same workspace; they remain protected by TDD, security, handoff validation, code QA, and release-readiness agents. When non-file candidates disagree below `minSimilarity`, MAP fails the step instead of silently picking a hallucinated outlier.
+Set `agentConsensus.enabled: true` when the added quality check is worth the extra runtime for all non-file agents. `answer`, `data`, and `presentation` outputs are safe to repeat because they do not write files directly. File-producing implementation agents are intentionally excluded from automatic repetition to avoid multiple concurrent edits in the same workspace; they remain protected by TDD, security, handoff validation, code QA, and release-readiness agents. When non-file candidates disagree below `minSimilarity`, MAP fails the step instead of silently picking a hallucinated outlier.
 
 When an Ollama `seed` is configured, consensus candidates use stable seed offsets (`seed`, `seed + 1`, `seed + 2`, ...). This keeps repeated MAP runs reproducible while still allowing diversity if you choose a non-zero temperature.
 
@@ -870,9 +892,9 @@ These tests exercise the grammar/spelling, ClassyFire/ChemOnt taxonomy, usage-cl
 MAP includes two separate classification specialists:
 
 - `classyfire-taxonomy-classifier` produces ClassyFire/ChemOnt-style chemical ontology trees. It must never use the ClassyFire API; that API is treated as broken/unreliable for this workflow.
-- `usage-classification-tree` produces evidence-backed usage trees, such as drug/supplement/food/topical/biomarker use hierarchies up to six levels deep when medically or biologically sensible.
+- `usage-classification-tree` produces evidence-backed usage trees and an LCB-ready exposure summary. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries.
 
-Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for.
+Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for. MAP's compact report renderer knows this pairing and will display both reports together when both branches complete, even if a downstream judge/formatter step exists in the graph.
 
 ### Automatic Text Polishing
 
@@ -894,8 +916,8 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
-| `output-formatter` | `answer` | Formats final MAP results into requested output/report structures without changing meaning. |
-| `usage-classification-tree` | `answer` | Evidence-backed usage trees for drugs, foods, supplements, ointments, biomarkers, and related entities. |
+| `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
+| `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
@@ -1040,7 +1062,8 @@ Options:
   --spec-file <path>     Use a local spec file as input
   --v2                   Deprecated compatibility flag; smart routing is the default
   --output-dir <path>    Output directory for generated projects
-  --output-format <fmt>  Print result as json, yaml, markdown, html, or text
+  --output-format <fmt>  Print result as json, yaml, markdown, html, text, or pdf
+  --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>

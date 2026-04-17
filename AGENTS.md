@@ -12,15 +12,22 @@ This repository is **multi-agent-pipeline (MAP)**. It orchestrates local and CLI
 - `src/orchestrator/orchestrator.ts` executes DAG steps, injects tool catalogs, handles retries/recovery, security gates, handoff validation, grammar review, adviser replans, and output consensus.
 - `src/headless/runner.ts` and `src/tui/tui-app.ts` wire config into routing and DAG execution.
 
+## Classification agent contract notes
+
+- `agents/classyfire-taxonomy-classifier` is limited to ClassyFire/ChemOnt-style chemical taxonomy and must not mix in usage, exposure, anatomical target, or indication claims.
+- `agents/usage-classification-tree` owns usage and exposure reporting. It must include an LCB-ready exposure summary with yes/no/unavailable categories for drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure origins, and cellular endogenous compound. Positive categories should include no more than three typical diseases, foods, use areas, species, or organs/tissues as applicable, and unsupported entries must be marked unavailable rather than invented.
+- `agents/output-formatter` is disabled by default because LLM formatting repeatedly dropped protected scientific labels/terms. Use deterministic local Markdown/HTML/PDF renderers for normal reports; re-enable `output-formatter` only for explicit custom transformation tasks.
+
 ## Repeatability and anti-hallucination controls
 
-MAP is intentionally consensus-first for local model quality:
+MAP uses consensus selectively for local model quality without making heavyweight local runs appear stalled:
 
-1. **Router consensus** is enabled by default. If `router.consensus.models` is empty, MAP repeats `router.model` three times and keeps majority-agreed plan steps.
-2. **Non-file agent consensus** repeats `answer`, `data`, and `presentation` outputs and selects exact-majority or token-similarity medoid output. If agreement is below `agentConsensus.minSimilarity`, the step fails instead of accepting a likely hallucinated outlier.
+1. **Router consensus** is enabled by default. If `router.consensus.models` is empty, MAP repeats `router.model` three times and keeps majority-agreed plan steps. MAP probes Ollama concurrency at runtime and uses the detected local-model parallelism for router consensus and ready DAG step scheduling, falling back to one-at-a-time execution for single-connection installations.
+2. **Non-file agent consensus** is globally opt-in via `agentConsensus.enabled`, with per-agent overrides under `agentConsensus.perAgent`. `researcher`, `classyfire-taxonomy-classifier`, and `usage-classification-tree` must run per-agent consensus by default because they are fact-critical. When enabled, consensus repeats `answer`, `data`, and `presentation` outputs and selects exact-majority or token-similarity medoid output. If agreement is below `agentConsensus.minSimilarity`, the step fails instead of accepting a likely hallucinated outlier.
 3. **File-output agent consensus** is available through isolated git worktrees via `agentConsensus.fileOutputs`. Candidate worktrees run from the same clean `HEAD`, produce patches, run configured verification commands, and the best verified/minimal patch is applied back to the original checkout.
-4. **Ollama repeatability** uses deterministic defaults: `think: false`, `temperature: 0`, `seed: 42`. Consensus candidates use stable seed offsets (`seed`, `seed + 1`, `seed + 2`, ...).
-5. **Prompt evidence discipline** belongs in `src/utils/agent-conduct.ts`: do not fabricate citations, file paths, tool results, command output, test results, or verification evidence.
+4. **Ollama repeatability** uses deterministic defaults: `think: false`, `temperature: 0`, `seed: 42`. Consensus candidates use stable seed offsets (`seed`, `seed + 1`, `seed + 2`, ...). Deterministic Ollama runs must keep streaming progress through the chat API; do not regress to non-streaming calls or hour-scale retry defaults that make agents appear stalled.
+5. **Adaptive timeout learning** treats `router.stepTimeoutMs` as a no-progress timeout, not a hard step total. Successful timeout backoffs are persisted in `.map/adaptive-timeouts.json` per agent. Timeout-only failures should retry with larger budgets but should not spawn recovery agents such as `bug-debugger`.
+6. **Prompt evidence discipline** belongs in `src/utils/agent-conduct.ts`: do not fabricate citations, file paths, tool results, command output, test results, or verification evidence.
 
 Do not remove these controls casually. If changing them, update README and tests in the same change.
 

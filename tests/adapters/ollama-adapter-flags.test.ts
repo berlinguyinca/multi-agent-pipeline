@@ -34,7 +34,11 @@ describe('OllamaAdapter run behavior', () => {
   it('uses the Ollama API for JSON routing requests', async () => {
     mocks.fetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ message: { content: '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"x","dependsOn":[]}]}' } }),
+      body: streamLines([
+        '{"message":{"content":"{\\"kind\\":\\"plan\\",\\"plan\\":["}}\n',
+        '{"message":{"content":"{\\"id\\":\\"step-1\\",\\"agent\\":\\"researcher\\",\\"task\\":\\"x\\",\\"dependsOn\\":[]}"}}\n',
+        '{"message":{"content":"]}"},"done":true}\n',
+      ]),
       text: async () => '',
     });
 
@@ -49,7 +53,12 @@ describe('OllamaAdapter run behavior', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual(['{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"x","dependsOn":[]}]}']);
+    expect(chunks).toEqual([
+      '{"kind":"plan","plan":[',
+      '{"id":"step-1","agent":"researcher","task":"x","dependsOn":[]}',
+      ']}',
+    ]);
+    expect(chunks.join('')).toBe('{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"x","dependsOn":[]}]}');
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).not.toHaveBeenCalled();
 
@@ -62,7 +71,8 @@ describe('OllamaAdapter run behavior', () => {
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body).toMatchObject({
       model: 'gemma4',
-      stream: false,
+      stream: true,
+      think: false,
       options: { temperature: 0 },
     });
     expect(body.messages).toEqual([
@@ -78,6 +88,40 @@ describe('OllamaAdapter run behavior', () => {
     expect(body.format).toMatchObject({
       type: 'object',
     });
+  });
+
+  it('streams deterministic API requests so callers receive progress before completion', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      body: streamLines([
+        '{"message":{"content":"first "}}\n',
+        '{"message":{"content":"second"}}\n',
+        '{"done":true}\n',
+      ]),
+      text: async () => '',
+    });
+
+    const adapter = new OllamaAdapter('gemma4');
+    const chunks: string[] = [];
+
+    for await (const chunk of adapter.run('classify this', {
+      temperature: 0,
+      seed: 42,
+      think: false,
+      hideThinking: true,
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual(['first ', 'second']);
+    const body = JSON.parse((mocks.fetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      model: 'gemma4',
+      stream: true,
+      think: false,
+      options: { temperature: 0, seed: 42 },
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
   it('surfaces a friendly abort error for structured API requests', async () => {
@@ -131,3 +175,15 @@ describe('OllamaAdapter run behavior', () => {
     expect(closeHandlers.length).toBeGreaterThan(0);
   });
 });
+
+function streamLines(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(line));
+      }
+      controller.close();
+    },
+  });
+}

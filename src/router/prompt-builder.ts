@@ -39,7 +39,7 @@ ${cleanTask}
 8. Prefer agents with web research capability for tasks that need current external knowledge.
 9. Use presentation or visualization-oriented agents when the request asks for decks, charts, diagrams, or polished visual deliverables.
 10. For knowledge-heavy tasks, prefer a knowledge-aware plan that can use the shared 2nd brain and knowledge hygiene when stale or external knowledge matters.
-11. For high-stakes judgment-heavy tasks, you may plan multiple candidate-producing steps followed by a result-judge step that selects the best outcome.
+11. For high-stakes judgment-heavy tasks, you may plan multiple candidate-producing steps followed by a result-judge step that selects the best outcome. Do not use result-judge to format, summarize, or prepare customer reports; deterministic local renderers produce final Markdown/HTML/PDF output from completed source-agent results.
 12. Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents. The adviser recommends the launch order, parallelization, custom agents to create, and whether the agent list must be refreshed. Adviser may replace pending downstream steps at runtime by returning adviser-workflow JSON.
 13. Do not explicitly add grammar-spelling-specialist steps for ordinary text polishing; the orchestrator automatically schedules that specialist after human-facing text outputs.
 

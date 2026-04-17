@@ -69,6 +69,7 @@ function shouldGrammarReview(
   const output = result.output?.trim();
   if (!output) return false;
   if (looksMachineReadable(output)) return false;
+  if (looksStructuredOrScientific(output)) return false;
   return true;
 }
 
@@ -83,6 +84,23 @@ function looksMachineReadable(output: string): boolean {
     }
   }
   return false;
+}
+
+function looksStructuredOrScientific(output: string): boolean {
+  const lines = output.split('\n');
+  const markdownHeadings = lines.filter((line) => /^#{1,6}\s+/.test(line)).length;
+  const tableLines = lines.filter((line) => /^\s*\|.*\|\s*$/.test(line)).length;
+  const codeFences = lines.filter((line) => /^```/.test(line.trim())).length;
+  const listItems = lines.filter((line) => /^\s*[-*+]\s+/.test(line)).length;
+  const chemistryOrOntology = /\b(ClassyFire|ChemOnt|Taxonomy Tree|Usage Tree|LCB Exposure Summary|Source method|Confidence)\b/.test(output);
+
+  return (
+    tableLines >= 2 ||
+    codeFences >= 2 ||
+    markdownHeadings >= 2 ||
+    listItems >= 4 ||
+    chemistryOrOntology
+  );
 }
 
 function nextAvailableId(base: string, allIds: Set<string>): string {

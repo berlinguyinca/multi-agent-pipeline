@@ -177,6 +177,46 @@ describe('executeDAG', () => {
     });
   });
 
+  it('runs per-agent consensus even when global agent consensus is disabled', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Write X', dependsOn: [] },
+      ],
+    };
+    const agents = new Map([
+      ['researcher', makeAgent('researcher')],
+      ['writer', makeAgent('writer')],
+    ]);
+    const outputs = ['Stable research', 'Unstable research', 'Stable research', 'Writer once'];
+    const createAdapter = vi.fn(() => mockAdapter(outputs.shift() ?? 'missing'));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      agentConsensus: {
+        enabled: false,
+        runs: 3,
+        outputTypes: ['answer'],
+        minSimilarity: 0.35,
+        perAgent: {
+          researcher: { enabled: true, runs: 3, outputTypes: ['answer'] },
+        },
+        fileOutputs: {
+          enabled: false,
+          runs: 3,
+          isolation: 'git-worktree',
+          keepWorktreesOnFailure: true,
+          verificationCommands: [],
+          selection: 'best-passing-minimal-diff',
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(createAdapter).toHaveBeenCalledTimes(4);
+    expect(result.steps.find((step) => step.id === 'step-1')?.consensus?.runs).toBe(3);
+    expect(result.steps.find((step) => step.id === 'step-2')?.consensus).toBeUndefined();
+  });
+
   it('does not repeat file-output agents during local agent consensus', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement X', dependsOn: [] }],
@@ -465,6 +505,59 @@ describe('executeDAG', () => {
     expect(writerPrompt).toContain('[step-1-grammar-1: grammar-spelling-specialist]');
     expect(writerPrompt).toContain('This research has spelling mistakes.');
     expect(writerPrompt).not.toContain('Ths research has speling mistakes.');
+  });
+
+  it('does not run grammar polishing on structured Markdown reports', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'result-judge', task: 'Judge report', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use report', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['result-judge', makeAgent('result-judge', 'answer')],
+      ['grammar-spelling-specialist', makeAgent('grammar-spelling-specialist', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: string[] = [];
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Polish grammar, spelling, punctuation')) {
+          calls.push('grammar-spelling-specialist');
+          yield 'should not run';
+          return;
+        }
+        if (prompt.includes('Judge report')) {
+          calls.push('result-judge');
+          yield '# Report\n\n| Criterion | Description |\n| --- | --- |\n| Accuracy | Preserve ChemOnt labels. |\n\n- Keep C17H21NO4.';
+          return;
+        }
+        if (prompt.includes('Use report')) {
+          calls.push('writer');
+          yield 'Final';
+          return;
+        }
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual(['result-judge', 'writer', 'grammar-spelling-specialist']);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1']);
   });
 
 
@@ -807,6 +900,7 @@ describe('executeDAG', () => {
   });
 
   it('applies per-step timeout via stepTimeoutMs', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-step-timeout-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
     };
@@ -827,7 +921,7 @@ describe('executeDAG', () => {
 
     const result = await executeDAG(
       plan, agents, createAdapter, undefined, undefined, undefined, undefined,
-      { stepTimeoutMs: 50, maxStepRetries: 0, retryDelayMs: 0 },
+      { stepTimeoutMs: 50, maxStepRetries: 0, retryDelayMs: 0, workingDir },
     );
 
     expect(result.success).toBe(false);
@@ -835,6 +929,7 @@ describe('executeDAG', () => {
   });
 
   it('reports a specific step timeout message when a step aborts', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-step-timeout-message-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
     };
@@ -856,7 +951,7 @@ describe('executeDAG', () => {
 
     const result = await executeDAG(
       plan, agents, createAdapter, undefined, undefined, undefined, undefined,
-      { stepTimeoutMs: 10, maxStepRetries: 0, retryDelayMs: 0 },
+      { stepTimeoutMs: 10, maxStepRetries: 0, retryDelayMs: 0, workingDir },
     );
 
     expect(result.success).toBe(false);
@@ -878,7 +973,8 @@ describe('executeDAG', () => {
     expect(result.steps[0].attempts).toBe(1);
   });
 
-  it('uses the default retry budget for timeout failures when retry config is omitted', async () => {
+  it('uses a bounded default retry budget for timeout failures when retry config is omitted', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-timeout-budget-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
     };
@@ -893,7 +989,7 @@ describe('executeDAG', () => {
       async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
         callCount += 1;
         const startedAt = Date.now();
-        if (callCount <= 3) {
+        if (callCount <= 1) {
           await new Promise<void>((resolve) => {
             opts?.signal?.addEventListener('abort', () => {
               timeoutWindows.push(Date.now() - startedAt);
@@ -916,19 +1012,173 @@ describe('executeDAG', () => {
       undefined,
       undefined,
       undefined,
-      { stepTimeoutMs: 25, retryDelayMs: 0 },
+      { stepTimeoutMs: 25, retryDelayMs: 0, workingDir },
     );
 
     expect(result.success).toBe(true);
     expect(result.steps[0].status).toBe('completed');
-    expect(result.steps[0].attempts).toBe(4);
-    expect(timeoutWindows).toHaveLength(3);
+    expect(result.steps[0].attempts).toBe(2);
+    expect(timeoutWindows).toHaveLength(1);
     expect(timeoutWindows[0]).toBeGreaterThanOrEqual(20);
-    expect(timeoutWindows[0]).toBeLessThan(90);
-    expect(timeoutWindows[1]).toBeGreaterThanOrEqual(45);
-    expect(timeoutWindows[1]).toBeLessThan(140);
-    expect(timeoutWindows[2]).toBeGreaterThanOrEqual(90);
-    expect(timeoutWindows[2]).toBeLessThan(260);
+  });
+
+  it('treats stepTimeoutMs as an inactivity timeout while output keeps streaming', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-inactivity-timeout-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        yield 'chunk 1 ';
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        yield 'chunk 2 ';
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        yield 'chunk 3';
+      },
+    }));
+
+    const startedAt = Date.now();
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { stepTimeoutMs: 15, maxStepRetries: 0, retryDelayMs: 0, workingDir },
+    );
+
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(30);
+    expect(result.success).toBe(true);
+    expect(result.steps[0].output).toBe('chunk 1 chunk 2 chunk 3');
+  });
+
+  it('backs off timed-out steps and remembers the successful timeout for future runs', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-adaptive-timeout-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research X', dependsOn: [] }],
+    };
+    const agents = new Map([['researcher', makeAgent('researcher')]]);
+    let firstRunCalls = 0;
+    const firstRunAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
+        firstRunCalls += 1;
+        if (firstRunCalls === 1) {
+          await new Promise<void>((resolve) => {
+            opts?.signal?.addEventListener('abort', () => resolve(), { once: true });
+          });
+          const err = new Error('This operation was aborted.');
+          (err as Error & { name: string }).name = 'AbortError';
+          throw err;
+        }
+        yield 'Recovered with a larger timeout';
+      },
+    }));
+
+    const first = await executeDAG(
+      plan,
+      agents,
+      firstRunAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { stepTimeoutMs: 20, maxStepRetries: 1, retryDelayMs: 0, workingDir },
+    );
+
+    expect(first.success).toBe(true);
+    expect(first.steps[0].attempts).toBe(2);
+    await expect(fs.readFile(path.join(workingDir, '.map', 'adaptive-timeouts.json'), 'utf8'))
+      .resolves.toContain('"researcher": 40');
+
+    let secondRunCalls = 0;
+    const secondRunAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
+        secondRunCalls += 1;
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 30);
+          opts?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const err = new Error('This operation was aborted.');
+            (err as Error & { name: string }).name = 'AbortError';
+            reject(err);
+          }, { once: true });
+        });
+        yield 'Completed using the learned timeout';
+      },
+    }));
+
+    const second = await executeDAG(
+      plan,
+      agents,
+      secondRunAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { stepTimeoutMs: 20, maxStepRetries: 0, retryDelayMs: 0, workingDir },
+    );
+
+    expect(second.success).toBe(true);
+    expect(second.steps[0].attempts).toBe(1);
+    expect(secondRunCalls).toBe(1);
+  });
+
+  it('does not spawn recovery agents for timeout-only failures', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] }],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree')],
+      ['bug-debugger', makeAgent('bug-debugger')],
+    ]);
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, opts?: { signal?: AbortSignal }) {
+        await new Promise<void>((resolve) => {
+          opts?.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        const err = new Error('This operation was aborted.');
+        (err as Error & { name: string }).name = 'AbortError';
+        throw err;
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { stepTimeoutMs: 10, maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps.map((step) => step.id)).toEqual(['step-1']);
+    expect(result.steps[0]).toMatchObject({
+      status: 'failed',
+      failureKind: 'timeout',
+    });
   });
 
   it('passes adapter-default think=false to ollama adapters', async () => {
@@ -1082,6 +1332,52 @@ describe('executeDAG', () => {
     expect(result.steps.find((step) => step.id === 'step-1')?.status).toBe('recovered');
     expect(result.steps.find((step) => step.id === 'step-1-recovery-1')?.agent).toBe('build-fixer');
     expect(result.steps.find((step) => step.id === 'step-1-retry-1')?.status).toBe('completed');
+  });
+
+  it('uses the detected local model concurrency when scheduling ready Ollama steps', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher-a', task: 'Research A', dependsOn: [] },
+        { id: 'step-2', agent: 'researcher-b', task: 'Research B', dependsOn: [] },
+      ],
+    };
+    const agentA = makeAgent('researcher-a');
+    agentA.adapter = 'ollama';
+    const agentB = makeAgent('researcher-b');
+    agentB.adapter = 'ollama';
+    const agents = new Map([
+      ['researcher-a', agentA],
+      ['researcher-b', agentB],
+    ]);
+    let active = 0;
+    let maxActive = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'ollama' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        yield 'Result';
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { localModelConcurrency: 2, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(maxActive).toBe(2);
   });
 
 

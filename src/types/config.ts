@@ -68,7 +68,15 @@ export interface AgentConsensusConfig {
   runs: number;
   outputTypes: Array<AgentDefinition['output']['type']>;
   minSimilarity: number;
+  perAgent: Record<string, AgentConsensusOverride>;
   fileOutputs: FileOutputConsensusConfig;
+}
+
+export interface AgentConsensusOverride {
+  enabled?: boolean;
+  runs?: number;
+  outputTypes?: Array<AgentDefinition['output']['type']>;
+  minSimilarity?: number;
 }
 
 export interface FileOutputConsensusConfig {

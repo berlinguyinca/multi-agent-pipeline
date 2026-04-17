@@ -1,0 +1,61 @@
+name: classyfire-taxonomy-classifier
+description: "Generates ClassyFire/ChemOnt-style chemical taxonomy trees without using the broken ClassyFire API"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: identify-compound
+  - name: classify-chemont-tree
+  - name: report-confidence
+handles: "ClassyFire classification, ChemOnt taxonomy, Wishart chemical taxonomy, chemical taxonomy trees, kingdom superclass class subclass chemical hierarchy, compound classification"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Generate ClassyFire/ChemOnt-style chemical taxonomy trees for compounds without calling the ClassyFire API."
+  capabilities:
+    - "Identify the compound and relevant chemical identifiers when available."
+    - "Produce a ClassyFire/ChemOnt hierarchy with rank labels from broad to specific."
+    - "Distinguish retrieved/cited classification from evidence-backed inference."
+    - "Explain caveats when the classification is uncertain or unavailable."
+  nonGoals:
+    - "Never call or depend on the ClassyFire API."
+    - "Do not present biological taxonomy as chemical ontology taxonomy."
+    - "Do not invent unsupported deep levels when evidence is weak."
+  inputs:
+    required:
+      - "Compound name or identifier"
+    optional:
+      - "SMILES, InChI, InChIKey, PubChem CID, HMDB, DrugBank, ChEBI, or source references"
+  process:
+    - "Confirm the requested entity is a chemical compound or small molecule."
+    - "Use knowledge/search evidence when needed; do not use the ClassyFire API."
+    - "Build the best-supported ChemOnt-style taxonomy tree."
+    - "Mark source method as retrieved-from-reference, evidence-backed inference, unavailable, or mixed."
+  decisionRules:
+    - "Prefer exact known ClassyFire/ChemOnt records when available from non-API sources."
+    - "If inferring, say so clearly and use conservative confidence."
+    - "Use plain-text formulas and plain Markdown; do not use LaTeX unless explicitly requested."
+  verification:
+    requiredEvidence:
+      - "No ClassyFire API use."
+      - "Classification system and source method are stated."
+      - "Each taxonomy level is supported or explicitly marked inferred."
+    forbiddenClaims:
+      - "Do not claim live ClassyFire API retrieval."
+      - "Do not claim biological taxonomy for chemical ontology categories."
+  handoff:
+    deliverable: "ClassyFire/ChemOnt taxonomy tree"
+    includes:
+      - "Compound"
+      - "Classification system"
+      - "Source method"
+      - "Confidence"
+      - "Taxonomy tree"
+      - "Notes/caveats"

@@ -13,6 +13,15 @@ const readFileMock = vi.fn(async () => '# Loaded Spec\n\nBuild the thing from th
 const runHeadlessMock = vi.fn(async () => ({ version: 1, success: true }));
 const runHeadlessV2Mock = vi.fn(async () => ({ version: 2, success: true }));
 const runPRReviewMock = vi.fn(async () => ({ success: true, verdict: 'comment' }));
+const writePdfArtifactMock = vi.fn(async () => ({
+  pdfPath: '/tmp/map-result.pdf',
+  htmlPath: '/tmp/map-result.html',
+  renderer: 'chrome',
+}));
+const writeHtmlArtifactMock = vi.fn(async () => ({
+  htmlPath: '/tmp/map-result.html',
+}));
+const openOutputArtifactMock = vi.fn(async () => {});
 
 vi.mock('../src/tui/tui-app.js', () => ({
   createTuiApp: createTuiAppMock,
@@ -25,6 +34,12 @@ vi.mock('../src/headless/runner.js', () => ({
 
 vi.mock('../src/headless/pr-review.js', () => ({
   runPRReview: runPRReviewMock,
+}));
+
+vi.mock('../src/output/pdf-artifact.js', () => ({
+  openOutputArtifact: openOutputArtifactMock,
+  writeHtmlArtifact: writeHtmlArtifactMock,
+  writePdfArtifact: writePdfArtifactMock,
 }));
 
 vi.mock('../src/config/loader.js', () => ({
@@ -159,6 +174,66 @@ describe('runCli', () => {
     const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
     expect(output).toContain('<!doctype html>');
     expect(output).toContain('<h2>Final Result</h2>');
+  });
+
+  it('writes a PDF artifact when requested', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'pdf', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writePdfArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
+      compact: false,
+      outputDir: '/tmp/out',
+    });
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('PDF written to /tmp/map-result.pdf'));
+  });
+
+  it('opens generated PDF output when --open-output is provided', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'pdf', '--open-output', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.pdf');
+  });
+
+  it('writes and opens generated HTML output when --open-output is provided', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'html', '--open-output', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writeHtmlArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
+      compact: false,
+      outputDir: '/tmp/out',
+    });
+    expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.html');
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('HTML report written to /tmp/map-result.html'));
   });
 
   it('prints compact json when --compact is combined with default output format', async () => {

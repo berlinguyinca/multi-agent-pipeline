@@ -74,6 +74,21 @@ quality:
     expect(config.quality.maxCodeQaIterations).toBe(4);
   });
 
+  it('ships sample configs with bounded local-model retry and consensus defaults', async () => {
+    for (const filename of ['pipeline.yaml', 'pipeline.yaml.example']) {
+      const config = await loadConfig(path.join(process.cwd(), filename));
+
+      expect(config.router.maxStepRetries, filename).toBe(1);
+      expect(config.router.stepTimeoutMs, filename).toBe(300_000);
+      expect(config.agentConsensus.enabled, filename).toBe(false);
+      expect(config.agentConsensus.perAgent.researcher, filename).toMatchObject({ enabled: true, runs: 3 });
+      expect(config.agentConsensus.perAgent['classyfire-taxonomy-classifier'], filename).toMatchObject({ enabled: true, runs: 3 });
+      expect(config.agentConsensus.perAgent['usage-classification-tree'], filename).toMatchObject({ enabled: true, runs: 3 });
+      expect(config.agentConsensus.fileOutputs.enabled, filename).toBe(false);
+      expect(config.agentOverrides['output-formatter'], filename).toEqual({ enabled: false });
+    }
+  });
+
   it('parses router consensus config', async () => {
     const yamlContent = `
 router:
@@ -108,6 +123,12 @@ agentConsensus:
   runs: 5
   outputTypes: [answer, data]
   minSimilarity: 0.6
+  perAgent:
+    researcher:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+      minSimilarity: 0.4
   fileOutputs:
     enabled: true
     runs: 3
@@ -127,6 +148,11 @@ agentConsensus:
       runs: 5,
       outputTypes: ['answer', 'data'],
       minSimilarity: 0.6,
+      perAgent: {
+        researcher: { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.4 },
+        'classyfire-taxonomy-classifier': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+        'usage-classification-tree': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+      },
       fileOutputs: {
         enabled: true,
         runs: 3,

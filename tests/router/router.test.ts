@@ -142,6 +142,46 @@ describe('routeTask', () => {
     expect(result.plan.plan.find((step) => step.id === 'step-3')?.dependsOn).toEqual([]);
   });
 
+  it('rewires final formatter steps to depend on prior source steps when the router omits dependencies', async () => {
+    const localAgents = new Map(agents);
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage tree agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You classify usage.',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('output-formatter', {
+      name: 'output-formatter',
+      description: 'Formatter',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You format.',
+      pipeline: [{ name: 'format' }],
+      handles: 'format reports',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research taxonomy', dependsOn: [] },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'format-step-3', agent: 'output-formatter', task: 'Format final report', dependsOn: [] },
+      ],
+    });
+
+    const result = await routeTask('Build final report', localAgents, mockAdapter(json), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan[2].dependsOn).toEqual(['step-1', 'step-2']);
+  });
+
   it('throws on invalid JSON', async () => {
     const adapter = mockAdapter('not json');
 
@@ -433,6 +473,95 @@ describe('routeTask', () => {
       { model: 'qwen3', status: 'contributed', contribution: 1 },
       { model: 'llama3', status: 'failed', contribution: 0 },
     ]);
+  });
+
+  it('runs router consensus candidates sequentially to avoid concurrent Ollama requests', async () => {
+    const agreed = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research sequential routing',
+        dependsOn: [],
+      }],
+    });
+    let active = 0;
+    let maxActive = 0;
+    const sequentialAdapter = (model: string) => ({
+      type: 'ollama' as const,
+      model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        yield agreed;
+      },
+    });
+
+    const result = await routeTask('Introduce the agent', agents, [
+      sequentialAdapter('gemma4'),
+      sequentialAdapter('qwen3'),
+      sequentialAdapter('llama3'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4', 'qwen3', 'llama3'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result.kind).toBe('plan');
+    expect(maxActive).toBe(1);
+  });
+
+  it('uses the provided Ollama concurrency limit for router consensus candidates', async () => {
+    const agreed = JSON.stringify({
+      kind: 'plan',
+      plan: [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research parallel routing',
+        dependsOn: [],
+      }],
+    });
+    let active = 0;
+    let maxActive = 0;
+    const concurrentAdapter = (model: string) => ({
+      type: 'ollama' as const,
+      model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        yield agreed;
+      },
+    });
+
+    const result = await routeTask('Introduce the agent', agents, [
+      concurrentAdapter('gemma4'),
+      concurrentAdapter('qwen3'),
+      concurrentAdapter('llama3'),
+    ], {
+      ...routerConfig,
+      ollamaConcurrency: 2,
+      consensus: {
+        enabled: true,
+        models: ['gemma4', 'qwen3', 'llama3'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result.kind).toBe('plan');
+    expect(maxActive).toBe(2);
   });
 
   it('falls back to the best scored valid router plan when there is no majority', async () => {

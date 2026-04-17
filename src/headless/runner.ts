@@ -66,6 +66,7 @@ import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import type { SecurityConfig } from '../security/types.js';
 import { isAbortError } from '../utils/error.js';
 import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
+import { probeOllamaConcurrencyCapacity } from '../adapters/ollama-capabilities.js';
 import { selectFinalCompletedStep } from '../dag/final-step.js';
 import {
   generateAgentSummary,
@@ -121,6 +122,7 @@ interface HeadlessDependencies {
   loadConfigFn: typeof loadConfig;
   detectAllAdaptersFn: typeof detectAllAdapters;
   createAdapterFn: AdapterFactory;
+  probeOllamaConcurrencyCapacityFn?: typeof probeOllamaConcurrencyCapacity;
   fetchFn?: typeof fetch;
   env?: NodeJS.ProcessEnv;
 }
@@ -129,6 +131,7 @@ const defaultDependencies: HeadlessDependencies = {
   loadConfigFn: loadConfig,
   detectAllAdaptersFn: detectAllAdapters,
   createAdapterFn: createAdapter,
+  probeOllamaConcurrencyCapacityFn: probeOllamaConcurrencyCapacity,
 };
 
 class HeadlessTimeoutError extends Error {
@@ -1124,9 +1127,25 @@ export async function runHeadlessV2(
 
     reporter.dagRoutingStart();
     const routeStart = Date.now();
+    const probeConcurrency =
+      dependencies.probeOllamaConcurrencyCapacityFn ??
+      (dependencies.createAdapterFn === createAdapter ? probeOllamaConcurrencyCapacity : undefined);
+    const ollamaConcurrency =
+      config.router.adapter === 'ollama' && probeConcurrency
+        ? await probeConcurrency({
+            host: config.ollama.host,
+            model: config.router.model,
+            models:
+              config.router.consensus?.models && config.router.consensus.models.length > 0
+                ? config.router.consensus.models
+                : [config.router.model, config.router.model, config.router.model],
+            maxParallel: 3,
+          })
+        : { maxParallel: 1 };
     const routerConfig = {
       ...config.router,
       timeoutMs: options.routerTimeoutMs ?? config.router.timeoutMs,
+      ollamaConcurrency: ollamaConcurrency.maxParallel,
     };
     const routerAdapters = buildRouterAdapters(config, dependencies.createAdapterFn);
     const decision = await routeTask(resolvedPrompt, agents, routerAdapters, routerConfig);
@@ -1167,6 +1186,7 @@ export async function runHeadlessV2(
       retryDelayMs: config.router.retryDelayMs,
       adapterDefaults: config.adapterDefaults,
       agentConsensus: config.agentConsensus,
+      localModelConcurrency: ollamaConcurrency.maxParallel,
       workingDir: outputDir,
       knowledgeCwd: process.cwd(),
       adaptiveReplanning: {

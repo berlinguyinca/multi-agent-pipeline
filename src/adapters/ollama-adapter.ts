@@ -56,7 +56,7 @@ export class OllamaAdapter extends BaseAdapter {
       options?.temperature !== undefined ||
       options?.seed !== undefined
     ) {
-      yield await this.runViaChatApi(fullPrompt, options);
+      yield* this.streamViaChatApi(fullPrompt, options);
       return;
     }
 
@@ -79,7 +79,7 @@ export class OllamaAdapter extends BaseAdapter {
     });
   }
 
-  private async runViaChatApi(prompt: string, options?: RunOptions): Promise<string> {
+  private async *streamViaChatApi(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
     const baseUrl = new URL(this.host ?? process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434');
     const url = new URL('/api/chat', baseUrl);
     const generationOptions: Record<string, number> = {};
@@ -104,7 +104,8 @@ export class OllamaAdapter extends BaseAdapter {
         body: JSON.stringify({
           model: this.model,
           messages: buildChatMessages(prompt, options?.responseFormat === 'json'),
-          stream: false,
+          stream: true,
+          ...(options?.think !== undefined ? { think: options.think } : {}),
           ...(options?.responseFormat === 'json' ? { format: ROUTER_OUTPUT_SCHEMA } : {}),
           options: generationOptions,
         }),
@@ -126,18 +127,86 @@ export class OllamaAdapter extends BaseAdapter {
       );
     }
 
-    const payload = (await response.json()) as { message?: { content?: string } };
-    const content = payload.message?.content;
-    if (typeof content !== 'string') {
-      throw new AdapterError('Ollama API response did not include text output', this.type);
+    if (!response.body) {
+      throw new AdapterError('Ollama API response did not include a stream body', this.type);
     }
 
-    return content;
+    try {
+      for await (const content of readOllamaStream(response.body)) {
+        yield content;
+      }
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
+        throw new AdapterError(
+          `Ollama request was aborted while generating output for model "${this.model}"`,
+          this.type,
+        );
+      }
+      throw err;
+    }
   }
 
   private buildEnv(): NodeJS.ProcessEnv {
     return this.host ? { ...process.env, OLLAMA_HOST: this.host } : process.env;
   }
+}
+
+async function* readOllamaStream(body: ReadableStream<Uint8Array>): AsyncGenerator<string, void, void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const content = parseOllamaStreamLine(line);
+        if (content) yield content;
+      }
+    }
+
+    buffer += decoder.decode();
+    const content = parseOllamaStreamLine(buffer);
+    if (content) yield content;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseOllamaStreamLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return '';
+
+  let payload: {
+    message?: { content?: unknown };
+    response?: unknown;
+    error?: unknown;
+  };
+  try {
+    payload = JSON.parse(trimmed) as typeof payload;
+  } catch (err: unknown) {
+    throw new AdapterError(`Ollama API returned malformed stream JSON: ${trimmed}`, 'ollama');
+  }
+
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    throw new AdapterError(`Ollama API stream failed: ${payload.error}`, 'ollama');
+  }
+
+  if (typeof payload.message?.content === 'string') {
+    return payload.message.content;
+  }
+
+  if (typeof payload.response === 'string') {
+    return payload.response;
+  }
+
+  return '';
 }
 
 const ROUTER_OUTPUT_SCHEMA = {

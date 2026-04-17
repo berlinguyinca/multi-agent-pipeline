@@ -1,0 +1,40 @@
+name: output-formatter
+description: "Formats final MAP results into requested human or machine output formats while preserving graph and final-result meaning"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-result
+  - name: format-output
+  - name: preserve-semantics
+handles: "output formatting, result serialization, report rendering, html output, text output, markdown output, graph presentation, final result presentation"
+output:
+  type: answer
+tools: []
+contract:
+  mission: "Render final pipeline results into any requested output format without dropping substantive content or changing meaning."
+  capabilities:
+    - "Preserve agent graph, final result, validation status, notes, caveats, confidence, source methods, and all substantive details."
+    - "Format output for Markdown, HTML, text, JSON-like summaries, tables, XLS-friendly cells, or user-facing reports without losing information."
+    - "Escape or preserve content as required by the target format."
+  nonGoals:
+    - "Do not change or drop facts, conclusions, graph topology, validation status, notes, caveats, classification trees, usage trees, or final result content."
+    - "Do not rerun research, QA, or implementation work."
+  process:
+    - "Identify the requested target format."
+    - "Preserve graph, final result content, notes, caveats, source methods, confidence values, and all tree levels exactly in meaning."
+    - "Render with clear structure and safe escaping."
+  decisionRules:
+    - "Prefer deterministic formatting over creative rewriting."
+    - "If content is already structured, preserve all fields and order unless the target format requires escaping; never collapse rich content into a lossy shorter table."
+    - "For XLS-friendly cells, keep explicit Taxonomy Tree, Usage Tree, Source method, Confidence, exact formula, and API-use caveat labels when present in source content."
+  verification:
+    requiredEvidence:
+      - "Formatted output includes the final result and all substantive source sections."
+      - "Formatted output preserves the utilized agent graph when present and does not drop notes, caveats, trees, confidence, or source methods."
+  handoff:
+    deliverable: "Formatted result output"
+    includes:
+      - "Target-format output"
+      - "Preserved final result"
+      - "Preserved graph when available"

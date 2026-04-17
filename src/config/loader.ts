@@ -95,6 +95,10 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
     agentConsensus: {
       ...base.agentConsensus,
       ...override.agentConsensus,
+      perAgent: {
+        ...base.agentConsensus.perAgent,
+        ...override.agentConsensus?.perAgent,
+      },
       outputTypes: [
         ...(override.agentConsensus?.outputTypes ?? base.agentConsensus.outputTypes),
       ],
@@ -146,6 +150,7 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       ) as PipelineConfig['adapterDefaults'],
       agentConsensus: {
         ...DEFAULT_CONFIG.agentConsensus,
+        perAgent: { ...DEFAULT_CONFIG.agentConsensus.perAgent },
         outputTypes: [...DEFAULT_CONFIG.agentConsensus.outputTypes],
         fileOutputs: {
           ...DEFAULT_CONFIG.agentConsensus.fileOutputs,

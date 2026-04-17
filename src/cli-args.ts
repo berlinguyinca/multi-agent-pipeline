@@ -31,6 +31,7 @@ const booleanFlags = new Set([
   '--verbose',
   '-V',
   '--compact',
+  '--open-output',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {

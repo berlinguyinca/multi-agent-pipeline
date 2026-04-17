@@ -19,16 +19,17 @@ const result = {
 };
 
 describe('extended result formats', () => {
-  it('accepts json, yaml, markdown, html, and text formats', () => {
+  it('accepts json, yaml, markdown, html, text, and pdf formats', () => {
     expect(parseMapOutputFormat('json')).toBe('json');
     expect(parseMapOutputFormat('yaml')).toBe('yaml');
     expect(parseMapOutputFormat('markdown')).toBe('markdown');
     expect(parseMapOutputFormat('html')).toBe('html');
     expect(parseMapOutputFormat('text')).toBe('text');
+    expect(parseMapOutputFormat('pdf')).toBe('pdf');
   });
 
   it('does not accept compact as an output format', () => {
-    expect(() => parseMapOutputFormat('compact')).toThrow('json, yaml, markdown, html, text');
+    expect(() => parseMapOutputFormat('compact')).toThrow('json, yaml, markdown, html, text, pdf');
   });
 
   it('renders full html output', () => {
@@ -285,6 +286,100 @@ describe('extended result formats', () => {
     expect(output).toContain('# Usage Classification Tree');
     expect(output).toContain('## Usage Tree');
     expect(output).toContain('Biomarker');
+  });
+
+  it('compact html and pdf use combined taxonomy and usage outputs instead of terminal judge text', () => {
+    const judged = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'classyfire-taxonomy-classifier', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+          { id: 'step-3', agent: 'result-judge', status: 'completed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-3', type: 'planned' },
+          { from: 'step-2', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Classify', status: 'completed', output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: X\n\n## Taxonomy Tree\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |' },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Usage', status: 'completed', output: '# Usage Classification Tree\n\nEntity: X\n\n## Usage Tree\n\n| Level | Usage Classification |\n| --- | --- |\n| Level 1 | Biomarker |' },
+        { id: 'step-3', agent: 'result-judge', task: 'Judge', status: 'completed', output: 'Please provide candidate outputs to judge.' },
+      ],
+    };
+
+    for (const format of ['html', 'pdf'] as const) {
+      const output = formatMapOutput(judged, format, { compact: true });
+
+      expect(output).toContain('ClassyFire / ChemOnt Taxonomic Classification');
+      expect(output).toContain('Usage Classification Tree');
+      expect(output).not.toContain('Please provide candidate outputs to judge');
+    }
+  });
+
+  it('compact html combines grammar-polished taxonomy and usage outputs without selecting judge rubric text', () => {
+    const judged = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      dag: {
+        nodes: [
+          { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', status: 'completed', duration: 1 },
+          { id: 'step-2-grammar-1', agent: 'grammar-spelling-specialist', status: 'completed', duration: 1 },
+          { id: 'step-3', agent: 'result-judge', status: 'completed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1-grammar-1', to: 'step-3', type: 'planned' },
+          { from: 'step-2-grammar-1', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish taxonomy', status: 'completed', output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: X\n\n## Taxonomy Tree\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |' },
+        { id: 'step-2-grammar-1', agent: 'grammar-spelling-specialist', task: 'Polish usage', status: 'completed', output: '# Usage Classification Tree\n\nEntity: X\n\n## LCB Exposure Summary\n\n| Category | Classification |\n| --- | --- |\n| Drug / drug metabolite | no |' },
+        { id: 'step-3', agent: 'result-judge', task: 'Judge', status: 'completed', output: 'The provided context contains two distinct datasets: a chemical taxonomy (ClassyFire) and a usage classification (LCB). Please provide candidate outputs to judge.' },
+      ],
+    };
+
+    const output = formatMapOutput(judged, 'html', { compact: true });
+
+    expect(output).toContain('ClassyFire / ChemOnt Taxonomic Classification');
+    expect(output).toContain('Taxonomy Tree');
+    expect(output).toContain('Usage Classification Tree');
+    expect(output).toContain('LCB Exposure Summary');
+    expect(output).not.toContain('Please provide candidate outputs to judge');
+  });
+
+  it('compact markdown falls back from formatter data-unavailable tables to useful taxonomy output', () => {
+    const degraded = {
+      version: 2,
+      success: false,
+      outcome: 'failed',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'classyfire-taxonomy-classifier', status: 'completed', duration: 1 },
+          { id: 'organize-step-2', agent: 'usage-classification-tree', status: 'failed', duration: 1 },
+          { id: 'format-step-3', agent: 'output-formatter', status: 'completed', duration: 1, final: true },
+        ],
+        edges: [
+          { from: 'step-1', to: 'organize-step-2', type: 'planned' },
+        ],
+      },
+      steps: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Classify', status: 'completed', output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: Alanine\n\n## Taxonomy Tree\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |' },
+        { id: 'organize-step-2', agent: 'usage-classification-tree', task: 'Usage', status: 'failed', error: 'Step timed out during organize-step-2 (usage-classification-tree)' },
+        { id: 'format-step-3', agent: 'output-formatter', task: 'Format', status: 'completed', output: '| Parameter | Result |\n| :--- | :--- |\n| Subject | alanine |\n| Retrieval Result | No matching knowledge entries found |\n| Status | Data Unavailable |' },
+      ],
+    };
+
+    const output = formatMapOutput(degraded, 'markdown', { compact: true });
+
+    expect(output).toContain('# ClassyFire / ChemOnt Taxonomic Classification');
+    expect(output).toContain('Alanine');
+    expect(output).not.toContain('Data Unavailable');
+    expect(output).not.toContain('No matching knowledge entries found');
   });
 
 });

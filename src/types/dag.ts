@@ -76,7 +76,7 @@ export interface StepResult {
   parentStepId?: string;
   edgeType?: DAGEdgeType;
   spawnedByAgent?: string;
-  failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'unknown';
+  failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'timeout' | 'unknown';
   blockerKind?: 'credentials' | 'external-service' | 'user-decision' | 'repo-state' | 'no-progress' | 'unknown';
   replacementStepId?: string;
   handoffPassed?: boolean;

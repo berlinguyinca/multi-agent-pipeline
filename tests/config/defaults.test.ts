@@ -48,12 +48,17 @@ describe('DEFAULT_CONFIG', () => {
     });
   });
 
-  it('enables local agent consensus by default for non-file outputs', () => {
+  it('keeps local agent consensus opt-in to avoid slow local-model stalls', () => {
     expect(DEFAULT_CONFIG.agentConsensus).toEqual({
-      enabled: true,
+      enabled: false,
       runs: 3,
       outputTypes: ['answer', 'data', 'presentation'],
       minSimilarity: 0.35,
+      perAgent: {
+        researcher: { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+        'classyfire-taxonomy-classifier': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+        'usage-classification-tree': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+      },
       fileOutputs: {
         enabled: false,
         runs: 3,
@@ -63,5 +68,13 @@ describe('DEFAULT_CONFIG', () => {
         selection: 'best-passing-minimal-diff',
       },
     });
+  });
+
+  it('uses a bounded step retry default instead of hour-scale timeout backoff', () => {
+    expect(DEFAULT_CONFIG.router.maxStepRetries).toBe(1);
+  });
+
+  it('disables the LLM output formatter by default', () => {
+    expect(DEFAULT_CONFIG.agentOverrides['output-formatter']).toEqual({ enabled: false });
   });
 });

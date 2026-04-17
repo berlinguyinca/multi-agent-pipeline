@@ -1,17 +1,18 @@
 import { stringify as stringifyYaml } from 'yaml';
+import { marked } from 'marked';
 import { getPreferredTerminalStepIds } from '../dag/final-step.js';
 import { renderSimplifiedGraph } from '../dag/graph-renderer.js';
 import type { DAGPlan } from '../types/dag.js';
 import { normalizeScientificNotation } from '../utils/scientific-notation.js';
 
-export type MapOutputFormat = 'json' | 'yaml' | 'markdown' | 'html' | 'text';
+export type MapOutputFormat = 'json' | 'yaml' | 'markdown' | 'html' | 'text' | 'pdf';
 
 export interface FormatMapOutputOptions {
   compact?: boolean;
 }
 
-const OUTPUT_FORMATS = new Set<MapOutputFormat>(['json', 'yaml', 'markdown', 'html', 'text']);
-const OUTPUT_FORMAT_LIST = 'json, yaml, markdown, html, text';
+const OUTPUT_FORMATS = new Set<MapOutputFormat>(['json', 'yaml', 'markdown', 'html', 'text', 'pdf']);
+const OUTPUT_FORMAT_LIST = 'json, yaml, markdown, html, text, pdf';
 
 export function parseMapOutputFormat(value: string | undefined): MapOutputFormat {
   if (value === undefined) return 'json';
@@ -40,6 +41,8 @@ export function formatMapOutput(
       return options.compact ? formatCompactHtmlResult(result) : formatHtmlResult(result);
     case 'text':
       return options.compact ? formatCompactTextResult(normalizedResult) : formatTextResult(normalizedResult);
+    case 'pdf':
+      return options.compact ? formatCompactHtmlResult(result) : formatHtmlResult(result);
   }
 }
 
@@ -67,7 +70,7 @@ function buildCompactData(result: unknown): Record<string, unknown> {
     ...(data['outcome'] !== undefined ? { outcome: data['outcome'] } : {}),
     agentGraph: buildSimplifiedGraph(data),
     ...(consensusDiagnostics.length > 0 ? { consensusDiagnostics } : {}),
-    finalResult: extractFinalResult(data) ?? '',
+    finalResult: extractDisplayFinalResult(data) ?? '',
     ...buildErrorData(data),
     ...buildWarningData(data),
   };
@@ -227,7 +230,7 @@ function buildHtmlDocument(
   rawResult: unknown,
 ): string {
   const graph = buildSimplifiedGraph(data);
-  const final = extractFinalResult(data) ?? '';
+  const final = extractDisplayFinalResult(data) ?? '';
   const summary = [
     ['Version', data['version']],
     ['Success', data['success']],
@@ -244,19 +247,20 @@ function buildHtmlDocument(
     '<head>',
     '<meta charset="utf-8">',
     `<title>${escapeHtml(title)}</title>`,
-    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}code{background:#f6f8fa;padding:.1rem .2rem}</style>',
+    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{min-width:170px;max-width:230px;position:relative;padding:.85rem 1rem;border:1px solid #c5d6ea;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.11);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:16px 0 0 16px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta{font-size:.75rem;color:#475569}.flow-arrow{display:flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:34px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:10px solid #8db5ec}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}</style>',
     '</head>',
     '<body>',
     `<h1>${escapeHtml(title)}</h1>`,
     ...(compact ? [] : ['<h2>Summary</h2>', '<ul>', ...summary.map(([label, value]) => `<li><strong>${escapeHtml(String(label))}:</strong> ${escapeHtml(String(value))}</li>`), '</ul>']),
     '<h2>Agent Graph</h2>',
     graph.length > 0 ? `<ul>${graph.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '<p>No graph available.</p>',
+    renderHtmlAgentNetwork(data),
     ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
     ...renderHtmlWarnings(data),
     ...(compact || steps.length === 0 ? [] : ['<h2>Steps</h2>', renderHtmlStepTable(steps)]),
     '<h2>Final Result</h2>',
-    `<pre>${escapeHtml(final || 'No final result captured.')}</pre>`,
+    renderFinalResultHtml(final),
     ...(compact ? [] : ['<h2>Result Data</h2>', `<pre>${escapeHtml(JSON.stringify(rawResult, null, 2))}</pre>`]),
     '</body>',
     '</html>',
@@ -281,6 +285,62 @@ function renderHtmlStepTable(steps: Record<string, unknown>[]): string {
     '</tbody>',
     '</table>',
   ].join('\n');
+}
+
+function renderFinalResultHtml(final: string): string {
+  if (!final.trim()) return '<p>No final result captured.</p>';
+  return `<article class="rendered-markdown">${marked.parse(final, { async: false }) as string}</article>`;
+}
+
+function renderHtmlAgentNetwork(data: Record<string, unknown>): string {
+  const dag = isRecord(data['dag']) ? data['dag'] : undefined;
+  const nodes = Array.isArray(dag?.['nodes']) ? dag['nodes'].filter(isRecord) : [];
+  const edges = Array.isArray(dag?.['edges']) ? dag['edges'].filter(isRecord) : [];
+  if (nodes.length === 0) return '';
+
+  const cards = nodes.flatMap((node, index) => {
+    const id = String(node['id'] ?? '');
+    const agent = String(node['agent'] ?? 'unknown');
+    const status = String(node['status'] ?? 'pending').toLowerCase();
+    const provider = String(node['provider'] ?? '').trim();
+    const model = String(node['model'] ?? '').trim();
+    const duration = formatDuration(node['duration']);
+    const meta = [status, provider && model ? `${provider}/${model}` : provider || model, duration].filter(Boolean).join(' | ');
+
+    const card = [
+      '<div class="agent-flow-step">',
+      `<article class="agent-node ${escapeHtml(status)}">`,
+      `<div class="agent-node-id">${escapeHtml(id)}</div>`,
+      `<div class="agent-node-name">${escapeHtml(agent)}</div>`,
+      `<div class="agent-node-meta">${escapeHtml(meta)}</div>`,
+      '</article>',
+      index < nodes.length - 1
+        ? '<div class="flow-arrow" aria-hidden="true"><span class="flow-arrow-line"></span><span class="flow-arrow-head"></span></div>'
+        : '',
+      '</div>',
+    ].join('');
+    return [card];
+  });
+
+  const edgeLines = edges
+    .map((edge) => {
+      const from = String(edge['from'] ?? '');
+      const to = String(edge['to'] ?? '');
+      const type = String(edge['type'] ?? 'planned');
+      if (!from || !to) return '';
+      return `<div class="agent-edge">${escapeHtml(`${from} -> ${to}`)} <span>(${escapeHtml(type)})</span></div>`;
+    })
+    .filter(Boolean);
+
+  return [
+    '<section class="agent-network" aria-label="Agent network visualization">',
+    '<h3>Agent Network</h3>',
+    '<div class="agent-flow">',
+    ...cards,
+    '</div>',
+    ...(edgeLines.length > 0 ? ['<div class="agent-network-edges">', ...edgeLines, '</div>'] : []),
+    '</section>',
+  ].join('');
 }
 
 function appendSummary(lines: string[], data: Record<string, unknown>): void {
@@ -579,8 +639,28 @@ function extractDisplayFinalResult(data: Record<string, unknown>): string | null
 
 function combineComplementaryReports(data: Record<string, unknown>): string | null {
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
-  const taxonomy = findLatestUsefulOutput(steps, ['classyfire-taxonomy-classifier', 'taxonomy-classifier'], ['Taxonomy Tree', 'ChemOnt', 'ClassyFire']);
-  const usage = findLatestUsefulOutput(steps, ['usage-classification-tree'], ['Usage Tree', 'Usage Classification']);
+  const taxonomy = findLatestUsefulOutput(
+    steps,
+    ['classyfire-taxonomy-classifier', 'taxonomy-classifier'],
+    ['Taxonomy Tree', 'ChemOnt Taxonomic Classification', 'ClassyFire / ChemOnt'],
+    ['result-judge', 'output-formatter'],
+  ) ?? findLatestUsefulOutput(
+    steps,
+    [],
+    ['Taxonomy Tree', 'ChemOnt Taxonomic Classification', 'ClassyFire / ChemOnt'],
+    ['result-judge', 'output-formatter'],
+  );
+  const usage = findLatestUsefulOutput(
+    steps,
+    ['usage-classification-tree'],
+    ['Usage Tree', 'Usage Classification Tree', 'LCB Exposure Summary'],
+    ['result-judge', 'output-formatter'],
+  ) ?? findLatestUsefulOutput(
+    steps,
+    [],
+    ['Usage Tree', 'Usage Classification Tree', 'LCB Exposure Summary'],
+    ['result-judge', 'output-formatter'],
+  );
   if (!taxonomy || !usage) return null;
   if (taxonomy === usage) return taxonomy;
   return `${taxonomy}\n\n---\n\n${usage}`;
@@ -590,11 +670,13 @@ function findLatestUsefulOutput(
   steps: Record<string, unknown>[],
   agents: string[],
   requiredMarkers: string[],
+  excludedAgents: string[] = [],
 ): string | null {
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index]!;
     const agent = String(step['agent'] ?? '');
-    if (!agents.some((candidate) => agent.includes(candidate))) continue;
+    if (excludedAgents.some((candidate) => agent.includes(candidate))) continue;
+    if (agents.length > 0 && !agents.some((candidate) => agent.includes(candidate))) continue;
     const output = usableStepOutput(step);
     if (!output) continue;
     if (requiredMarkers.some((marker) => output.toLowerCase().includes(marker.toLowerCase()))) {
@@ -656,7 +738,9 @@ function looksLikeLossyFormatterTable(step: Record<string, unknown>, output: str
   const normalized = output.toLowerCase();
   return (
     normalized.includes('| entity | usage domain | source method | confidence |') ||
-    normalized.includes('| level 1 | level 2 | level 3 | level 4 | level 5 | level 6 |')
+    normalized.includes('| level 1 | level 2 | level 3 | level 4 | level 5 | level 6 |') ||
+    normalized.includes('no matching knowledge entries found') ||
+    normalized.includes('data unavailable')
   );
 }
 

@@ -7,7 +7,9 @@ import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
 import { isAbortError } from '../utils/error.js';
 
-type RouterConfig = Pick<PipelineRouterConfig, 'maxSteps' | 'timeoutMs' | 'maxStepRetries' | 'retryDelayMs' | 'consensus'>;
+type RouterConfig = Pick<PipelineRouterConfig, 'maxSteps' | 'timeoutMs' | 'maxStepRetries' | 'retryDelayMs' | 'consensus'> & {
+  ollamaConcurrency?: number;
+};
 
 const DEFAULT_MAX_STEP_RETRIES = 4;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
@@ -72,20 +74,19 @@ async function routeTaskWithConsensus(
   signal?: AbortSignal,
   onChunk?: (chunk: string) => void,
 ): Promise<RouterDecision> {
-  const candidates = await Promise.all(
-    adapters.map(async (adapter) => {
-      const modelName = adapter.model ?? adapter.type;
-      try {
-        onChunk?.(`\n[router:${modelName}]\n`);
-        const output = await runRouterAdapter(prompt, adapter, config, signal, onChunk);
-        const decision = finalizeRouterOutput(output, agents);
-        return { model: modelName, decision, score: scoreRouterDecision(decision) };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { model: modelName, error: message };
-      }
-    }),
-  );
+  const concurrency = Math.max(1, Math.min(adapters.length, Math.floor(config.ollamaConcurrency ?? 1)));
+  const candidates = await mapWithConcurrency(adapters, concurrency, async (adapter) => {
+    const modelName = adapter.model ?? adapter.type;
+    try {
+      onChunk?.(`\n[router:${modelName}]\n`);
+      const output = await runRouterAdapter(prompt, adapter, config, signal, onChunk);
+      const decision = finalizeRouterOutput(output, agents);
+      return { model: modelName, decision, score: scoreRouterDecision(decision) };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { model: modelName, error: message };
+    }
+  });
 
   const valid = candidates.filter(
     (candidate): candidate is { model: string; decision: RouterDecision; score: number } =>
@@ -122,6 +123,26 @@ async function routeTaskWithConsensus(
     ...selected.decision,
     consensus: buildRouterConsensusDiagnostics(candidates, selected.decision.plan, 'best-valid-fallback'),
   };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!, index);
+    }
+  }));
+
+  return results;
 }
 
 async function runRouterAdapter(
@@ -520,6 +541,19 @@ function cleanRouterDecision(
     dependsOn: step.dependsOn.map((dep) => dep.trim()).filter(Boolean),
   }));
   const ids = new Set(cleanedSteps.map((step) => step.id));
+  const existingDependencyTargets = new Set(cleanedSteps.flatMap((step) => step.dependsOn));
+  const finalFormatterIndex = cleanedSteps.findIndex((step) => isFormatterStep(step.agent, step.task));
+  if (finalFormatterIndex >= 0) {
+    const finalFormatter = cleanedSteps[finalFormatterIndex]!;
+    const upstreamIds = cleanedSteps
+      .slice(0, finalFormatterIndex)
+      .filter((step) => step.agent !== finalFormatter.agent)
+      .filter((step) => !existingDependencyTargets.has(step.id))
+      .map((step) => step.id);
+    if (upstreamIds.length > 0 && finalFormatter.dependsOn.length === 0) {
+      finalFormatter.dependsOn = upstreamIds;
+    }
+  }
 
   return {
     kind: 'plan',
@@ -530,6 +564,10 @@ function cleanRouterDecision(
       })),
     },
   };
+}
+
+function isFormatterStep(agent: string, task: string): boolean {
+  return agent === 'output-formatter' || /\b(format|render|xls|presentation|report)\b/i.test(task);
 }
 
 

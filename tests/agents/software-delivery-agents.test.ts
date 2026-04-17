@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -84,6 +85,38 @@ describe('software delivery agent bundle', () => {
     }
   });
 
+  it('keeps every first-party agent definition visible to git', async () => {
+    const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
+    const definitionFiles = entries
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => [
+        path.join('agents', entry.name, 'agent.yaml'),
+        path.join('agents', entry.name, 'prompt.md'),
+      ]);
+
+    try {
+      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch {
+      return;
+    }
+
+    try {
+      const ignored = execFileSync('git', ['check-ignore', '--', ...definitionFiles], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      expect(ignored.trim(), `Agent definition files must not be ignored:\n${ignored}`).toBe('');
+    } catch (error) {
+      if (isExitCode(error, 1)) return;
+      throw error;
+    }
+  });
+
   it('loads every first-party agent with professional no-emoji conduct rules', async () => {
     const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
 
@@ -139,12 +172,37 @@ describe('software delivery agent bundle', () => {
     expect(usage.prompt).toContain('Do not output ClassyFire/ChemOnt hierarchy here');
   });
 
+  it('requires the usage classifier to produce LCB-ready exposure origin summaries', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(usage.prompt).toContain('LCB Exposure Summary');
+    expect(usage.prompt).toContain('drug / drug metabolite');
+    expect(usage.prompt).toContain('food compound / food metabolite');
+    expect(usage.prompt).toContain('household chemical');
+    expect(usage.prompt).toContain('industrial chemical');
+    expect(usage.prompt).toContain('pesticide');
+    expect(usage.prompt).toContain('personal care products');
+    expect(usage.prompt).toContain('other exposure origins');
+    expect(usage.prompt).toContain('cellular endogenous compound');
+    expect(usage.prompt).toContain('three most typical diseases');
+    expect(usage.prompt).toContain('three most typical foods');
+    expect(usage.prompt).toContain('three most typical species');
+    expect(usage.prompt).toContain('three most typical organs');
+    expect(usage.prompt).toContain('For common well-known endogenous compounds');
+    expect(usage.prompt).toContain('Keep the report concise and XLS-friendly');
+    expect(usage.contract?.capabilities).toContain(
+      'Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable.',
+    );
+    expect(usage.contract?.handoff.includes).toContain('LCB exposure summary');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 
     expect(agent.prompt).toContain('without changing the message, tone, voice, intent, structure, or level of formality');
     expect(agent.prompt).toContain("Preserve the author's message, tone, voice, intent, structure");
     expect(agent.prompt).toContain('Do not summarize, shorten, expand, soften, strengthen, formalize, casualize, or otherwise restyle');
+    expect(agent.prompt).toContain('return the original text unchanged');
     expect(agent.contract?.mission).toContain('preserving the original message, tone, voice, intent, and structure');
   });
 
@@ -187,3 +245,7 @@ describe('software delivery agent bundle', () => {
     expect(validateDAGPlan(plan)).toEqual({ valid: true });
   });
 });
+
+function isExitCode(error: unknown, code: number): boolean {
+  return typeof error === 'object' && error !== null && 'status' in error && error.status === code;
+}

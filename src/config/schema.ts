@@ -405,6 +405,7 @@ function validateAgentConsensusConfig(value: unknown): AgentConsensusConfig {
   const consensus: AgentConsensusConfig = {
     ...DEFAULT_AGENT_CONSENSUS_CONFIG,
     outputTypes: [...DEFAULT_AGENT_CONSENSUS_CONFIG.outputTypes],
+    perAgent: { ...DEFAULT_AGENT_CONSENSUS_CONFIG.perAgent },
   };
 
   if (obj['enabled'] !== undefined) {
@@ -454,7 +455,71 @@ function validateAgentConsensusConfig(value: unknown): AgentConsensusConfig {
     consensus.fileOutputs = validateFileOutputConsensusConfig(obj['fileOutputs']);
   }
 
+  if (obj['perAgent'] !== undefined) {
+    if (typeof obj['perAgent'] !== 'object' || obj['perAgent'] === null || Array.isArray(obj['perAgent'])) {
+      throw new Error('agentConsensus.perAgent must be an object');
+    }
+    consensus.perAgent = validateAgentConsensusOverrides(obj['perAgent']);
+  }
+
   return consensus;
+}
+
+function validateAgentConsensusOverrides(value: unknown): AgentConsensusConfig['perAgent'] {
+  const obj = value as Record<string, unknown>;
+  const result: AgentConsensusConfig['perAgent'] = {};
+
+  for (const [agentName, overrideValue] of Object.entries(obj)) {
+    if (typeof overrideValue !== 'object' || overrideValue === null || Array.isArray(overrideValue)) {
+      throw new Error(`agentConsensus.perAgent.${agentName} must be an object`);
+    }
+    const overrideObj = overrideValue as Record<string, unknown>;
+    const override: AgentConsensusConfig['perAgent'][string] = {};
+
+    if (overrideObj['enabled'] !== undefined) {
+      if (typeof overrideObj['enabled'] !== 'boolean') {
+        throw new Error(`agentConsensus.perAgent.${agentName}.enabled must be a boolean`);
+      }
+      override.enabled = overrideObj['enabled'];
+    }
+    if (overrideObj['runs'] !== undefined) {
+      override.runs = validatePositiveInteger(overrideObj['runs'], `agentConsensus.perAgent.${agentName}.runs`);
+      if (override.runs > 5) {
+        throw new Error(`agentConsensus.perAgent.${agentName}.runs must be at most 5`);
+      }
+    }
+    if (overrideObj['outputTypes'] !== undefined) {
+      if (!Array.isArray(overrideObj['outputTypes'])) {
+        throw new Error(`agentConsensus.perAgent.${agentName}.outputTypes must be an array`);
+      }
+      override.outputTypes = overrideObj['outputTypes'].map((type, index) => {
+        if (
+          typeof type !== 'string' ||
+          !(VALID_AGENT_CONSENSUS_OUTPUT_TYPES as readonly string[]).includes(type)
+        ) {
+          throw new Error(
+            `agentConsensus.perAgent.${agentName}.outputTypes[${index}] must be one of: ${VALID_AGENT_CONSENSUS_OUTPUT_TYPES.join(', ')}`,
+          );
+        }
+        return type as AgentConsensusConfig['outputTypes'][number];
+      });
+    }
+    if (overrideObj['minSimilarity'] !== undefined) {
+      if (
+        typeof overrideObj['minSimilarity'] !== 'number' ||
+        !Number.isFinite(overrideObj['minSimilarity']) ||
+        overrideObj['minSimilarity'] < 0 ||
+        overrideObj['minSimilarity'] > 1
+      ) {
+        throw new Error(`agentConsensus.perAgent.${agentName}.minSimilarity must be a number between 0 and 1`);
+      }
+      override.minSimilarity = overrideObj['minSimilarity'];
+    }
+
+    result[agentName] = override;
+  }
+
+  return result;
 }
 
 function validateFileOutputConsensusConfig(value: unknown): FileOutputConsensusConfig {

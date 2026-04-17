@@ -9,6 +9,7 @@ import { parseDuration } from './utils/duration.js';
 import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
 import { formatMapOutput, parseMapOutputFormat, type MapOutputFormat } from './output/result-format.js';
+import { openOutputArtifact, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
 
 export async function runCli(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -37,7 +38,8 @@ Options:
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
   --output-dir <path>    Output directory for generated files and Markdown artifacts
-  --output-format <fmt>  Print final result as json, yaml, markdown, html, or text (default: json)
+  --output-format <fmt>  Print final result as json, yaml, markdown, html, text, or pdf (default: json)
+  --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
@@ -87,6 +89,7 @@ Commands:
   const reviewPrUrl = extractFlag(args, '--review-pr');
   const outputFormat = resolveOutputFormat(args);
   const compact = hasFlag(args, '--compact');
+  const openOutput = hasFlag(args, '--open-output');
   if (hasReviewPr && !reviewPrUrl) {
     console.error('Error: --review-pr requires a URL argument (e.g. --review-pr https://github.com/owner/repo/pull/123)');
     process.exit(1);
@@ -96,7 +99,7 @@ Commands:
     const configPath = extractFlag(args, '--config');
     const personality = extractFlag(args, '--personality');
     const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
-    writeFormattedResult(result, outputFormat, compact);
+    await writeFormattedResult(result, outputFormat, compact, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -148,7 +151,7 @@ Commands:
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
-      writeFormattedResult(result, outputFormat, compact);
+      await writeFormattedResult(result, outputFormat, compact, openOutput);
       process.exit(result.success ? 0 : 1);
     }
 
@@ -176,7 +179,7 @@ Commands:
       pollIntervalMs:
         pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
     });
-    writeFormattedResult(result, outputFormat, compact);
+    await writeFormattedResult(result, outputFormat, compact, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -332,6 +335,38 @@ function buildV2SpecFilePrompt(
   ].join('\n');
 }
 
-function writeFormattedResult(result: unknown, format: MapOutputFormat, compact = false): void {
+async function writeFormattedResult(
+  result: unknown,
+  format: MapOutputFormat,
+  compact = false,
+  openOutput = false,
+): Promise<void> {
+  const outputDir = typeof result === 'object' && result !== null && !Array.isArray(result)
+    ? ((result as Record<string, unknown>)['outputDir'] as string | undefined)
+    : undefined;
+
+  if (format === 'pdf') {
+    const artifact = await writePdfArtifact(result, {
+      compact,
+      outputDir,
+    });
+    if (openOutput) {
+      await openOutputArtifact(artifact.pdfPath ?? artifact.htmlPath);
+    }
+    if (artifact.pdfPath) {
+      process.stdout.write(`PDF written to ${artifact.pdfPath}\nHTML source written to ${artifact.htmlPath}\n`);
+      return;
+    }
+    process.stdout.write(`HTML report written to ${artifact.htmlPath}\n${artifact.warning ?? 'PDF rendering unavailable.'}\n`);
+    return;
+  }
+
+  if (format === 'html' && openOutput) {
+    const artifact = await writeHtmlArtifact(result, { compact, outputDir });
+    await openOutputArtifact(artifact.htmlPath);
+    process.stdout.write(`HTML report written to ${artifact.htmlPath}\n`);
+    return;
+  }
+
   process.stdout.write(formatMapOutput(result, format, { compact }));
 }

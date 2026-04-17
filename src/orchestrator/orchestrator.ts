@@ -1,4 +1,6 @@
 // src/orchestrator/orchestrator.ts
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { AdapterDefaultsMap, AgentConsensusConfig } from '../types/config.js';
@@ -49,13 +51,15 @@ export interface DAGRetryOptions {
     reviewedSpecContent?: string;
   };
   agentConsensus?: AgentConsensusConfig;
+  localModelConcurrency?: number;
 }
 
 const MAX_TOOL_CALLS = 4;
 const MAX_RECOVERY_ROUNDS = 2;
 const DEFAULT_STEP_TIMEOUT_MS = 300_000;
-const DEFAULT_MAX_STEP_RETRIES = 4;
+const DEFAULT_MAX_STEP_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
+const ADAPTIVE_TIMEOUTS_PATH = path.join('.map', 'adaptive-timeouts.json');
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof Error)) return true;
@@ -95,6 +99,7 @@ export async function executeDAG(
   const stepTimeoutMs = retry?.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
   const adapterDefaults = retry?.adapterDefaults;
   const agentConsensus = retry?.agentConsensus;
+  const localModelConcurrency = Math.max(1, Math.floor(retry?.localModelConcurrency ?? 1));
   const workingDir = retry?.workingDir ?? process.cwd();
   const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
   const results = new Map<string, StepResult>();
@@ -106,6 +111,7 @@ export async function executeDAG(
   const activeAdapters = new Set<AgentAdapter>();
   const recoveryRounds = new Map<string, number>();
   const replans: AdviserReplanEvent[] = [];
+  const adaptiveTimeouts = await loadAdaptiveTimeouts(workingDir);
 
   const abortActiveAdapters = () => {
     for (const adapter of activeAdapters) {
@@ -148,7 +154,7 @@ export async function executeDAG(
 
       if (ready.length === 0) break;
 
-      const scheduledReady = scheduleReadySteps(ready, agents);
+      const scheduledReady = scheduleReadySteps(ready, agents, localModelConcurrency);
 
       const executions = scheduledReady.map(async (step) => {
         if (signal?.aborted) {
@@ -163,7 +169,8 @@ export async function executeDAG(
         let lastError: string | undefined;
         let attempts = 0;
         let stepTimedOut = false;
-        let timeoutMsForAttempt = stepTimeoutMs;
+        let timeoutMsForAttempt = Math.max(stepTimeoutMs, adaptiveTimeouts.get(step.agent) ?? 0);
+        let sawTimeoutBeforeSuccess = false;
         let errorRetries = 0;
         let securityRemediationRetries = 0;
         let securityRemediationContext: string | undefined;
@@ -194,21 +201,28 @@ export async function executeDAG(
             ];
 
             // Per-step timeout: create a child AbortController that aborts
-            // when either the parent signal fires or the step timeout elapses.
+            // when either the parent signal fires or the step makes no progress
+            // for the configured timeout window. This is intentionally an
+            // inactivity timeout rather than a hard wall-clock cap so long
+            // local-model responses can keep running while they stream output.
             const stepController = new AbortController();
             let stepTimer: ReturnType<typeof setTimeout> | undefined;
             const abortFromParent = () => stepController.abort();
             signal?.addEventListener('abort', abortFromParent, { once: true });
             const consensusConfig = resolveAgentConsensus(agent, agentConsensus);
             const fileConsensusConfig = resolveFileOutputConsensus(agent, agentConsensus);
+            const currentBaseTimeoutMs = timeoutMsForAttempt;
             const currentTimeoutMs =
-              timeoutMsForAttempt * (fileConsensusConfig?.runs ?? consensusConfig?.runs ?? 1);
-            if (currentTimeoutMs > 0) {
+              currentBaseTimeoutMs * (fileConsensusConfig?.runs ?? consensusConfig?.runs ?? 1);
+            const armStepTimer = () => {
+              if (stepTimer !== undefined) clearTimeout(stepTimer);
+              if (currentTimeoutMs <= 0) return;
               stepTimer = setTimeout(() => {
                 stepTimedOut = true;
                 stepController.abort();
               }, currentTimeoutMs);
-            }
+            };
+            armStepTimer();
 
             // Resolve thinking: agent-level > adapter-default > undefined
             const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
@@ -232,6 +246,7 @@ export async function executeDAG(
                 resolvedTemperature,
                 resolvedSeed: resolvedSeed !== undefined ? resolvedSeed + seedOffset : undefined,
                 workingDir: candidateWorkingDir,
+                onProgress: armStepTimer,
               });
             };
 
@@ -269,6 +284,10 @@ export async function executeDAG(
             }
 
             const duration = Date.now() - startedAt;
+            if (sawTimeoutBeforeSuccess && currentBaseTimeoutMs > (adaptiveTimeouts.get(step.agent) ?? 0)) {
+              adaptiveTimeouts.set(step.agent, currentBaseTimeoutMs);
+              await saveAdaptiveTimeouts(workingDir, adaptiveTimeouts);
+            }
             const result: StepResult = {
               id: step.id,
               agent: step.agent,
@@ -399,6 +418,7 @@ export async function executeDAG(
               lastError = err instanceof Error ? err.message : String(err);
             }
             if (stepTimedOut) {
+              sawTimeoutBeforeSuccess = true;
               timeoutMsForAttempt *= 2;
             }
             const retryBudget = stepTimedOut
@@ -419,17 +439,19 @@ export async function executeDAG(
                 attempts,
                 failureKind: classifyFailure(lastError),
               };
-              const recoveryCreated = maybeScheduleRecovery({
-                step,
-                failure: baseFailure,
-                plan: mutablePlan,
-                allIds,
-                agents,
-                results,
-                settled,
-                recoveryRounds,
-                reporter,
-              });
+              const recoveryCreated = stepTimedOut
+                ? { scheduled: false, result: baseFailure }
+                : maybeScheduleRecovery({
+                    step,
+                    failure: baseFailure,
+                    plan: mutablePlan,
+                    allIds,
+                    agents,
+                    results,
+                    settled,
+                    recoveryRounds,
+                    reporter,
+                  });
               results.set(step.id, recoveryCreated.result);
               settled.add(step.id);
               if (!recoveryCreated.scheduled) {
@@ -558,6 +580,7 @@ async function persistLearningCandidate(
 function scheduleReadySteps(
   ready: DAGPlan['plan'],
   agents: Map<string, AgentDefinition>,
+  localModelConcurrency = 1,
 ): DAGPlan['plan'] {
   const remoteReady: DAGPlan['plan'] = [];
   const localGpuReady: DAGPlan['plan'] = [];
@@ -575,7 +598,7 @@ function scheduleReadySteps(
     return remoteReady;
   }
 
-  return [...remoteReady, localGpuReady[0]!];
+  return [...remoteReady, ...localGpuReady.slice(0, Math.max(1, localModelConcurrency))];
 }
 
 interface ConsensusSelection {
@@ -587,13 +610,25 @@ function resolveAgentConsensus(
   agent: AgentDefinition,
   config: AgentConsensusConfig | undefined,
 ): AgentConsensusConfig | null {
-  if (!config?.enabled || config.runs <= 1) {
+  if (!config) {
     return null;
   }
-  if (!config.outputTypes.includes(agent.output.type)) {
+  const override = config.perAgent?.[agent.name];
+  const resolved: AgentConsensusConfig = {
+    ...config,
+    ...(override ?? {}),
+    outputTypes: override?.outputTypes ?? config.outputTypes,
+    fileOutputs: config.fileOutputs,
+    perAgent: config.perAgent,
+  };
+
+  if (!resolved.enabled || resolved.runs <= 1) {
     return null;
   }
-  return config;
+  if (!resolved.outputTypes.includes(agent.output.type)) {
+    return null;
+  }
+  return resolved;
 }
 
 function resolveFileOutputConsensus(
@@ -720,6 +755,33 @@ function jaccard(left: Set<string>, right: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+async function loadAdaptiveTimeouts(workingDir: string): Promise<Map<string, number>> {
+  try {
+    const raw = await fs.readFile(path.join(workingDir, ADAPTIVE_TIMEOUTS_PATH), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return new Map();
+    }
+
+    const entries = Object.entries(parsed as Record<string, unknown>)
+      .filter((entry): entry is [string, number] =>
+        typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] > 0,
+      );
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+async function saveAdaptiveTimeouts(workingDir: string, timeouts: Map<string, number>): Promise<void> {
+  const filePath = path.join(workingDir, ADAPTIVE_TIMEOUTS_PATH);
+  const payload = Object.fromEntries(
+    [...timeouts.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  );
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
 interface RunStepWithToolsOptions {
   context: string;
   tools: ReturnType<typeof createToolRegistry>;
@@ -735,6 +797,7 @@ interface RunStepWithToolsOptions {
   resolvedTemperature?: number;
   resolvedSeed?: number;
   workingDir: string;
+  onProgress?: () => void;
 }
 
 async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {
@@ -759,6 +822,7 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
             ...(options.resolvedSeed !== undefined ? { seed: options.resolvedSeed } : {}),
           },
         )) {
+          options.onProgress?.();
           out += chunk;
           options.reporter?.onChunk(chunk.length);
           options.onOutputChunk?.(options.stepId, chunk);
@@ -867,6 +931,7 @@ function sliceJsonObjects(text: string): string[] {
 
 function classifyFailure(error?: string): StepResult['failureKind'] {
   const normalized = error?.toLowerCase() ?? '';
+  if (/(timed out|timeout)/.test(normalized)) return 'timeout';
   if (/(test|assert|expect|vitest|jest)/.test(normalized)) return 'test';
   if (/(typescript|compile|compil|type error|cannot find name|ts\d+)/.test(normalized)) {
     return 'compile';
@@ -977,6 +1042,8 @@ function selectRecoveryAgent(
   failureKind: StepResult['failureKind'],
   agents: Map<string, AgentDefinition>,
 ): string | null {
+  if (failureKind === 'timeout') return null;
+
   const preferences =
     failureKind === 'compile' || failureKind === 'build' || failureKind === 'lint' || failureKind === 'tooling'
       ? ['build-fixer', 'bug-debugger']

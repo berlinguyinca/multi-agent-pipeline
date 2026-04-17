@@ -32,6 +32,7 @@ contract:
     - "Return only the corrected text."
   decisionRules:
     - "When unsure whether a phrase is a technical term, preserve it."
+    - "If a correction would change Markdown structure, table structure, length, ordering, labels, formulas, identifiers, or technical terms, return the original text unchanged."
     - "Never rewrite machine-readable JSON or code blocks beyond removing impossible terminal artifacts from surrounding prose."
   verification:
     requiredEvidence:

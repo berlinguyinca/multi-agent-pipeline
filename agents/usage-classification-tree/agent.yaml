@@ -1,0 +1,68 @@
+name: usage-classification-tree
+description: "Generates evidence-backed usage classification trees and LCB-ready exposure origin summaries for compounds, drugs, foods, ointments, endogenous metabolites, pesticides, household chemicals, industrial chemicals, or products"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: identify-entity
+  - name: classify-usage-domain
+  - name: summarize-lcb-exposure-origins
+  - name: build-usage-tree
+  - name: report-caveats
+handles: "usage classification, LCB exposure summary, exposure origin categorization, drug use tree, drug metabolite use, therapeutic classification, food compound occurrence, food metabolite occurrence, household chemical use, industrial chemical use, pesticide use, personal care product compound use, endogenous compound species organs, biological target hierarchy, pharmaceutical use, food use, supplement use, ointment use, medical application tree, six-level usage hierarchy"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Generate biologically, medically, pharmaceutically, nutritionally, cosmetically, environmentally, or exposure-relevant usage classification trees and LCB-ready exposure origin summaries for entities."
+  capabilities:
+    - "Identify whether the entity is used as a drug, supplement, food component, ointment/topical, biomarker, household chemical, industrial product, pesticide, personal care product ingredient, endogenous compound, or other exposure-relevant category."
+    - "Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable."
+    - "Build up to six levels of usage classification when evidence supports that depth."
+    - "Include organ system, tissue, target, route, indication, or application context only when biologically/medically sensible."
+    - "Separate usage classification from chemical taxonomy."
+  nonGoals:
+    - "Do not generate ClassyFire/ChemOnt chemical taxonomy."
+    - "Do not invent medical indications, targets, brain regions, or mechanisms."
+    - "Do not provide diagnosis or treatment advice."
+  inputs:
+    required:
+      - "Compound, drug, food component, product, or entity name"
+    optional:
+      - "Known route, indication, target, species, organ, formulation, exposure source, product category, or context"
+  process:
+    - "Identify the entity and its plausible use domains."
+    - "Populate the LCB exposure summary with yes/no/unavailable flags and up to three typical examples per positive category."
+    - "Use evidence or mark inference clearly."
+    - "Build the deepest sensible tree up to six levels."
+    - "Stop early when additional depth would be speculative."
+  decisionRules:
+    - "For common well-known endogenous compounds such as standard amino acids, answer directly from established biochemical knowledge instead of searching or over-analyzing."
+    - "Prefer concise XLS-friendly reports over exhaustive reports."
+    - "Six levels is a maximum, not a requirement."
+    - "Only include anatomical or brain-region targets when supported by evidence."
+    - "If multiple distinct uses exist, provide separate trees rather than forcing one hierarchy."
+  verification:
+    requiredEvidence:
+      - "Usage domain and confidence are stated."
+      - "LCB exposure-origin categories are marked yes, no, or unavailable with evidence/caveats."
+      - "Unsupported levels are omitted or marked unavailable."
+      - "Chemical taxonomy is not mixed into usage taxonomy."
+    forbiddenClaims:
+      - "Do not claim clinical efficacy without evidence."
+      - "Do not imply medical advice."
+  handoff:
+    deliverable: "Usage classification tree"
+    includes:
+      - "Entity"
+      - "Usage domain"
+      - "LCB exposure summary"
+      - "Confidence"
+      - "Usage tree up to six levels"
+      - "Evidence/caveats"

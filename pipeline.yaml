@@ -20,8 +20,8 @@ router:
   adapter: ollama
   model: gemma4:26b
   maxSteps: 10
-  maxStepRetries: 3         # Number of retry attempts after the first timeout/failure
-  stepTimeoutMs: 5m         # Initial per-step timeout; timeout retries double this budget each attempt
+  maxStepRetries: 1         # Keep local-model retries bounded; timeout retries double this budget
+  stepTimeoutMs: 5m         # Initial per-step timeout; retry doubles this to handle slow local agents
   timeoutMs: 30s
   consensus:
     enabled: true           # Always run router planning through consensus
@@ -36,12 +36,28 @@ adapterDefaults:
     seed: 42
 
 agentConsensus:
-  enabled: true             # Repeat non-file agent outputs and select the consensus candidate
+  enabled: false            # Opt in only when extra quality is worth slower local-model runs
   runs: 3
   outputTypes: [answer, data, presentation]
   minSimilarity: 0.35
+  perAgent:
+    researcher:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+      minSimilarity: 0.35
+    classyfire-taxonomy-classifier:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+      minSimilarity: 0.35
+    usage-classification-tree:
+      enabled: true
+      runs: 3
+      outputTypes: [answer]
+      minSimilarity: 0.35
   fileOutputs:
-    enabled: true           # Run file-producing candidates in isolated git worktrees when possible
+    enabled: false          # Opt in for implementation consensus; can be slow on local models
     runs: 3
     isolation: git-worktree
     keepWorktreesOnFailure: true
@@ -55,6 +71,8 @@ agentCreation:
   model: gemma4:26b
 
 agentOverrides:
+  output-formatter:
+    enabled: false
   implementation-coder:
     model: gemma4:26b
   release-readiness-reviewer:

@@ -56,6 +56,44 @@ describe('result formatting', () => {
     expect(output).toContain('| step-1 | researcher | exact-majority | 1 | ollama/gemma4:26b | contributed | 100% |');
   });
 
+  it('accepts pdf as a print-oriented HTML output format', () => {
+    const output = formatMapOutput(result, 'pdf');
+
+    expect(output).toContain('<!doctype html>');
+    expect(output).toContain('<h2>Final Result</h2>');
+    expect(output).toContain('Final polished answer');
+  });
+
+  it('renders a visual agent network in html output', () => {
+    const output = formatMapOutput(result, 'html');
+
+    expect(output).toContain('Agent Network');
+    expect(output).toContain('class="agent-network"');
+    expect(output).toContain('class="agent-node completed"');
+    expect(output).toContain('class="flow-arrow"');
+    expect(output).toContain('step-1 -&gt; step-1-grammar-1');
+  });
+
+  it('renders markdown final results as html instead of preformatted text', () => {
+    const markdownResult = {
+      ...result,
+      steps: [
+        { id: 'step-1', agent: 'writer', task: 'Write', status: 'completed', output: '# Report\n\n| A | B |\n| --- | --- |\n| one | two |' },
+      ],
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'writer', status: 'completed', duration: 1 }],
+        edges: [],
+      },
+    };
+
+    const output = formatMapOutput(markdownResult, 'html');
+
+    expect(output).toContain('<article class="rendered-markdown">');
+    expect(output).toContain('<h1>Report</h1>');
+    expect(output).toContain('<table>');
+    expect(output).not.toContain('&lt;table&gt;');
+  });
+
   it('prints compact output with only simplified graph and final result', () => {
     const output = formatCompactMapOutput(result);
 

@@ -10,10 +10,15 @@ export const DEFAULT_ROUTER_CONSENSUS_CONFIG: RouterConsensusConfig = {
 };
 
 export const DEFAULT_AGENT_CONSENSUS_CONFIG: AgentConsensusConfig = {
-  enabled: true,
+  enabled: false,
   runs: 3,
   outputTypes: ['answer', 'data', 'presentation'],
   minSimilarity: 0.35,
+  perAgent: {
+    researcher: { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+    'classyfire-taxonomy-classifier': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+    'usage-classification-tree': { enabled: true, runs: 3, outputTypes: ['answer'], minSimilarity: 0.35 },
+  },
   fileOutputs: {
     enabled: false,
     runs: 3,
@@ -54,7 +59,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     maxSteps: 24,
     timeoutMs: 300_000,
     stepTimeoutMs: 5 * 60 * 1000,
-    maxStepRetries: 4,
+    maxStepRetries: 1,
     retryDelayMs: 3_000,
     consensus: DEFAULT_ROUTER_CONSENSUS_CONFIG,
   },
@@ -66,6 +71,8 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     ollama: { think: false, temperature: 0, seed: 42 },
   },
   agentConsensus: DEFAULT_AGENT_CONSENSUS_CONFIG,
-  agentOverrides: {},
+  agentOverrides: {
+    'output-formatter': { enabled: false },
+  },
   security: DEFAULT_SECURITY_CONFIG,
 };

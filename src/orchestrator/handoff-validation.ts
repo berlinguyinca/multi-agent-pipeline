@@ -87,7 +87,7 @@ function validateFormatterPreservation(options: HandoffValidationOptions): Hando
   if (!source || !output) return [];
 
   const findings: HandoffFinding[] = [];
-  const missingLabels = requiredFormatterLabels(source).filter((label) => !containsLoose(output, label));
+  const missingLabels = requiredFormatterLabels(source).filter((label) => !formatterLabelPreserved(output, label));
   if (missingLabels.length > 0) {
     findings.push(finding('high', `Formatter dropped required sections or labels: ${missingLabels.slice(0, 6).join(', ')}`, options.step.id));
   }
@@ -100,11 +100,34 @@ function validateFormatterPreservation(options: HandoffValidationOptions): Hando
   const sourceTokens = new Set(tokenize(source).filter((token) => token.length >= 5));
   const outputTokens = new Set(tokenize(output));
   const missingTokenCount = [...sourceTokens].filter((token) => !outputTokens.has(token)).length;
-  if (sourceTokens.size >= 12 && missingTokenCount / sourceTokens.size > 0.45) {
+  if (
+    sourceTokens.size >= 12 &&
+    missingTokenCount / sourceTokens.size > 0.45 &&
+    !isConcisePresentationTask(options.step.task, output)
+  ) {
     findings.push(finding('high', 'Formatter dropped too much substantive content from the source output.', options.step.id));
   }
 
   return findings;
+}
+
+function formatterLabelPreserved(output: string, label: string): boolean {
+  if (containsLoose(output, label)) return true;
+
+  const alternatives: Record<string, string[]> = {
+    'Taxonomy Tree': ['Chemical Taxonomy', 'Taxonomy Classification', 'Taxonomy'],
+    'Usage Tree': ['Usage Classification Tree', 'Usage Classification', 'Usage'],
+    'Source method': ['Taxonomy Source', 'Usage Source', 'Source/Confidence', 'Source'],
+    'Caveat': ['Notes/Caveats', 'Notes', 'Caveats'],
+  };
+
+  return (alternatives[label] ?? []).some((alternative) => containsLoose(output, alternative));
+}
+
+function isConcisePresentationTask(task: string, output: string): boolean {
+  const presentationTask = /\b(xls|cell|presentation|concise|compact)\b/i.test(task);
+  const structuredOutput = /\|.+\|/.test(output) || /<br\s*\/?>/i.test(output);
+  return presentationTask && structuredOutput;
 }
 
 function requiredFormatterLabels(source: string): string[] {

@@ -96,6 +96,56 @@ describe('validateStepHandoff', () => {
     expect(validation.handoffPassed).toBe(true);
   });
 
+  it('allows XLS-friendly formatter label equivalents while still requiring protected formulas and API caveats', () => {
+    const priorResults = new Map<string, StepResult>([
+      ['step-1', result({
+        id: 'step-1',
+        agent: 'classyfire-taxonomy-classifier',
+        output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nCompound: Cocaine\nSource method: retrieved-from-reference\nConfidence: high\n\n## Taxonomy Tree\n\nC17H21NO4 tropane alkaloid.\n\n## Notes\n\nThe live ClassyFire API was not used.',
+      })],
+      ['step-2', result({
+        id: 'step-2',
+        agent: 'usage-classification-tree',
+        output: '# Usage Classification Tree\n\nSource method: evidence-backed inference\nConfidence: high\n\n## Usage Tree\n\nLocal anesthetic.\n\n## Notes\n\nClinical caveat preserved.',
+      })],
+    ]);
+
+    const validation = validateStepHandoff({
+      step: step({ id: 'step-3', agent: 'output-formatter', task: 'Consolidate into concise XLS cells', dependsOn: ['step-1', 'step-2'] }),
+      result: result({
+        id: 'step-3',
+        agent: 'output-formatter',
+        output: '| Chemical Taxonomy | Usage Classification Tree | Metadata & Notes |\n| --- | --- | --- |\n| ClassyFire/ChemOnt taxonomy: C17H21NO4; tropane alkaloid | Usage: Local anesthetic | Taxonomy Source: retrieved-from-reference; Usage Source: evidence-backed inference; Confidence: high; Notes/Caveats: live ClassyFire API was not used; Clinical caveat preserved. |',
+      }),
+      priorResults,
+    });
+
+    expect(validation.handoffPassed).toBe(true);
+  });
+
+  it('still fails XLS-friendly formatter output when exact formulas or API caveats are dropped', () => {
+    const priorResults = new Map<string, StepResult>([
+      ['step-1', result({
+        id: 'step-1',
+        agent: 'classyfire-taxonomy-classifier',
+        output: '# ClassyFire / ChemOnt Taxonomic Classification\n\nSource method: retrieved-from-reference\nConfidence: high\n\n## Taxonomy Tree\n\nC17H21NO4 tropane alkaloid.\n\n## Notes\n\nThe live ClassyFire API was not used.',
+      })],
+    ]);
+
+    const validation = validateStepHandoff({
+      step: step({ id: 'step-2', agent: 'output-formatter', task: 'Consolidate into concise XLS cells', dependsOn: ['step-1'] }),
+      result: result({
+        id: 'step-2',
+        agent: 'output-formatter',
+        output: '| Chemical Taxonomy | Metadata |\n| --- | --- |\n| Tropane alkaloid | Source: retrieved-from-reference; Confidence: high |',
+      }),
+      priorResults,
+    });
+
+    expect(validation.handoffPassed).toBe(false);
+    expect(validation.handoffFindings.map((finding) => finding.message).join('\n')).toContain('Formatter dropped protected terms');
+  });
+
   it('records spec conformance findings for missing acceptance criteria', () => {
     const validation = validateStepHandoff({
       step: step({ agent: 'implementation-coder', task: 'Implement' }),
