@@ -9,6 +9,8 @@ export function extractSubcommand(args: string[]): { command: string; subArgs: s
 
 const flagsWithValues = new Set([
   '--output-dir',
+  '--workspace-dir',
+  '--target-dir',
   '--config',
   '--resume',
   '--total-timeout',

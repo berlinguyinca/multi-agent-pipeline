@@ -663,9 +663,12 @@ export function validateConfig(config: unknown): PipelineConfig {
     };
   }
 
-  // Validate outputDir if present
+  // Validate outputDir/workspaceDir if present
   if (obj['outputDir'] !== undefined && typeof obj['outputDir'] !== 'string') {
     throw new Error('outputDir must be a string');
+  }
+  if (obj['workspaceDir'] !== undefined && typeof obj['workspaceDir'] !== 'string') {
+    throw new Error('workspaceDir must be a string');
   }
 
   // Validate gitCheckpoints if present
@@ -731,6 +734,7 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(ollama !== undefined ? { ollama } : {}),
     ...(quality !== undefined ? { quality } : {}),
     ...(typeof obj['outputDir'] === 'string' ? { outputDir: obj['outputDir'] } : {}),
+    ...(typeof obj['workspaceDir'] === 'string' ? { workspaceDir: obj['workspaceDir'] } : {}),
     ...(typeof obj['gitCheckpoints'] === 'boolean' ? { gitCheckpoints: obj['gitCheckpoints'] } : {}),
     ...(typeof obj['generateAgentSummary'] === 'boolean'
       ? { generateAgentSummary: obj['generateAgentSummary'] }

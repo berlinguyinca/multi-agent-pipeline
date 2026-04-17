@@ -1081,6 +1081,7 @@ export async function runHeadlessV2(
   const reporter = createReporter(options.verbose ?? false);
   const outputDir = path.resolve(options.outputDir ?? process.cwd());
   const markdownFiles: string[] = [];
+  let workspaceDir: string | undefined;
   let issueContext: GitHubIssueContext | undefined;
   let githubToken: string | undefined;
 
@@ -1104,11 +1105,14 @@ export async function runHeadlessV2(
   try {
     await fs.mkdir(outputDir, { recursive: true });
     const config = await dependencies.loadConfigFn(options.configPath);
+    workspaceDir = path.resolve(options.workspaceDir ?? config.workspaceDir ?? outputDir);
+    await fs.mkdir(workspaceDir, { recursive: true });
     const securityConfig = resolveSecurityConfig(config);
-    const resolvedPrompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
+    const baseResolvedPrompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
       issueContext = context;
       githubToken = token;
     });
+    const resolvedPrompt = appendWorkspaceContext(baseResolvedPrompt, workspaceDir, outputDir);
 
     const agentsDir = path.join(process.cwd(), 'agents');
     const agents = await loadEnabledAgentRegistry(agentsDir, config);
@@ -1119,7 +1123,7 @@ export async function runHeadlessV2(
         [],
         Date.now() - startTime,
         'No agents available',
-        { outputDir, markdownFiles },
+        { outputDir, workspaceDir, markdownFiles },
       ));
     }
 
@@ -1155,7 +1159,7 @@ export async function runHeadlessV2(
         [],
         Date.now() - startTime,
         formatRouterNoMatch(decision),
-        { outputDir, markdownFiles },
+        { outputDir, workspaceDir, markdownFiles },
       ));
     }
 
@@ -1187,8 +1191,9 @@ export async function runHeadlessV2(
       adapterDefaults: config.adapterDefaults,
       agentConsensus: config.agentConsensus,
       localModelConcurrency: ollamaConcurrency.maxParallel,
-      workingDir: outputDir,
-      knowledgeCwd: process.cwd(),
+      workingDir: workspaceDir,
+      knowledgeCwd: workspaceDir,
+      workspaceInstruction: buildWorkspaceInstruction(workspaceDir, outputDir),
       adaptiveReplanning: {
         enabled: true,
         refreshAgents: () => loadEnabledAgentRegistry(agentsDir, config),
@@ -1259,6 +1264,7 @@ export async function runHeadlessV2(
     reporter.dagComplete(dagResult.success, duration);
     return await finish(buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
       outputDir,
+      workspaceDir,
       markdownFiles,
       consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
     }));
@@ -1266,9 +1272,32 @@ export async function runHeadlessV2(
     const message = err instanceof Error ? err.message : String(err);
     return await finish(buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
       outputDir,
+      ...(typeof workspaceDir !== 'undefined' ? { workspaceDir } : {}),
       markdownFiles,
     }));
   }
+}
+
+function appendWorkspaceContext(prompt: string, workspaceDir: string, outputDir: string): string {
+  return [
+    prompt,
+    '',
+    '--- MAP Workspace Context ---',
+    `Workspace directory: ${workspaceDir}`,
+    `Report/output directory: ${outputDir}`,
+    'Agents must inspect and modify the workspace directory when implementing or extending existing code/data.',
+    'Prefer reading existing source files, tests, configuration, and collected artifacts before proposing or applying changes.',
+    'Do not treat the report/output directory as the target application unless it is the same path as the workspace directory.',
+  ].join('\n');
+}
+
+function buildWorkspaceInstruction(workspaceDir: string, outputDir: string): string {
+  return [
+    `Workspace directory: ${workspaceDir}`,
+    `Report/output directory: ${outputDir}`,
+    'Inspect existing workspace sources, tests, configuration, and collected data before creating or modifying files.',
+    'Integrate changes into the existing workspace instead of generating isolated code unless the task explicitly asks for a separate artifact.',
+  ].join('\n');
 }
 
 async function loadEnabledAgentRegistry(

@@ -372,6 +372,29 @@ describe('runCli', () => {
     expect(runHeadlessMock).not.toHaveBeenCalled();
   });
 
+  it('passes workspace directory to headless smart routing without treating it as prompt text', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--workspace-dir',
+        '/tmp/existing-platform',
+        '--output-dir',
+        '/tmp/map-report',
+        'Add billing subscriptions invoices and account settings to the existing app',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'Add billing subscriptions invoices and account settings to the existing app',
+        outputDir: '/tmp/map-report',
+        workspaceDir: '/tmp/existing-platform',
+      }),
+    );
+  });
+
   it('passes router model overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

@@ -10,6 +10,7 @@ export function buildHeadlessResultV2(
   error?: string,
   artifacts: {
     outputDir?: string;
+    workspaceDir?: string;
     markdownFiles?: string[];
     consensusDiagnostics?: ConsensusDiagnostics[];
   } = {},
@@ -34,6 +35,7 @@ export function buildHeadlessResultV2(
     dag,
     steps,
     outputDir: artifacts.outputDir ?? process.cwd(),
+    ...(artifacts.workspaceDir ? { workspaceDir: artifacts.workspaceDir } : {}),
     markdownFiles: artifacts.markdownFiles ?? [],
     duration,
     error: error ?? null,

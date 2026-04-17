@@ -11,6 +11,7 @@ This repository is **multi-agent-pipeline (MAP)**. It orchestrates local and CLI
 - `src/router/router.ts` parses/cleans/validates router JSON and performs router consensus.
 - `src/orchestrator/orchestrator.ts` executes DAG steps, injects tool catalogs, handles retries/recovery, security gates, handoff validation, grammar review, adviser replans, and output consensus.
 - `src/headless/runner.ts` and `src/tui/tui-app.ts` wire config into routing and DAG execution.
+- Smart-routing execution may separate `outputDir` (MAP reports/artifacts) from `workspaceDir` (agent cwd for existing source/data). Agents should inspect and integrate with `workspaceDir`; do not assume report artifacts are the target application.
 
 ## Visual artifact contract notes
 

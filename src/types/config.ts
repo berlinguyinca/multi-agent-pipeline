@@ -100,6 +100,7 @@ export interface PipelineConfig {
   ollama: OllamaConfig;
   quality: QualityConfig;
   outputDir: string;
+  workspaceDir?: string;
   gitCheckpoints: boolean;
   generateAgentSummary: boolean;
   headless: HeadlessRuntimeConfig;

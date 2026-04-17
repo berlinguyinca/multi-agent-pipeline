@@ -8,6 +8,7 @@ export interface HeadlessOptions {
   initialSpec?: string;
   specFilePath?: string;
   outputDir?: string;
+  workspaceDir?: string;
   configPath?: string;
   totalTimeoutMs?: number;
   inactivityTimeoutMs?: number;
@@ -25,6 +26,7 @@ export interface HeadlessResult {
   spec: string;
   filesCreated: string[];
   outputDir: string;
+  workspaceDir?: string;
   testsTotal: number;
   testsPassing: number;
   testsFailing: number;
@@ -44,6 +46,7 @@ export interface HeadlessResultV2 {
   dag: DAGResult;
   steps: StepResult[];
   outputDir: string;
+  workspaceDir?: string;
   markdownFiles: string[];
   duration: number;
   error?: string | null;

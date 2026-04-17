@@ -236,6 +236,7 @@ function buildHtmlDocument(
     ['Success', data['success']],
     ['Outcome', data['outcome']],
     ['Output directory', data['outputDir']],
+    ['Workspace directory', data['workspaceDir']],
     ['Duration', formatDuration(data['duration'])],
     ['Error', data['error']],
   ].filter(([, value]) => value !== undefined && value !== null && value !== '');
@@ -389,6 +390,7 @@ function appendSummary(lines: string[], data: Record<string, unknown>): void {
   appendField(lines, 'Success', data['success']);
   appendField(lines, 'Outcome', data['outcome']);
   appendField(lines, 'Output directory', data['outputDir']);
+  appendField(lines, 'Workspace directory', data['workspaceDir']);
   appendField(lines, 'Duration', formatDuration(data['duration']));
   appendField(lines, 'Error', data['error']);
 

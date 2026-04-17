@@ -216,6 +216,27 @@ function computeV2BarStages(
   ];
 }
 
+function appendWorkspaceContext(prompt: string, workspaceDir: string, outputDir: string): string {
+  return [
+    prompt,
+    '',
+    '--- MAP Workspace Context ---',
+    `Workspace directory: ${workspaceDir}`,
+    `Report/output directory: ${outputDir}`,
+    'Agents must inspect and modify the workspace directory when implementing or extending existing code/data.',
+    'Do not treat the report/output directory as the target application unless it is the same path as the workspace directory.',
+  ].join('\n');
+}
+
+function buildWorkspaceInstruction(workspaceDir: string, outputDir: string): string {
+  return [
+    `Workspace directory: ${workspaceDir}`,
+    `Report/output directory: ${outputDir}`,
+    'Inspect existing workspace sources, tests, configuration, and collected data before creating or modifying files.',
+    'Integrate changes into the existing workspace instead of generating isolated code unless the task explicitly asks for a separate artifact.',
+  ].join('\n');
+}
+
 function formatRouterNoMatchMessage(decision: {
   reason: string;
   suggestedAgent?: { name: string; description: string };
@@ -1276,8 +1297,9 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               adapterDefaults: config.adapterDefaults,
               agentConsensus: config.agentConsensus,
               localModelConcurrency: v2OllamaConcurrency,
-              workingDir: config.outputDir,
-              knowledgeCwd: process.cwd(),
+              workingDir: path.resolve(config.workspaceDir ?? config.outputDir),
+              knowledgeCwd: path.resolve(config.workspaceDir ?? config.outputDir),
+              workspaceInstruction: buildWorkspaceInstruction(path.resolve(config.workspaceDir ?? config.outputDir), config.outputDir),
             },
           );
 
@@ -1446,8 +1468,10 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               : { maxParallel: 1 };
           v2OllamaConcurrency = ollamaConcurrency.maxParallel;
 
+          const v2WorkspaceDir = path.resolve(config.workspaceDir ?? config.outputDir);
+          const v2WorkspacePrompt = appendWorkspaceContext(resolvedPrompt, v2WorkspaceDir, config.outputDir);
           const decision = await routeTask(
-            resolvedPrompt,
+            v2WorkspacePrompt,
             enabledAgents,
             createRouterAdapters(),
             { ...config.router, ollamaConcurrency: ollamaConcurrency.maxParallel },

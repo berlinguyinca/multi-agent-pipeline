@@ -901,6 +901,85 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     expect(adapterCreated).toBe(false);
   });
 
+  it('runs v2 agents in workspaceDir while keeping reports in outputDir', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-output-'));
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-workspace-'));
+    const captured: { prompts: string[]; cwds: Array<string | undefined> } = { prompts: [], cwds: [] };
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
+        captured.prompts.push(prompt);
+        captured.cwds.push(options?.cwd);
+        if (prompt.includes('You are a task router')) {
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Inspect existing sources","dependsOn":[]}]}';
+          return;
+        }
+
+        yield 'Workspace-aware result';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      { prompt: 'Add a feature to the existing app', outputDir, workspaceDir } as Parameters<typeof runHeadlessV2>[0] & { workspaceDir: string },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.outputDir).toBe(outputDir);
+    expect(result.workspaceDir).toBe(workspaceDir);
+    expect(captured.cwds).toContain(workspaceDir);
+    expect(captured.prompts.join('\n')).toContain('Workspace directory');
+    expect(captured.prompts.join('\n')).toContain(workspaceDir);
+    expect(result.markdownFiles.every((file) => file.startsWith(outputDir))).toBe(true);
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
   it('writes an agent summary for v2 runs when enabled', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-summary-'));
 

@@ -34,6 +34,7 @@ describe('loadConfig', () => {
   it('parses valid YAML config', async () => {
     const yamlContent = `
 outputDir: ./custom-output
+workspaceDir: ../existing-app
 gitCheckpoints: false
 generateAgentSummary: false
 agents:
@@ -61,6 +62,7 @@ quality:
 
     const config = await loadConfig(configPath);
     expect(config.outputDir).toBe('./custom-output');
+    expect(config.workspaceDir).toBe('../existing-app');
     expect(config.gitCheckpoints).toBe(false);
     expect(config.generateAgentSummary).toBe(false);
     expect(config.agents.execute.adapter).toBe('ollama');

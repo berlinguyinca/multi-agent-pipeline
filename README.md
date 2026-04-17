@@ -318,8 +318,14 @@ map --headless --spec-file docs/spec.md
 # Classic pipeline — fixed spec/review/QA/execute/docs stages
 map --headless --classic "Research the best approach, plan the work, and review readiness"
 
-# Write output to a specific directory
+# Write reports/artifacts to a specific directory
 map --headless --output-dir ./output/pantry "Investigate a specific question"
+
+# Execute agents against an existing project while keeping reports elsewhere
+map --headless \
+  --workspace-dir ../existing-platform \
+  --output-dir ../existing-platform/.map/reports/billing \
+  "Add subscription billing to the existing platform using its current code and tests"
 
 # Print the final MAP result as readable Markdown or YAML
 map --headless --output-format markdown "Investigate a specific question"
@@ -456,8 +462,11 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 | `--router-model` | `router.model` | config value | Override the smart-routing router model for this run |
 | `--router-consensus-models` | `router.consensus.models` | repeats `router.model` | Override the default router consensus candidates with up to 3 comma-separated Ollama models |
+| `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
+
+Use `--workspace-dir` when MAP should build on an existing project or collected-data directory. The workspace becomes the agent/tool/adaptor working directory, while `--output-dir` remains the location for MAP reports, run Markdown, PDFs, and visual artifacts. If `--workspace-dir` is omitted, smart-routing mode preserves the previous behavior and executes agents in `--output-dir`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `router.stepTimeoutMs` is a per-step no-progress timeout: MAP aborts a step only when no output chunk arrives within that window. When a step times out, MAP retries it and doubles the next step timeout budget. If the retried step succeeds, MAP records the larger per-agent timeout in `.map/adaptive-timeouts.json` and uses it for later runs in the same checkout. The default retry count is intentionally low to avoid hour-scale local-model stalls.
 
 
@@ -1069,7 +1078,8 @@ Options:
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
   --v2                   Deprecated compatibility flag; smart routing is the default
-  --output-dir <path>    Output directory for generated projects
+  --output-dir <path>    Output directory for generated reports and artifacts
+  --workspace-dir <path> Execute agents in an existing project/data directory (alias: --target-dir)
   --output-format <fmt>  Print result as json, yaml, markdown, html, text, or pdf
   --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result

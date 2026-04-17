@@ -43,6 +43,7 @@ export interface DAGRetryOptions {
   adapterDefaults?: AdapterDefaultsMap;
   workingDir?: string;
   knowledgeCwd?: string;
+  workspaceInstruction?: string;
   adaptiveReplanning?: {
     enabled?: boolean;
     refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
@@ -102,6 +103,7 @@ export async function executeDAG(
   const localModelConcurrency = Math.max(1, Math.floor(retry?.localModelConcurrency ?? 1));
   const workingDir = retry?.workingDir ?? process.cwd();
   const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
+  const workspaceInstruction = retry?.workspaceInstruction?.trim();
   const results = new Map<string, StepResult>();
   const completed = new Set<string>();
   const settled = new Set<string>();
@@ -187,8 +189,12 @@ export async function executeDAG(
           }
 
           try {
+            const baseContext = buildStepContext(step.task, step.dependsOn, results);
+            const workspaceAwareContext = workspaceInstruction
+              ? `${workspaceInstruction}\n\n${baseContext}`
+              : baseContext;
             const rawContext = appendSecurityRemediationContext(
-              buildStepContext(step.task, step.dependsOn, results),
+              workspaceAwareContext,
               securityRemediationContext,
             );
 

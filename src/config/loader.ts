@@ -69,6 +69,7 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
         override.quality?.maxCodeQaIterations ?? base.quality.maxCodeQaIterations,
     },
     outputDir: override.outputDir ?? base.outputDir,
+    workspaceDir: override.workspaceDir ?? base.workspaceDir,
     gitCheckpoints: override.gitCheckpoints ?? base.gitCheckpoints,
     generateAgentSummary: override.generateAgentSummary ?? base.generateAgentSummary,
     headless: {

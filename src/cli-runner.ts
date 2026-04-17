@@ -37,7 +37,8 @@ Options:
   --headless             Run without TUI, print result to stdout
   --classic              Use the classic fixed-stage pipeline
   --spec-file <path>     Use a local spec file as input
-  --output-dir <path>    Output directory for generated files and Markdown artifacts
+  --output-dir <path>    Output directory for generated reports and Markdown artifacts
+  --workspace-dir <path> Execute agents in an existing project/data directory (alias: --target-dir)
   --output-format <fmt>  Print final result as json, yaml, markdown, html, text, or pdf (default: json)
   --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
@@ -109,6 +110,7 @@ Commands:
     const prompt = extractPrompt(args);
     const specFileArg = extractFlag(args, '--spec-file');
     const outputDir = extractFlag(args, '--output-dir');
+    const workspaceDir = extractFlag(args, '--workspace-dir') ?? extractFlag(args, '--target-dir');
     const configPath = extractFlag(args, '--config');
     const totalTimeout = extractFlag(args, '--total-timeout');
     const inactivityTimeout = extractFlag(args, '--inactivity-timeout');
@@ -143,6 +145,7 @@ Commands:
         initialSpec: loadedSpec,
         specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
         outputDir,
+        workspaceDir,
         configPath,
         personality,
         verbose,
@@ -161,6 +164,7 @@ Commands:
       initialSpec: loadedSpec,
       specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
       outputDir,
+      workspaceDir,
       configPath,
       personality,
       verbose,
@@ -207,8 +211,10 @@ Commands:
       ? (useV2 ? buildV2SpecFilePrompt(specFileArg!, loadedSpec, initialPrompt) : buildSpecFilePrompt(specFileArg!))
       : initialPrompt;
   const outputDir = extractFlag(args, '--output-dir');
+  const workspaceDir = extractFlag(args, '--workspace-dir') ?? extractFlag(args, '--target-dir');
   const config = await loadConfig(configPath);
   config.outputDir = path.resolve(outputDir ?? process.cwd());
+  if (workspaceDir) config.workspaceDir = path.resolve(workspaceDir);
   await fs.mkdir(config.outputDir, { recursive: true });
   const routerTimeout = extractFlag(args, '--router-timeout');
   const routerModel = extractFlag(args, '--router-model');
