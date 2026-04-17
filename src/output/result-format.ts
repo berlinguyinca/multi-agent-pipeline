@@ -1,18 +1,30 @@
 import { stringify as stringifyYaml } from 'yaml';
 import { marked } from 'marked';
 import { getPreferredTerminalStepIds } from '../dag/final-step.js';
-import { renderSimplifiedGraph } from '../dag/graph-renderer.js';
-import type { DAGPlan } from '../types/dag.js';
+import { DAG_RENDER_LAYOUTS, buildDAGLayout, formatConsensusHeadline, formatConsensusParticipant, formatNodeRuntime, renderSimplifiedGraph, resolveDAGRenderLayout } from '../dag/graph-renderer.js';
+import type { DAGRenderLayout } from '../dag/graph-renderer.js';
+import type { ConsensusParticipant, DAGNodeConsensus, DAGPlan, DAGResult } from '../types/dag.js';
 import { normalizeScientificNotation } from '../utils/scientific-notation.js';
 
 export type MapOutputFormat = 'json' | 'yaml' | 'markdown' | 'html' | 'text' | 'pdf';
 
 export interface FormatMapOutputOptions {
   compact?: boolean;
+  dagLayout?: DAGRenderLayout;
+  suppressArtifactIds?: string[];
+  printGraphSummary?: boolean;
+  suppressSteps?: boolean;
 }
 
 const OUTPUT_FORMATS = new Set<MapOutputFormat>(['json', 'yaml', 'markdown', 'html', 'text', 'pdf']);
 const OUTPUT_FORMAT_LIST = 'json, yaml, markdown, html, text, pdf';
+
+export function parseDagLayoutOption(value: string | undefined): DAGRenderLayout {
+  if (value === undefined) return 'auto';
+  const normalized = value.trim().toLowerCase();
+  if ((DAG_RENDER_LAYOUTS as string[]).includes(normalized)) return normalized as DAGRenderLayout;
+  throw new Error(`--dag-layout must be one of: ${DAG_RENDER_LAYOUTS.join(', ')}`);
+}
 
 export function parseMapOutputFormat(value: string | undefined): MapOutputFormat {
   if (value === undefined) return 'json';
@@ -38,11 +50,11 @@ export function formatMapOutput(
     case 'markdown':
       return options.compact ? formatCompactMarkdownResult(normalizedResult) : formatMarkdownResult(normalizedResult);
     case 'html':
-      return options.compact ? formatCompactHtmlResult(result) : formatHtmlResult(result);
+      return options.compact ? formatCompactHtmlResult(result, options) : formatHtmlResult(result, options);
     case 'text':
       return options.compact ? formatCompactTextResult(normalizedResult) : formatTextResult(normalizedResult);
     case 'pdf':
-      return options.compact ? formatCompactHtmlResult(result) : formatPdfHtmlResult(result);
+      return options.compact ? formatCompactHtmlResult(result, options) : formatPdfHtmlResult(result, options);
   }
 }
 
@@ -213,19 +225,25 @@ function formatCompactTextResult(result: unknown): string {
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
-function formatHtmlResult(result: unknown): string {
+function formatHtmlResult(result: unknown, formatOptions: FormatMapOutputOptions = {}): string {
   const data = isRecord(result) ? result : { result };
-  return buildHtmlDocument('MAP Result', data, false, result);
+  return buildHtmlDocument('MAP Result', data, false, result, { dagLayout: formatOptions.dagLayout, suppressArtifactIds: formatOptions.suppressArtifactIds });
 }
 
-function formatCompactHtmlResult(result: unknown): string {
+function formatCompactHtmlResult(result: unknown, formatOptions: FormatMapOutputOptions = {}): string {
   const data = isRecord(result) ? result : { result };
-  return buildHtmlDocument('MAP Compact Result', data, true, result);
+  return buildHtmlDocument('MAP Compact Result', data, true, result, { dagLayout: formatOptions.dagLayout, suppressArtifactIds: formatOptions.suppressArtifactIds });
 }
 
-function formatPdfHtmlResult(result: unknown): string {
+function formatPdfHtmlResult(result: unknown, formatOptions: FormatMapOutputOptions = {}): string {
   const data = isRecord(result) ? result : { result };
-  return buildHtmlDocument('MAP Result', data, false, result, { includeResultData: false });
+  return buildHtmlDocument('MAP Result', data, false, result, {
+    includeResultData: false,
+    dagLayout: formatOptions.dagLayout,
+    suppressArtifactIds: formatOptions.suppressArtifactIds,
+    printGraphSummary: formatOptions.printGraphSummary,
+    suppressSteps: formatOptions.suppressSteps,
+  });
 }
 
 function buildHtmlDocument(
@@ -233,7 +251,7 @@ function buildHtmlDocument(
   data: Record<string, unknown>,
   compact: boolean,
   rawResult: unknown,
-  options: { includeResultData?: boolean } = {},
+  options: { includeResultData?: boolean; dagLayout?: DAGRenderLayout; suppressArtifactIds?: string[]; printGraphSummary?: boolean; suppressSteps?: boolean } = {},
 ): string {
   const graph = buildSimplifiedGraph(data);
   const final = extractDisplayFinalResult(data) ?? '';
@@ -255,19 +273,23 @@ function buildHtmlDocument(
     '<head>',
     '<meta charset="utf-8">',
     `<title>${escapeHtml(title)}</title>`,
-    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{min-width:170px;max-width:230px;position:relative;padding:.85rem 1rem;border:1px solid #c5d6ea;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.11);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:16px 0 0 16px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta{font-size:.75rem;color:#475569}.flow-arrow{display:flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:34px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:10px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}</style>',
+    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;align-items:start}.agent-stage{border:1px solid #cbd5e1;border-radius:16px;padding:.7rem;background:#f8fafc}.agent-stage.concurrent{background:#eff6ff;border-color:#93c5fd}.agent-stage.sequence{background:#faf5ff;border-color:#c4b5fd}.agent-stage-title{display:flex;justify-content:space-between;gap:.5rem;font-size:.78rem;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}.agent-stage-mode{border-radius:999px;padding:.05rem .45rem;background:rgba(255,255,255,.76);color:#1e40af}.agent-stage.sequence .agent-stage-mode{color:#6d28d9}.agent-stage-nodes{display:grid;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{position:relative;padding:.72rem .8rem .72rem .95rem;border:1px solid #c5d6ea;border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.1);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:14px 0 0 14px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node.running:before{background:#3b82f6}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta,.agent-node-inputs,.agent-node-consensus{font-size:.75rem;color:#475569}.agent-node-inputs{font-family:ui-monospace,monospace}.agent-node-consensus{margin-top:.25rem;font-weight:700;color:#334155}.agent-consensus-runs{margin:.2rem 0 0;padding-left:1rem;font-size:.72rem;color:#475569}.flow-arrow{display:inline-flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:24px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}.agent-edge.planned{border-color:#8db5ec}.agent-edge.handoff{border-color:#a78bfa}.agent-edge.recovery{border-color:#fca5a5}.agent-edge.spawned{border-color:#fbbf24}.agent-matrix-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(180deg,#fbfaff,#fff);box-shadow:0 14px 36px rgba(88,28,135,.08);overflow:auto}.agent-matrix-network table{min-width:760px;font-size:.78rem}.agent-matrix-network th{background:#f5f3ff;color:#4c1d95}.matrix-role{font-weight:800;color:#334155;white-space:nowrap}.matrix-cell{min-width:72px;vertical-align:top;background:#fff}.matrix-chip{display:block;margin:.12rem 0;padding:.18rem .28rem;border-radius:8px;background:#f5f3ff;border:1px solid #ddd6fe;font-family:ui-monospace,monospace;font-size:.68rem;color:#4c1d95}.matrix-chip.completed,.matrix-chip.recovered{border-color:#86efac;background:#f0fdf4;color:#166534}.matrix-chip.failed{border-color:#fecaca;background:#fef2f2;color:#991b1b}.matrix-chip.running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.matrix-chip.skipped{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.matrix-consensus{display:block;font-size:.62rem;color:#475569;margin-top:.1rem}.agent-metro-network,.agent-cluster-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:auto}.pipeline-summary{border:1px solid #cbd5e1;border-radius:12px;padding:.65rem .75rem;background:#f8fafc;margin:.75rem 0 1rem}.pipeline-summary-meta{font-size:.78rem;color:#475569;margin:.1rem 0 .45rem}.pipeline-summary-flow{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center}.pipeline-step-chip{display:inline-flex;gap:.25rem;align-items:center;border:1px solid #cbd5e1;border-radius:999px;background:#fff;padding:.16rem .42rem;font-size:.72rem;line-height:1.2}.pipeline-step-chip.completed,.pipeline-step-chip.recovered{border-color:#86efac;background:#f0fdf4}.pipeline-step-chip.failed{border-color:#fecaca;background:#fef2f2}.pipeline-step-chip.running{border-color:#93c5fd;background:#eff6ff}.pipeline-step-chip.skipped{border-color:#fed7aa;background:#fff7ed}.pipeline-arrow{color:#94a3b8;font-size:.7rem}.pipeline-legend{margin:.45rem 0 0;font-size:.7rem;color:#475569}.pipeline-legend strong{color:#334155}.pipeline-legend span{display:inline-block;margin-right:.65rem}.agent-metro-svg{min-width:760px;width:100%;height:auto;display:block}.metro-stop{filter:drop-shadow(0 2px 4px rgba(15,23,42,.12))}.cluster-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem}.cluster-card{border:1px solid #fed7aa;background:#fff7ed;border-radius:16px;padding:.75rem}.cluster-card h4{margin:.1rem 0 .35rem;color:#9a3412}.cluster-chip{display:inline-block;margin:.12rem;padding:.2rem .38rem;border-radius:999px;background:#fff;border:1px solid #fdba74;font-family:ui-monospace,monospace;font-size:.7rem;color:#7c2d12}</style>',
     '</head>',
     '<body>',
     `<h1>${escapeHtml(title)}</h1>`,
     ...(compact ? [] : ['<h2>Summary</h2>', '<ul>', ...summary.map(([label, value]) => `<li><strong>${escapeHtml(String(label))}:</strong> ${escapeHtml(String(value))}</li>`), '</ul>']),
-    '<h2>Agent Graph</h2>',
-    graph.length > 0 ? `<ul>${graph.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '<p>No graph available.</p>',
-    renderHtmlAgentNetwork(data),
-    renderHtmlVisualArtifacts(data),
+    ...(options.printGraphSummary === true
+      ? ['<h2>Pipeline Summary</h2>', renderHtmlPipelineSummary(data)]
+      : [
+          '<h2>Agent Graph</h2>',
+          graph.length > 0 ? `<ul>${graph.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '<p>No graph available.</p>',
+          renderHtmlAgentNetwork(data, options.dagLayout ?? 'auto'),
+        ]),
+    renderHtmlVisualArtifacts(data, options.suppressArtifactIds ?? []),
     ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
     ...renderHtmlWarnings(data),
-    ...(compact || steps.length === 0 ? [] : ['<h2>Steps</h2>', renderHtmlStepTable(steps)]),
+    ...(compact || options.suppressSteps === true || steps.length === 0 ? [] : ['<h2>Steps</h2>', renderHtmlStepTable(steps)]),
     '<h2>Final Result</h2>',
     renderFinalResultHtml(final),
     ...(includeResultData ? ['<h2>Result Data</h2>', `<pre>${escapeHtml(JSON.stringify(rawResult, null, 2))}</pre>`] : []),
@@ -276,6 +298,60 @@ function buildHtmlDocument(
     '',
   ].join('\n');
 }
+
+function renderHtmlPipelineSummary(data: Record<string, unknown>): string {
+  const dag = buildRenderableDag(data);
+  if (dag.nodes.length === 0) return '<p>No pipeline summary available.</p>';
+  const agentCount = new Set(dag.nodes.map((node) => node.agent).filter(Boolean)).size;
+  const failed = dag.nodes.filter((node) => node.status === 'failed').length;
+  const recovered = dag.nodes.filter((node) => node.status === 'recovered').length;
+  const abbreviations = buildAgentAbbreviations(dag.nodes.map((node) => node.agent).filter(Boolean));
+  const chips = dag.nodes.map((node, index) => {
+    const status = String(node.status ?? '').toLowerCase();
+    const consensus = node.consensus ? ` ${node.consensus.runs}x` : '';
+    const abbreviation = abbreviations.get(node.agent) ?? abbreviationBase(node.agent);
+    const chip = `<span class="pipeline-step-chip ${escapeHtml(status)}"><strong>${escapeHtml(node.id)}</strong> [${escapeHtml(abbreviation)}]${escapeHtml(consensus)}</span>`;
+    return index === 0 ? chip : `<span class="pipeline-arrow">→</span>${chip}`;
+  }).join('');
+  const notes = [
+    `${dag.nodes.length} steps`,
+    `${agentCount} agents`,
+    `${dag.edges.length} links`,
+    failed > 0 ? `${failed} failed` : '',
+    recovered > 0 ? `${recovered} recovered` : '',
+  ].filter(Boolean).join(' · ');
+  const legend = [...abbreviations.entries()]
+    .sort(([, a], [, b]) => a.localeCompare(b))
+    .map(([agent, abbreviation]) => `<span><strong>${escapeHtml(abbreviation)}</strong> = ${escapeHtml(agent)}</span>`)
+    .join('');
+  return `<section class="pipeline-summary"><p class="pipeline-summary-meta">${escapeHtml(notes)}</p><div class="pipeline-summary-flow">${chips}</div>${legend ? `<p class="pipeline-legend"><strong>Agent legend:</strong> ${legend}</p>` : ''}</section>`;
+}
+
+function buildAgentAbbreviations(agents: string[]): Map<string, string> {
+  const uniqueAgents = [...new Set(agents)];
+  const used = new Set<string>();
+  const result = new Map<string, string>();
+  for (const agent of uniqueAgents) {
+    const base = abbreviationBase(agent);
+    let abbreviation = base;
+    let suffix = 2;
+    while (used.has(abbreviation)) {
+      abbreviation = `${base}${suffix}`;
+      suffix += 1;
+    }
+    used.add(abbreviation);
+    result.set(agent, abbreviation);
+  }
+  return result;
+}
+
+function abbreviationBase(agent: string): string {
+  const parts = agent.split(/[-_\s]+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 1).toUpperCase();
+  return parts.map((part) => part[0]?.toUpperCase() ?? '').join('').slice(0, 4);
+}
+
 
 function renderHtmlStepTable(steps: Record<string, unknown>[]): string {
   const rows = steps.map((step) => [
@@ -308,8 +384,11 @@ function escapeRawHtmlInMarkdown(markdown: string): string {
     .replace(/>/g, '&gt;');
 }
 
-function renderHtmlVisualArtifacts(data: Record<string, unknown>): string {
-  const artifacts = Array.isArray(data['artifacts']) ? data['artifacts'].filter(isRecord) : [];
+function renderHtmlVisualArtifacts(data: Record<string, unknown>, suppressArtifactIds: string[] = []): string {
+  const suppressed = new Set(suppressArtifactIds);
+  const artifacts = Array.isArray(data['artifacts'])
+    ? data['artifacts'].filter(isRecord).filter((artifact) => !suppressed.has(String(artifact['id'] ?? '')))
+    : [];
   if (artifacts.length === 0) return '';
 
   const figures = artifacts
@@ -340,43 +419,63 @@ function safeArtifactSrc(artifact: Record<string, unknown>): string {
   return src;
 }
 
-function renderHtmlAgentNetwork(data: Record<string, unknown>): string {
-  const dag = isRecord(data['dag']) ? data['dag'] : undefined;
-  const nodes = Array.isArray(dag?.['nodes']) ? dag['nodes'].filter(isRecord) : [];
-  const edges = Array.isArray(dag?.['edges']) ? dag['edges'].filter(isRecord) : [];
-  if (nodes.length === 0) return '';
+function renderHtmlAgentNetwork(data: Record<string, unknown>, requestedLayout: DAGRenderLayout = 'auto'): string {
+  const dag = buildRenderableDag(data);
+  if (dag.nodes.length === 0) return '';
+  const resolvedLayout = resolveDAGRenderLayout(dag, requestedLayout);
+  if (resolvedLayout === 'matrix') return renderHtmlAgentMatrixNetwork(dag);
+  if (resolvedLayout === 'metro') return renderHtmlAgentMetroNetwork(dag);
+  if (resolvedLayout === 'cluster') return renderHtmlAgentClusterNetwork(dag);
 
-  const cards = nodes.flatMap((node, index) => {
-    const id = String(node['id'] ?? '');
-    const agent = String(node['agent'] ?? 'unknown');
-    const status = String(node['status'] ?? 'pending').toLowerCase();
-    const provider = String(node['provider'] ?? '').trim();
-    const model = String(node['model'] ?? '').trim();
-    const duration = formatDuration(node['duration']);
-    const meta = [status, provider && model ? `${provider}/${model}` : provider || model, duration].filter(Boolean).join(' | ');
+  const layout = buildDAGLayout(dag);
+  if (layout.layers.length === 0) return '';
 
-    const card = [
-      '<div class="agent-flow-step">',
-      `<article class="agent-node ${escapeHtml(status)}">`,
-      `<div class="agent-node-id">${escapeHtml(id)}</div>`,
-      `<div class="agent-node-name">${escapeHtml(agent)}</div>`,
-      `<div class="agent-node-meta">${escapeHtml(meta)}</div>`,
-      '</article>',
-      index < nodes.length - 1
-        ? '<div class="flow-arrow" aria-hidden="true"><span class="flow-arrow-line"></span><span class="flow-arrow-head"></span></div>'
-        : '',
+  const stages = layout.layers.map((layer, layerPosition) => {
+    const nodes = layer.nodes.map((entry) => {
+      const node = entry.node;
+      const id = String(node.id ?? '');
+      const agent = String(node.agent ?? 'unknown');
+      const status = String(node.status ?? 'pending').toLowerCase();
+      const runtime = formatNodeRuntime(node);
+      const duration = formatDuration(node.duration);
+      const meta = [status, runtime, duration].filter(Boolean).join(' | ');
+      const inputs = entry.inputs.length > 0 ? `${id} inputs: ${entry.inputs.join(', ')}` : `${id} inputs: none`;
+      const consensusHeadline = formatConsensusHeadline(node.consensus);
+      const consensusRuns = node.consensus?.participants?.map((participant) => `<li>${escapeHtml(formatConsensusParticipant(participant))}</li>`) ?? [];
+      return [
+        `<article class="agent-node ${escapeHtml(status)}">`,
+        `<div class="agent-node-id">${escapeHtml(id)}</div>`,
+        `<div class="agent-node-name">${escapeHtml(agent)}</div>`,
+        `<div class="agent-node-meta">${escapeHtml(meta)}</div>`,
+        `<div class="agent-node-inputs">${escapeHtml(inputs)}</div>`,
+        ...(consensusHeadline ? [`<div class="agent-node-consensus">Consensus: ${escapeHtml(consensusHeadline)}</div>`] : []),
+        ...(consensusRuns.length > 0 ? ['<ul class="agent-consensus-runs">', ...consensusRuns, '</ul>'] : []),
+        '</article>',
+      ].join('');
+    }).join('');
+
+    const connector = layerPosition < layout.layers.length - 1
+      ? '<span class="flow-arrow" aria-hidden="true"><span class="flow-arrow-line"></span><span class="flow-arrow-head"></span></span>'
+      : '';
+
+    return [
+      `<section class="agent-stage ${layer.mode}">`,
+      `<div class="agent-stage-title"><span>Stage ${layer.index + 1}</span><span class="agent-stage-mode">${layer.mode}</span></div>`,
+      '<div class="agent-stage-nodes">',
+      nodes,
       '</div>',
+      connector,
+      '</section>',
     ].join('');
-    return [card];
   });
 
-  const edgeLines = edges
+  const edgeLines = layout.edges
     .map((edge) => {
-      const from = String(edge['from'] ?? '');
-      const to = String(edge['to'] ?? '');
-      const type = String(edge['type'] ?? 'planned');
+      const from = String(edge.from ?? '');
+      const to = String(edge.to ?? '');
+      const type = String(edge.type ?? 'planned');
       if (!from || !to) return '';
-      return `<div class="agent-edge">${escapeHtml(`${from} -> ${to}`)} <span>(${escapeHtml(type)})</span></div>`;
+      return `<div class="agent-edge ${escapeHtml(type)}">${escapeHtml(`${from} -> ${to}`)} <span>(${escapeHtml(type)})</span></div>`;
     })
     .filter(Boolean);
 
@@ -384,12 +483,139 @@ function renderHtmlAgentNetwork(data: Record<string, unknown>): string {
     '<section class="agent-network" aria-label="Agent network visualization">',
     '<h3>Agent Network</h3>',
     '<div class="agent-flow">',
-    ...cards,
+    ...stages,
     '</div>',
     ...(edgeLines.length > 0 ? ['<div class="agent-network-edges">', ...edgeLines, '</div>'] : []),
     '</section>',
   ].join('');
 }
+
+function renderHtmlAgentMetroNetwork(dag: DAGResult): string {
+  const layout = buildDAGLayout(dag);
+  const width = Math.max(760, 110 + layout.layers.length * 120);
+  const lanes = [...new Set(dag.nodes.map((node) => node.agent || 'unknown'))];
+  const laneY = new Map(lanes.map((lane, index) => [lane, 70 + index * 54]));
+  const nodePositions = new Map<string, { x: number; y: number }>();
+  for (const layer of layout.layers) {
+    for (const entry of layer.nodes) {
+      nodePositions.set(entry.node.id, {
+        x: 80 + layer.index * 120,
+        y: laneY.get(entry.node.agent || 'unknown') ?? 70,
+      });
+    }
+  }
+  const height = 112 + Math.max(1, lanes.length) * 54;
+  const edgeLines = dag.edges.map((edge) => {
+    const from = nodePositions.get(edge.from);
+    const to = nodePositions.get(edge.to);
+    if (!from || !to) return '';
+    const color = edge.type === 'recovery' ? '#ef4444' : edge.type === 'handoff' ? '#8b5cf6' : edge.type === 'spawned' ? '#f59e0b' : '#10b981';
+    return `<path d="M ${from.x} ${from.y} C ${from.x + 45} ${from.y}, ${to.x - 45} ${to.y}, ${to.x} ${to.y}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" opacity=".78"/>`;
+  }).join('');
+  const stops = dag.nodes.map((node) => {
+    const pos = nodePositions.get(node.id);
+    if (!pos) return '';
+    const consensus = formatConsensusHeadline(node.consensus);
+    const ticks = node.consensus ? '<g stroke="#334155" stroke-width="2"><line x1="-7" y1="-19" x2="-7" y2="-10"/><line x1="0" y1="-21" x2="0" y2="-10"/><line x1="7" y1="-19" x2="7" y2="-10"/></g>' : '';
+    return `<g class="metro-stop" transform="translate(${pos.x} ${pos.y})"><circle r="13" fill="#fff" stroke="#059669" stroke-width="4"/>${ticks}<text x="-28" y="32" font-size="10" fill="#334155">${escapeHtml(node.id)}</text>${consensus ? `<text x="-28" y="45" font-size="9" fill="#475569">${escapeHtml(consensus)}</text>` : ''}</g>`;
+  }).join('');
+  const laneLabels = lanes.map((lane) => `<text x="18" y="${(laneY.get(lane) ?? 70) + 4}" font-size="11" font-weight="700" fill="#475569">${escapeHtml(lane)}</text>`).join('');
+
+  return [
+    '<section class="agent-metro-network" aria-label="Agent metro visualization">',
+    '<h3>Agent Metro</h3>',
+    '<p class="agent-node-meta">Metro mode: routes show branch and join flow; consensus runs appear as ticks above stops.</p>',
+    `<svg class="agent-metro-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Agent Metro">`,
+    `<rect width="100%" height="100%" rx="16" fill="#f7fffb"/>`,
+    laneLabels,
+    edgeLines,
+    stops,
+    '</svg>',
+    '</section>',
+  ].join('');
+}
+
+function renderHtmlAgentClusterNetwork(dag: DAGResult): string {
+  const layout = buildDAGLayout(dag);
+  const cards = layout.layers.map((layer) => {
+    const agents = new Map<string, typeof dag.nodes>();
+    for (const entry of layer.nodes) {
+      const key = entry.node.agent || 'unknown';
+      const nodes = agents.get(key) ?? [];
+      nodes.push(entry.node);
+      agents.set(key, nodes);
+    }
+    const groups = [...agents.entries()].map(([agent, nodes]) => [
+      `<div><strong>${escapeHtml(agent)}</strong></div>`,
+      `<div>${nodes.map((node) => `<span class="cluster-chip">${escapeHtml(node.id)}${node.consensus ? ` ${escapeHtml(formatConsensusHeadline(node.consensus))}` : ''}</span>`).join('')}</div>`,
+    ].join('')).join('');
+    return `<article class="cluster-card"><h4>Stage ${layer.index + 1} ${layer.mode}</h4>${groups}</article>`;
+  }).join('');
+  return [
+    '<section class="agent-cluster-network" aria-label="Agent cluster visualization">',
+    '<h3>Agent Clusters</h3>',
+    '<p class="agent-node-meta">Cluster mode: repeated parallel work is grouped by stage and agent for summary-first reports.</p>',
+    '<div class="cluster-grid">',
+    cards,
+    '</div>',
+    '</section>',
+  ].join('');
+}
+
+
+function renderHtmlAgentMatrixNetwork(dag: DAGResult): string {
+  const layout = buildDAGLayout(dag);
+  const roles = [...new Set(dag.nodes.map((node) => node.agent || 'unknown'))];
+  const byRoleAndStage = new Map<string, typeof dag.nodes>();
+  for (const layer of layout.layers) {
+    for (const entry of layer.nodes) {
+      const key = `${entry.node.agent || 'unknown'}:${layer.index}`;
+      const nodes = byRoleAndStage.get(key) ?? [];
+      nodes.push(entry.node);
+      byRoleAndStage.set(key, nodes);
+    }
+  }
+
+  const header = [
+    '<tr><th>Role / Stage</th>',
+    ...layout.layers.map((layer) => `<th>Stage ${layer.index + 1}<br><small>${escapeHtml(layer.mode)}</small></th>`),
+    '</tr>',
+  ].join('');
+
+  const rows = roles.map((role) => {
+    const cells = layout.layers.map((layer) => {
+      const nodes = byRoleAndStage.get(`${role}:${layer.index}`) ?? [];
+      const chips = nodes.map((node) => {
+        const consensus = formatConsensusHeadline(node.consensus);
+        return [
+          `<span class="matrix-chip ${escapeHtml(String(node.status ?? '').toLowerCase())}">`,
+          escapeHtml(node.id),
+          consensus ? `<span class="matrix-consensus">${escapeHtml(consensus)}</span>` : '',
+          '</span>',
+        ].join('');
+      }).join('');
+      return `<td class="matrix-cell">${chips}</td>`;
+    }).join('');
+    return `<tr><th class="matrix-role">${escapeHtml(role)}</th>${cells}</tr>`;
+  }).join('');
+
+  const edgeSummary = dag.edges.length > 0
+    ? `<div class="agent-network-edges">${dag.edges.map((edge) => `<div class="agent-edge ${escapeHtml(edge.type)}">${escapeHtml(`${edge.from} -> ${edge.to}`)} <span>(${escapeHtml(edge.type)})</span></div>`).join('')}</div>`
+    : '';
+
+  return [
+    '<section class="agent-matrix-network" aria-label="Agent matrix visualization">',
+    '<h3>Agent Matrix</h3>',
+    '<p class="agent-node-meta">Large DAG compact mode: rows are agent roles, columns are dependency stages.</p>',
+    '<table>',
+    '<thead>', header, '</thead>',
+    '<tbody>', rows, '</tbody>',
+    '</table>',
+    edgeSummary,
+    '</section>',
+  ].join('');
+}
+
 
 function appendSummary(lines: string[], data: Record<string, unknown>): void {
   lines.push('## Summary', '');
@@ -410,10 +636,7 @@ function appendAgentGraph(lines: string[], data: Record<string, unknown>): void 
   const graph = buildSimplifiedGraph(data);
   if (graph.length === 0) return;
 
-  lines.push('', '## Agent Graph', '');
-  for (const line of graph) {
-    lines.push(`- ${line}`);
-  }
+  lines.push('', '## Agent Graph', '', '```text', ...graph, '```');
 }
 
 function appendConsensusDiagnostics(lines: string[], data: Record<string, unknown>): void {
@@ -498,7 +721,7 @@ function appendPlainGraph(lines: string[], data: Record<string, unknown>): void 
   if (graph.length === 0) return;
 
   lines.push('Agent Graph', '-----------');
-  lines.push(...graph.map((line) => `- ${line}`), '');
+  lines.push(...graph, '');
 }
 
 function appendSteps(lines: string[], data: Record<string, unknown>): void {
@@ -551,27 +774,8 @@ function appendField(lines: string[], label: string, value: unknown): void {
 }
 
 function buildSimplifiedGraph(data: Record<string, unknown>): string[] {
-  const dag = isRecord(data['dag']) ? data['dag'] : undefined;
-  const nodes = Array.isArray(dag?.['nodes']) ? dag['nodes'].filter(isRecord) : [];
-  const edges = Array.isArray(dag?.['edges']) ? dag['edges'].filter(isRecord) : [];
-  if (nodes.length > 0) {
-    return renderSimplifiedGraph({
-      nodes: nodes.map((node) => ({
-        id: String(node['id'] ?? ''),
-        agent: String(node['agent'] ?? ''),
-        status: String(node['status'] ?? ''),
-        duration: typeof node['duration'] === 'number' ? node['duration'] : 0,
-        ...(node['final'] === true ? { final: true } : {}),
-      })),
-      edges: edges.map((edge) => ({
-        from: String(edge['from'] ?? ''),
-        to: String(edge['to'] ?? ''),
-        type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned'
-          ? edge['type']
-          : 'planned',
-      })),
-    });
-  }
+  const dag = buildRenderableDag(data);
+  if (dag.nodes.length > 0) return renderSimplifiedGraph(dag);
 
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
   if (steps.length === 0) return [];
@@ -580,6 +784,57 @@ function buildSimplifiedGraph(data: Record<string, unknown>): string[] {
     const agent = String(step['agent'] ?? '').trim();
     return agent ? `${id} [${agent}]` : id;
   }).join(' -> ')];
+}
+
+function buildRenderableDag(data: Record<string, unknown>): DAGResult {
+  const dag = isRecord(data['dag']) ? data['dag'] : undefined;
+  const nodes = Array.isArray(dag?.['nodes']) ? dag['nodes'].filter(isRecord) : [];
+  const edges = Array.isArray(dag?.['edges']) ? dag['edges'].filter(isRecord) : [];
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const stepById = new Map(steps.map((step) => [String(step['id'] ?? ''), step]));
+
+  return {
+    nodes: nodes.map((node) => {
+      const id = String(node['id'] ?? '');
+      const step = stepById.get(id);
+      const consensus = normalizeNodeConsensus(isRecord(node['consensus']) ? node['consensus'] : isRecord(step?.['consensus']) ? step['consensus'] : undefined);
+      return {
+        id,
+        agent: String(node['agent'] ?? step?.['agent'] ?? ''),
+        provider: typeof node['provider'] === 'string' ? node['provider'] : typeof step?.['provider'] === 'string' ? step['provider'] : undefined,
+        model: typeof node['model'] === 'string' ? node['model'] : typeof step?.['model'] === 'string' ? step['model'] : undefined,
+        status: String(node['status'] ?? step?.['status'] ?? ''),
+        duration: typeof node['duration'] === 'number' ? node['duration'] : typeof step?.['duration'] === 'number' ? step['duration'] : 0,
+        ...(node['final'] === true ? { final: true } : {}),
+        ...(consensus ? { consensus } : {}),
+      };
+    }),
+    edges: edges.map((edge) => ({
+      from: String(edge['from'] ?? ''),
+      to: String(edge['to'] ?? ''),
+      type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned'
+        ? edge['type']
+        : 'planned',
+    })),
+  };
+}
+
+function normalizeNodeConsensus(value: Record<string, unknown> | undefined): DAGNodeConsensus | undefined {
+  if (!value) return undefined;
+  const method = String(value['method'] ?? 'exact-majority');
+  if (method !== 'exact-majority' && method !== 'medoid-token-similarity' && method !== 'worktree-best-passing-diff') return undefined;
+  return {
+    enabled: value['enabled'] !== false,
+    runs: typeof value['runs'] === 'number' ? value['runs'] : Number(value['runs'] ?? 0),
+    candidateCount: typeof value['candidateCount'] === 'number' ? value['candidateCount'] : Number(value['candidateCount'] ?? value['runs'] ?? 0),
+    selectedRun: typeof value['selectedRun'] === 'number' ? value['selectedRun'] : Number(value['selectedRun'] ?? 0),
+    agreement: typeof value['agreement'] === 'number' ? value['agreement'] : Number(value['agreement'] ?? 0),
+    method,
+    ...(value['isolation'] === 'git-worktree' ? { isolation: 'git-worktree' as const } : {}),
+    ...(typeof value['verificationPassed'] === 'boolean' ? { verificationPassed: value['verificationPassed'] } : {}),
+    ...(Array.isArray(value['changedFiles']) ? { changedFiles: value['changedFiles'].filter((file): file is string => typeof file === 'string') } : {}),
+    ...(Array.isArray(value['participants']) ? { participants: value['participants'].filter(isRecord).map(normalizeConsensusParticipant) } : {}),
+  };
 }
 
 function collectConsensusDiagnostics(data: Record<string, unknown>): Array<{
@@ -654,19 +909,16 @@ function normalizeConsensusDiagnostic(value: Record<string, unknown>): {
   };
 }
 
-function normalizeConsensusParticipant(value: Record<string, unknown>): {
-  run: number;
-  provider?: string;
-  model?: string;
-  status: string;
-  contribution: number;
-} {
+function normalizeConsensusParticipant(value: Record<string, unknown>): ConsensusParticipant {
   return {
     run: typeof value['run'] === 'number' ? value['run'] : Number(value['run'] ?? 0),
     ...(typeof value['provider'] === 'string' ? { provider: value['provider'] } : {}),
     ...(typeof value['model'] === 'string' ? { model: value['model'] } : {}),
-    status: String(value['status'] ?? 'unknown'),
+    status: value['status'] === 'selected' || value['status'] === 'contributed' || value['status'] === 'valid' || value['status'] === 'rejected' || value['status'] === 'failed'
+      ? value['status']
+      : 'valid',
     contribution: typeof value['contribution'] === 'number' ? value['contribution'] : Number(value['contribution'] ?? 0),
+    ...(typeof value['detail'] === 'string' ? { detail: value['detail'] } : {}),
   };
 }
 

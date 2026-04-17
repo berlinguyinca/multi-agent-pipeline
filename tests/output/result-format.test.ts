@@ -48,7 +48,9 @@ describe('result formatting', () => {
     const output = formatMapOutput(result, 'markdown');
 
     expect(output).toContain('## Agent Graph');
-    expect(output).toContain('step-1 [researcher] -> step-1-grammar-1 [grammar-spelling-specialist]');
+    expect(output).toContain('Stage 1 (sequence):');
+    expect(output).toContain('step-1 [researcher] completed | consensus 3x exact-majority');
+    expect(output).toContain('step-1 -> step-1-grammar-1 (planned)');
     expect(output).toContain('## Final Result');
     expect(output).toContain('Final polished answer');
     expect(output).toContain('| step-1 | researcher | completed | pass | not checked | Research |');
@@ -73,6 +75,80 @@ describe('result formatting', () => {
     expect(output).toContain('class="flow-arrow"');
     expect(output).toContain('step-1 -&gt; step-1-grammar-1');
   });
+
+
+  it('renders a compact layered HTML flowchart with consensus run models', () => {
+    const branched = {
+      ...result,
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'researcher', status: 'completed', duration: 10 },
+          { id: 'step-2', agent: 'data-loader', status: 'completed', duration: 12 },
+          { id: 'step-3', agent: 'writer', status: 'completed', duration: 8 },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-3', type: 'planned' },
+          { from: 'step-2', to: 'step-3', type: 'planned' },
+        ],
+      },
+      steps: [
+        result.steps[0],
+        { id: 'step-2', agent: 'data-loader', task: 'Load data', status: 'completed', output: 'Data' },
+        { id: 'step-3', agent: 'writer', task: 'Write', status: 'completed', output: 'Final polished answer', dependsOn: ['step-1', 'step-2'] },
+      ],
+    };
+
+    const output = formatMapOutput(branched, 'html');
+
+    expect(output).toContain('class="agent-stage concurrent"');
+    expect(output).toContain('class="agent-stage sequence"');
+    expect(output).toContain('step-3 inputs: step-1, step-2');
+    expect(output).toContain('Consensus: 3x exact-majority');
+    expect(output).toContain('ollama/gemma4:26b r1 contributed 100%');
+    expect(output).toContain('class="agent-edge planned"');
+  });
+
+
+
+
+  it('can force metro and cluster HTML DAG layouts', () => {
+    const metro = formatMapOutput(result, 'html', { dagLayout: 'metro' });
+    const cluster = formatMapOutput(result, 'html', { dagLayout: 'cluster' });
+
+    expect(metro).toContain('class="agent-metro-network"');
+    expect(metro).toContain('Agent Metro');
+    expect(metro).toContain('metro-stop');
+    expect(cluster).toContain('class="agent-cluster-network"');
+    expect(cluster).toContain('Agent Clusters');
+    expect(cluster).toContain('cluster-chip');
+  });
+
+
+  it('uses matrix lanes for large HTML agent networks', () => {
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
+      id: `step-${index + 1}`,
+      agent: index % 3 === 0 ? 'researcher' : index % 3 === 1 ? 'implementation-coder' : 'verifier',
+      status: 'completed',
+      duration: 10 + index,
+    }));
+    const edges = nodes.slice(1).map((node, index) => ({
+      from: `step-${index + 1}`,
+      to: node.id,
+      type: 'planned',
+    }));
+    const output = formatMapOutput({
+      ...result,
+      dag: { nodes, edges },
+      steps: nodes.map((node) => ({ ...node, task: `Task ${node.id}`, output: node.id === 'step-13' ? 'Final large answer' : `Output ${node.id}` })),
+    }, 'html');
+
+    expect(output).toContain('class="agent-matrix-network"');
+    expect(output).toContain('Agent Matrix');
+    expect(output).toContain('Role / Stage');
+    expect(output).toContain('matrix-cell');
+    expect(output).not.toContain('class="agent-stage concurrent"');
+  });
+
 
   it('renders markdown final results as html instead of preformatted text', () => {
     const markdownResult = {
@@ -120,7 +196,8 @@ describe('result formatting', () => {
 
     expect(output).toContain('# MAP Compact Result');
     expect(output).toContain('## Agent Graph');
-    expect(output).toContain('step-1-grammar-1 [grammar-spelling-specialist] -> step-2 [writer]');
+    expect(output).toContain('Stage 3 (sequence):');
+    expect(output).toContain('step-1-grammar-1 -> step-2 (planned)');
     expect(output).toContain('## Consensus Diagnostics');
     expect(output).toContain('step-1 [researcher] exact-majority: ollama/gemma4:26b run 1 contributed 100%');
     expect(output).toContain('## Final Result');

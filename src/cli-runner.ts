@@ -8,7 +8,7 @@ import { detectAllAdapters } from './adapters/detect.js';
 import { parseDuration } from './utils/duration.js';
 import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
-import { formatMapOutput, parseMapOutputFormat, type MapOutputFormat } from './output/result-format.js';
+import { formatMapOutput, parseDagLayoutOption, parseMapOutputFormat, type FormatMapOutputOptions, type MapOutputFormat } from './output/result-format.js';
 import { openOutputArtifact, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
 import type { OllamaConfig, PipelineConfig } from './types/config.js';
 
@@ -43,6 +43,7 @@ Options:
   --output-format <fmt>  Print final result as json, yaml, markdown, html, text, or pdf (default: json)
   --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
+  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, or cluster
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -98,6 +99,7 @@ Commands:
   const reviewPrUrl = extractFlag(args, '--review-pr');
   const outputFormat = resolveOutputFormat(args);
   const compact = hasFlag(args, '--compact');
+  const dagLayout = resolveDagLayout(args);
   const openOutput = hasFlag(args, '--open-output');
   if (hasReviewPr && !reviewPrUrl) {
     console.error('Error: --review-pr requires a URL argument (e.g. --review-pr https://github.com/owner/repo/pull/123)');
@@ -108,7 +110,7 @@ Commands:
     const configPath = extractFlag(args, '--config');
     const personality = extractFlag(args, '--personality');
     const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
-    await writeFormattedResult(result, outputFormat, compact, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -164,7 +166,7 @@ Commands:
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
-      await writeFormattedResult(result, outputFormat, compact, openOutput);
+      await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
       process.exit(result.success ? 0 : 1);
     }
 
@@ -194,7 +196,7 @@ Commands:
       pollIntervalMs:
         pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
     });
-    await writeFormattedResult(result, outputFormat, compact, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -318,6 +320,15 @@ function resolveOutputFormat(args: string[]): MapOutputFormat {
   }
 }
 
+function resolveDagLayout(args: string[]): FormatMapOutputOptions['dagLayout'] {
+  try {
+    return parseDagLayoutOption(extractFlag(args, '--dag-layout'));
+  } catch (error) {
+    console.error(error instanceof Error ? `Error: ${error.message}` : String(error));
+    process.exit(1);
+  }
+}
+
 function applyRouterOverrides(
   config: Awaited<ReturnType<typeof loadConfig>>,
   routerModel: string | undefined,
@@ -407,9 +418,10 @@ function buildV2SpecFilePrompt(
 async function writeFormattedResult(
   result: unknown,
   format: MapOutputFormat,
-  compact = false,
+  formatOptions: FormatMapOutputOptions = {},
   openOutput = false,
 ): Promise<void> {
+  const compact = formatOptions.compact ?? false;
   const outputDir = typeof result === 'object' && result !== null && !Array.isArray(result)
     ? ((result as Record<string, unknown>)['outputDir'] as string | undefined)
     : undefined;
@@ -418,6 +430,7 @@ async function writeFormattedResult(
     const artifact = await writePdfArtifact(result, {
       compact,
       outputDir,
+      dagLayout: formatOptions.dagLayout,
     });
     if (openOutput) {
       await openOutputArtifact(artifact.pdfPath ?? artifact.htmlPath);
@@ -431,11 +444,11 @@ async function writeFormattedResult(
   }
 
   if (format === 'html' && openOutput) {
-    const artifact = await writeHtmlArtifact(result, { compact, outputDir });
+    const artifact = await writeHtmlArtifact(result, { compact, outputDir, dagLayout: formatOptions.dagLayout });
     await openOutputArtifact(artifact.htmlPath);
     process.stdout.write(`HTML report written to ${artifact.htmlPath}\n`);
     return;
   }
 
-  process.stdout.write(formatMapOutput(result, format, { compact }));
+  process.stdout.write(formatMapOutput(result, format, formatOptions));
 }

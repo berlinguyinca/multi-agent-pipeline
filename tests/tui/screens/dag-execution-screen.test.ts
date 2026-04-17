@@ -73,6 +73,46 @@ describe('DAGExecutionScreen', () => {
     expect(content).toContain('Streaming implementation output');
   });
 
+
+  it('renders compact stages and consensus models in the workflow graph', () => {
+    screen = createTestScreen();
+    const parent = createParentBox(screen);
+    const graphSteps: StepResult[] = [
+      {
+        id: 'step-1',
+        agent: 'researcher',
+        status: 'completed',
+        task: 'Research',
+        dependsOn: [],
+        consensus: {
+          enabled: true,
+          runs: 3,
+          candidateCount: 3,
+          selectedRun: 1,
+          agreement: 2 / 3,
+          method: 'exact-majority',
+          participants: [
+            { run: 1, provider: 'ollama', model: 'gemma4:26b', status: 'contributed', contribution: 1 },
+          ],
+        },
+      },
+      { id: 'step-2', agent: 'data-loader', status: 'completed', task: 'Load data', dependsOn: [] },
+      { id: 'step-3', agent: 'writer', status: 'running', task: 'Write', dependsOn: ['step-1', 'step-2'] },
+    ];
+    const des = new DAGExecutionScreen(parent, { steps: graphSteps });
+    des.activate();
+    function collectContent(node: blessed.Widgets.Node): string {
+      const own = (node as blessed.Widgets.BoxElement).getContent?.() ?? '';
+      return own + '\n' + node.children.map(collectContent).join('\n');
+    }
+    const content = collectContent(parent);
+    expect(content).toContain('Stage 1 (concurrent):');
+    expect(content).toContain('Stage 2 (sequence):');
+    expect(content).toContain('consensus 3x exact-majority');
+    expect(content).toContain('ollama/gemma4:26b r1 contributed 100%');
+  });
+
+
   it('shows security findings in selected step detail', () => {
     screen = createTestScreen();
     const parent = createParentBox(screen);

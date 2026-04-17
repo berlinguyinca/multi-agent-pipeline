@@ -62,6 +62,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 describe('runCli', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -70,11 +71,13 @@ describe('runCli', () => {
       throw new Error(`process.exit:${code ?? 0}`);
     }) as never);
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     exitSpy.mockRestore();
     stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   it('launches the TUI with no initial prompt when no args are provided', async () => {
@@ -193,6 +196,7 @@ describe('runCli', () => {
     expect(writePdfArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
       compact: false,
       outputDir: '/tmp/out',
+      dagLayout: 'auto',
     });
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('PDF written to /tmp/map-result.pdf'));
   });
@@ -231,10 +235,45 @@ describe('runCli', () => {
     expect(writeHtmlArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
       compact: false,
       outputDir: '/tmp/out',
+      dagLayout: 'auto',
     });
     expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.html');
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('HTML report written to /tmp/map-result.html'));
   });
+
+
+  it('passes forced dag layout to html artifact output', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outcome: 'success',
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--output-format', 'html', '--open-output', '--dag-layout', 'metro', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writeHtmlArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
+      compact: false,
+      outputDir: '/tmp/out',
+      dagLayout: 'metro',
+    });
+  });
+
+  it('prints an error for unsupported dag layout values', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--dag-layout', 'radial', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:1');
+
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('--dag-layout must be one of'));
+  });
+
 
   it('prints compact json when --compact is combined with default output format', async () => {
     runHeadlessV2Mock.mockResolvedValueOnce({
@@ -263,7 +302,14 @@ describe('runCli', () => {
     expect(parsed).toEqual({
       success: true,
       outcome: 'success',
-      agentGraph: ['step-1 [researcher] -> step-2 [writer]'],
+      agentGraph: [
+        'Stage 1 (sequence):',
+        '- step-1 [researcher] completed',
+        'Stage 2 (sequence):',
+        '- step-2 [writer] completed | inputs: step-1',
+        'Connections:',
+        '- step-1 -> step-2 (planned)',
+      ],
       finalResult: 'Final answer',
     });
   });

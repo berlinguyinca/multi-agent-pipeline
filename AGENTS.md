@@ -40,7 +40,7 @@ MAP uses consensus selectively for local model quality without making heavyweigh
 
 Do not remove these controls casually. If changing them, update README and tests in the same change.
 
-Consensus diagnostics are part of the reporting contract. Results should show every provider/model used for consensus, each run number, status (`contributed`, `selected`, `valid`, `rejected`, or `failed`), and contribution percentage. Router contribution means selected DAG-step overlap. Agent-output contribution means agreement/similarity with the selected output. File-output contribution means the verified patch selected for application.
+Consensus diagnostics are part of the reporting contract. Results should show every provider/model used for consensus, each run number, status (`contributed`, `selected`, `valid`, `rejected`, or `failed`), and contribution percentage. Compact DAG graphs and deterministic `agent-network.svg` visuals must also surface consensus run count, method, run models, statuses, and contributions on the relevant step nodes. DAG visualization layouts are user-selectable with `--dag-layout auto|stage|metro|matrix|cluster`; auto should use stage swimlanes for small/medium HTML/SVG graphs and matrix lanes for large graphs. PDF output should default auto to a terse print-safe pipeline summary, suppress the detailed inline graph/steps table, and avoid embedding a duplicate full-size `agent-network.svg` figure. Router contribution means selected DAG-step overlap. Agent-output contribution means agreement/similarity with the selected output. File-output contribution means the verified patch selected for application.
 
 ## File-output consensus worktree flow
 
