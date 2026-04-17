@@ -21,6 +21,8 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'grammar-spelling-specialist',
   'output-formatter',
   'usage-classification-tree',
+  'usage-classification-fact-checker',
+  'research-fact-checker',
   'classyfire-taxonomy-classifier',
   'github-review-merge-specialist',
   'bug-debugger',
@@ -48,7 +50,11 @@ describe('software delivery agent bundle', () => {
       const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, name));
 
       expect(agent.adapter).toBe('ollama');
-      expect(agent.model).toBe('gemma4:26b');
+      if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
+        expect(agent.model).toBe('bespoke-minicheck:7b');
+      } else {
+        expect(agent.model).toBe('gemma4:26b');
+      }
     }
   });
 
@@ -194,6 +200,19 @@ describe('software delivery agent bundle', () => {
       'Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable.',
     );
     expect(usage.contract?.handoff.includes).toContain('LCB exposure summary');
+  });
+
+  it('loads fact-checking agents on a separate minicheck model', async () => {
+    const usageFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-fact-checker'));
+    const researchFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'research-fact-checker'));
+
+    for (const agent of [usageFact, researchFact]) {
+      expect(agent.adapter).toBe('ollama');
+      expect(agent.model).toBe('bespoke-minicheck:7b');
+      expect(agent.prompt).toContain('Fact-check verdict: <supported | rejected | needs-review>');
+      expect(agent.contract?.handoff.includes).toContain('Fact-check verdict');
+      expect(agent.contract?.nonGoals.join(' ')).toContain('format');
+    }
   });
 
   it('requires the usage classifier to score and rank commonness without becoming a formatter', async () => {

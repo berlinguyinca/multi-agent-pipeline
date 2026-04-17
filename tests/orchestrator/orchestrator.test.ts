@@ -507,6 +507,210 @@ describe('executeDAG', () => {
     expect(writerPrompt).not.toContain('Ths research has speling mistakes.');
   });
 
+  it('automatically fact-checks usage classification with a dedicated agent before downstream steps', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const factChecker = makeAgent('usage-classification-fact-checker', 'answer');
+    factChecker.adapter = 'ollama';
+    factChecker.model = 'bespoke-minicheck:7b';
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['usage-classification-fact-checker', factChecker],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: Array<{ agent: string; model?: string; prompt: string }> = [];
+    const createAdapter = vi.fn((config) => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Fact-check the usage-classification-tree report')) {
+          calls.push({ agent: 'usage-classification-fact-checker', model: config.model, prompt });
+          yield 'Fact-check verdict: supported\n\nAll major claims are supported.';
+          return;
+        }
+        if (prompt.includes('Classify usage')) {
+          calls.push({ agent: 'usage-classification-tree', model: config.model, prompt });
+          yield '# Usage Classification Tree\n\n## Usage Commonness Ranking\n\n| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Evidence/caveat |\n| --- | --- | --- | --- | --- | --- |\n| 1 | Food additive | food | 80 | common | Evidence |';
+          return;
+        }
+        if (prompt.includes('Use verified usage')) {
+          calls.push({ agent: 'writer', model: config.model, prompt });
+          yield 'Verified report';
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+      'step-2',
+    ]);
+    expect(calls.map((call) => call.agent)).toEqual([
+      'usage-classification-tree',
+      'usage-classification-fact-checker',
+      'writer',
+    ]);
+    expect(calls.find((call) => call.agent === 'usage-classification-fact-checker')?.model).toBe('bespoke-minicheck:7b');
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+    ]);
+    const writerPrompt = calls.find((call) => call.agent === 'writer')?.prompt ?? '';
+    expect(writerPrompt).toContain('[step-1: usage-classification-tree]');
+    expect(writerPrompt).toContain('[step-1-fact-check-1: usage-classification-fact-checker]');
+  });
+
+  it('automatically fact-checks researcher output before downstream use', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'researcher', task: 'Research evidence', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified research', dependsOn: ['step-1'] },
+      ],
+    };
+    const researchFactChecker = makeAgent('research-fact-checker', 'answer');
+    researchFactChecker.adapter = 'ollama';
+    researchFactChecker.model = 'bespoke-minicheck:7b';
+    const agents = new Map([
+      ['researcher', makeAgent('researcher', 'answer')],
+      ['research-fact-checker', researchFactChecker],
+      ['grammar-spelling-specialist', makeAgent('grammar-spelling-specialist', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: Array<{ agent: string; model?: string; prompt: string }> = [];
+    const createAdapter = vi.fn((config) => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Fact-check the researcher report')) {
+          calls.push({ agent: 'research-fact-checker', model: config.model, prompt });
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
+          return;
+        }
+        if (prompt.includes('Polish grammar, spelling, punctuation')) {
+          calls.push({ agent: 'grammar-spelling-specialist', model: config.model, prompt });
+          yield 'Research output polished.';
+          return;
+        }
+        if (prompt.includes('Research evidence')) {
+          calls.push({ agent: 'researcher', model: config.model, prompt });
+          yield 'Research output with suported claim.';
+          return;
+        }
+        if (prompt.includes('Use verified research')) {
+          calls.push({ agent: 'writer', model: config.model, prompt });
+          yield 'Verified research report';
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-grammar-1',
+      'step-1-fact-check-1',
+      'step-2',
+      'step-2-grammar-1',
+    ]);
+    expect(calls.find((call) => call.agent === 'research-fact-checker')?.model).toBe('bespoke-minicheck:7b');
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1-grammar-1',
+      'step-1-fact-check-1',
+    ]);
+    const writerPrompt = calls.find((call) => call.agent === 'writer')?.prompt ?? '';
+    expect(writerPrompt).toContain('[step-1-grammar-1: grammar-spelling-specialist]');
+    expect(writerPrompt).toContain('[step-1-fact-check-1: research-fact-checker]');
+  });
+
+  it('blocks downstream usage consumers when the usage fact-checker rejects the report', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['usage-classification-fact-checker', makeAgent('usage-classification-fact-checker', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Fact-check the usage-classification-tree report')) {
+          yield 'Fact-check verdict: rejected\n\nUnsupported therapeutic use claim.';
+          return;
+        }
+        if (prompt.includes('Classify usage')) {
+          yield '# Usage Classification Tree\n\nClaim: unsupported use';
+          return;
+        }
+        if (prompt.includes('Use verified usage')) {
+          yield 'should not run';
+          return;
+        }
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps.find((step) => step.id === 'step-1-fact-check-1')).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Fact-checker rejected'),
+    });
+    expect(result.steps.find((step) => step.id === 'step-2')).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('Dependency failed: step-1-fact-check-1'),
+    });
+  });
+
   it('does not run grammar polishing on structured Markdown reports', async () => {
     const plan: DAGPlan = {
       plan: [

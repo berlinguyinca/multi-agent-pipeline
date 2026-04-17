@@ -18,6 +18,7 @@ import { recordLearningCandidate } from '../knowledge/index.js';
 import { normalizeTerminalText } from '../utils/terminal-text.js';
 import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
 import { maybeScheduleGrammarReview } from './grammar-review.js';
+import { maybeScheduleFactCheck } from './fact-check.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
 import { validateStepHandoff } from './handoff-validation.js';
 import { runFileConsensusInWorktrees } from './file-consensus.js';
@@ -306,6 +307,7 @@ export async function executeDAG(
               output: normalizeTerminalText(output),
               duration,
               attempts,
+              ...(step.parentStepId ? { parentStepId: step.parentStepId, edgeType: 'handoff' as const } : {}),
               ...(consensusSelection ? { consensus: consensusSelection.metadata } : {}),
             };
 
@@ -397,6 +399,15 @@ export async function executeDAG(
                 replans.push(replan);
               }
             }
+            maybeScheduleFactCheck({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+            });
             maybeScheduleGrammarReview({
               step,
               result,

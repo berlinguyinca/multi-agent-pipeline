@@ -922,6 +922,10 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
           yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Inspect existing sources","dependsOn":[]}]}';
           return;
         }
+        if (prompt.includes('Fact-check the researcher report')) {
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
+          return;
+        }
 
         yield 'Workspace-aware result';
       }
@@ -995,6 +999,10 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       async *run(prompt: string): AsyncGenerator<string, void, void> {
         if (prompt.includes('You are a task router')) {
           yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research the topic","dependsOn":[]}]}';
+          return;
+        }
+        if (prompt.includes('Fact-check the researcher report')) {
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
           return;
         }
 

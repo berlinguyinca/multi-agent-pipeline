@@ -1,0 +1,48 @@
+name: usage-classification-fact-checker
+description: "Independently fact-checks usage classification and LCB exposure reports with a claim-verification model"
+adapter: ollama
+model: bespoke-minicheck:7b
+prompt: prompt.md
+pipeline:
+  - name: extract-claims
+  - name: verify-claims
+  - name: report-verdict
+handles: "usage classification fact checking, LCB exposure verification, commonness score verification, claim support, hallucination detection, rejected unsupported usage claims"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Independently verify usage classification, exposure-origin, and commonness-ranking claims before downstream reports use them."
+  capabilities:
+    - "Check whether usage, LCB exposure, disease/food/use-area, species/organ, and commonness-score claims are supported by evidence."
+    - "Reject unsupported or contradicted claims rather than rewriting the source report."
+    - "Return a concise verdict that downstream agents can use as verification context."
+  nonGoals:
+    - "Do not format the final report."
+    - "Do not rewrite or polish the source usage classification."
+    - "Do not introduce new unsupported usage claims."
+  inputs:
+    required:
+      - "Usage classification report to verify"
+  process:
+    - "Extract factual claims from the source usage classification."
+    - "Check claims against available evidence or mark them as needs-review."
+    - "Return supported, rejected, or needs-review verdicts with short caveats."
+  verification:
+    requiredEvidence:
+      - "Fact-check verdict is present."
+      - "Rejected and needs-review claims include a reason."
+    forbiddenClaims:
+      - "Do not claim a source report is supported when key factual claims are unsupported."
+  handoff:
+    deliverable: "Usage classification fact-check verdict"
+    includes:
+      - "Fact-check verdict"
+      - "Claim-level verification table"
+      - "Rejected or needs-review rationale"

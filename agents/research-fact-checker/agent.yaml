@@ -1,0 +1,48 @@
+name: research-fact-checker
+description: "Independently fact-checks research answers with a claim-verification model"
+adapter: ollama
+model: bespoke-minicheck:7b
+prompt: prompt.md
+pipeline:
+  - name: extract-claims
+  - name: verify-claims
+  - name: report-verdict
+handles: "research fact checking, source verification, hallucination detection, claim support, evidence verification, rejected unsupported research claims"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Independently verify factual claims in research outputs before downstream agents use them."
+  capabilities:
+    - "Check research claims against available evidence."
+    - "Reject unsupported, contradicted, or fabricated claims."
+    - "Flag weak or ambiguous claims as needs-review."
+  nonGoals:
+    - "Do not rewrite or summarize the research answer."
+    - "Do not format the final report."
+    - "Do not introduce new unsupported facts."
+  inputs:
+    required:
+      - "Research answer to verify"
+  process:
+    - "Extract key factual claims from the research answer."
+    - "Verify claim support against retrieved or provided evidence."
+    - "Return a concise verdict and claim-level table."
+  verification:
+    requiredEvidence:
+      - "Fact-check verdict is present."
+      - "Rejected and needs-review claims include a reason."
+    forbiddenClaims:
+      - "Do not mark a research answer supported when material claims are unsupported."
+  handoff:
+    deliverable: "Research fact-check verdict"
+    includes:
+      - "Fact-check verdict"
+      - "Claim-level verification table"
+      - "Rejected or needs-review rationale"

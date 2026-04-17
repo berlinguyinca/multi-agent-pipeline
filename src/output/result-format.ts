@@ -683,7 +683,27 @@ function formatPercent(value: number): string {
 
 function extractDisplayFinalResult(data: Record<string, unknown>): string | null {
   const combined = combineComplementaryReports(data);
-  return combined ?? extractFinalResult(data);
+  if (combined) return appendFactCheckVerification(data, combined);
+  const final = extractFinalResult(data);
+  return final ? appendFactCheckVerification(data, final) : null;
+}
+
+function appendFactCheckVerification(data: Record<string, unknown>, final: string): string {
+  const factChecks = collectFactCheckOutputs(data);
+  if (factChecks.length === 0) return final;
+  return `${final}\n\n---\n\n## Fact-check Verification\n\n${factChecks.join('\n\n')}`;
+}
+
+function collectFactCheckOutputs(data: Record<string, unknown>): string[] {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  return steps
+    .filter((step) => {
+      const agent = String(step['agent'] ?? '');
+      return (agent === 'usage-classification-fact-checker' || agent === 'research-fact-checker') &&
+        (step['status'] === 'completed' || step['status'] === 'recovered');
+    })
+    .map((step) => usableStepOutput(step))
+    .filter((output): output is string => Boolean(output));
 }
 
 function combineComplementaryReports(data: Record<string, unknown>): string | null {

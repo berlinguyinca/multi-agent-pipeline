@@ -38,6 +38,10 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     findings.push(...validateFormatterPreservation(options));
   }
 
+  if (options.step.agent === 'usage-classification-fact-checker' || options.step.agent === 'research-fact-checker') {
+    findings.push(...validateFactCheckVerdict(options));
+  }
+
   const specConformance = evaluateSpecConformance(options, output);
   for (const criterion of specConformance.missingCriteria) {
     findings.push(finding('medium', `Output does not clearly address acceptance criterion: ${criterion}`, options.step.id));
@@ -80,6 +84,33 @@ function validateGrammarPreservation(options: HandoffValidationOptions): Handoff
   return findings;
 }
 
+
+
+function validateFactCheckVerdict(options: HandoffValidationOptions): HandoffFinding[] {
+  const output = options.result.output?.trim() ?? '';
+  const verdict = /fact-check verdict:\s*([^\n]+)/i.exec(output)?.[1]?.toLowerCase().trim() ?? '';
+  if (!verdict) {
+    return [finding('high', 'Fact-checker did not provide a required Fact-check verdict.', options.step.id)];
+  }
+  if (verdict.startsWith('rejected')) {
+    return [finding('high', `Fact-checker rejected source report: ${firstNonEmptyLineAfterVerdict(output)}`, options.step.id)];
+  }
+  if (verdict.startsWith('needs-review')) {
+    return [finding('medium', `Fact-checker marked source report as needs-review: ${firstNonEmptyLineAfterVerdict(output)}`, options.step.id)];
+  }
+  if (!verdict.startsWith('supported')) {
+    return [finding('high', `Fact-checker returned unsupported verdict label: ${verdict}`, options.step.id)];
+  }
+  return [];
+}
+
+function firstNonEmptyLineAfterVerdict(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !line.startsWith('|') && !/^[-: ]+$/.test(line)) ?? 'no rationale supplied';
+}
 
 function validateFormatterPreservation(options: HandoffValidationOptions): HandoffFinding[] {
   const source = combinedDependencyOutput(options.step, options.priorResults);

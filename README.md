@@ -723,7 +723,7 @@ adapterDefaults:
 
 When deterministic Ollama options are active, MAP uses Ollama's chat API in streaming mode so long-running local generations still emit progress chunks and can be cancelled or timed out cleanly.
 
-MAP can also repeat non-file agent outputs and select the best-supported candidate. Global non-file consensus is opt-in because repeating heavyweight local models can make runs slower, but critical fact-producing agents use per-agent consensus by default:
+MAP can also repeat non-file agent outputs and select the best-supported candidate. Global non-file consensus is opt-in because repeating heavyweight local models can make runs slower, but critical fact-producing agents use per-agent consensus by default. In addition, research and usage-classification outputs automatically receive an independent fact-checking handoff when the corresponding fact-checker agent is enabled:
 
 ```yaml
 agentConsensus:
@@ -747,6 +747,8 @@ agentConsensus:
 ```
 
 Set `agentConsensus.enabled: true` when the added quality check is worth the extra runtime for all non-file agents. `answer`, `data`, and `presentation` outputs are safe to repeat because they do not write files directly. File-producing implementation agents are intentionally excluded from automatic repetition to avoid multiple concurrent edits in the same workspace; they remain protected by TDD, security, handoff validation, code QA, and release-readiness agents. When non-file candidates disagree below `minSimilarity`, MAP fails the step instead of silently picking a hallucinated outlier.
+
+Fact-checking agents use a different model by default (`bespoke-minicheck:7b`) and return a required `Fact-check verdict: supported | rejected | needs-review`. A `rejected` verdict fails the fact-check step and blocks downstream consumers; `needs-review` is surfaced as a warning so downstream agents can treat the source claims cautiously. Fact-check outputs are appended to rendered reports under **Fact-check Verification** without replacing the original research or usage report.
 
 When an Ollama `seed` is configured, consensus candidates use stable seed offsets (`seed`, `seed + 1`, `seed + 2`, ...). This keeps repeated MAP runs reproducible while still allowing diversity if you choose a non-zero temperature.
 
@@ -935,6 +937,8 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
 | `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries and commonness rankings/scores for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
+| `usage-classification-fact-checker` | `answer` | Independent fact-checking for usage/LCB/commonness claims using `bespoke-minicheck:7b`; rejects unsupported usage reports before downstream use. |
+| `research-fact-checker` | `answer` | Independent fact-checking for researcher outputs using `bespoke-minicheck:7b`; flags or rejects unsupported research claims. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |

@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '../types/agent-definition.js';
+import { isFactCheckerAgent } from './fact-check.js';
 import type { DAGPlan, StepResult } from '../types/dag.js';
 
 export interface GrammarReviewOptions {
@@ -34,7 +35,7 @@ export function maybeScheduleGrammarReview(options: GrammarReviewOptions): void 
   options.allIds.add(grammarId);
 
   for (const candidate of options.plan.plan) {
-    if (candidate.id === options.step.id || candidate.id === grammarId || options.settled.has(candidate.id)) {
+    if (candidate.id === options.step.id || candidate.id === grammarId || isFactCheckerAgent(candidate.agent) || options.settled.has(candidate.id)) {
       continue;
     }
     candidate.dependsOn = candidate.dependsOn.map((dep) =>
@@ -65,6 +66,7 @@ function shouldGrammarReview(
   if (step.agent === 'classyfire-taxonomy-classifier') return false;
   if (step.agent === 'usage-classification-tree') return false;
   if (step.agent === 'output-formatter') return false;
+  if (isFactCheckerAgent(step.agent)) return false;
   if (result.outputType !== 'answer' && result.outputType !== 'presentation') return false;
   const output = result.output?.trim();
   if (!output) return false;
