@@ -10,3 +10,6 @@ coverage/
 .omx/
 eval-output/
 map-output/
+
+# Generated MAP run reports
+AGENTS_SUMMARY.md
