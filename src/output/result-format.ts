@@ -326,9 +326,9 @@ function renderHtmlVisualArtifacts(data: Record<string, unknown>): string {
 function safeArtifactSrc(artifact: Record<string, unknown>): string {
   if (typeof artifact['src'] !== 'string') return '';
   const src = artifact['src'].trim();
-  if (!src || src.startsWith('/') || src.includes('://') || src.startsWith('..') || src.includes('/../')) {
-    return '';
-  }
+  if (!/^artifacts\/[A-Za-z0-9._/-]+$/.test(src)) return '';
+  const segments = src.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return '';
   return src;
 }
 

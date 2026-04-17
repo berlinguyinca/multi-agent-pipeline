@@ -75,6 +75,9 @@ describe('extended result formats', () => {
         { id: 'external', title: 'External', description: 'External figure', src: 'https://example.test/evil.svg' },
         { id: 'absolute', title: 'Absolute', description: 'Absolute figure', path: '/tmp/secret.svg' },
         { id: 'traversal', title: 'Traversal', description: 'Traversal figure', src: '../secret.svg' },
+        { id: 'data', title: 'Data URI', description: 'Data URI', src: 'data:image/svg+xml,<svg onload=alert(1)>' },
+        { id: 'script', title: 'Script URI', description: 'Script URI', src: 'javascript:alert(1)' },
+        { id: 'wrong-dir', title: 'Wrong dir', description: 'Wrong dir', src: 'safe.svg' },
       ],
     }, 'html', { compact: true });
 
@@ -83,6 +86,9 @@ describe('extended result formats', () => {
     expect(output).not.toContain('https://example.test/evil.svg');
     expect(output).not.toContain('/tmp/secret.svg');
     expect(output).not.toContain('../secret.svg');
+    expect(output).not.toContain('data:image');
+    expect(output).not.toContain('javascript:alert');
+    expect(output).not.toContain('safe.svg" alt="Wrong dir');
   });
 
   it('renders full plain text output', () => {
