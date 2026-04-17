@@ -28,6 +28,10 @@ describe('buildHeadlessResultV2', () => {
           { run: 2, provider: 'ollama', model: 'qwen3', status: 'contributed', contribution: 1 },
         ],
       }],
+      routerRationale: {
+        selectedAgents: [{ agent: 'researcher', reason: 'Needs evidence synthesis' }],
+        rejectedAgents: [{ agent: 'coder', reason: 'No code changes requested' }],
+      },
     });
 
     expect(result.version).toBe(2);
@@ -41,6 +45,16 @@ describe('buildHeadlessResultV2', () => {
     expect(result.outputDir).toBe('/tmp/out');
     expect(result.markdownFiles).toEqual(['/tmp/out/map-output/pipe/final-report.md']);
     expect(result.consensusDiagnostics?.[0].participants.map((participant) => participant.model)).toEqual(['gemma4', 'qwen3']);
+    expect(result.routerRationale).toEqual({
+      selectedAgents: [{ agent: 'researcher', reason: 'Needs evidence synthesis' }],
+      rejectedAgents: [{ agent: 'coder', reason: 'No code changes requested' }],
+    });
+    expect(result.agentContributions?.find((entry) => entry.agent === 'researcher')).toMatchObject({
+      totalSteps: 1,
+      status: 'completed',
+      tasks: ['Research'],
+    });
+    expect(result.agentContributions?.find((entry) => entry.agent === 'coder')?.benefits).toContain('Contributed terminal output or validation evidence.');
   });
 
   it('builds failure result with error', () => {
@@ -65,6 +79,49 @@ describe('buildHeadlessResultV2', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Router failed');
+  });
+
+  it('preserves rerun metadata for reports', () => {
+    const plan: DAGPlan = { plan: [] };
+    const result = buildHeadlessResultV2(plan, [], 0, 'Router failed', {
+      rerun: {
+        command: 'map --headless "Build a report"',
+        disableAgentFlag: '--disable-agent <agent-name>',
+        disabledAgents: ['output-formatter'],
+      },
+    });
+
+    expect(result.rerun).toEqual({
+      command: 'map --headless "Build a report"',
+      disableAgentFlag: '--disable-agent <agent-name>',
+      disabledAgents: ['output-formatter'],
+    });
+  });
+
+  it('adds structured self-optimization candidates for failed agents', () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'writer', task: 'Write final', dependsOn: [] }],
+    };
+    const steps: StepResult[] = [
+      { id: 'step-1', agent: 'writer', task: 'Write final', status: 'failed', error: 'empty output' },
+    ];
+
+    const result = buildHeadlessResultV2(plan, steps, 1000, undefined, {
+      rerun: {
+        command: 'map --headless "Write final"',
+        disableAgentFlag: '--disable-agent <agent-name>',
+      },
+    });
+
+    expect(result.agentContributions).toEqual([
+      expect.objectContaining({
+        agent: 'writer',
+        status: 'failed',
+        failedSteps: 1,
+        disableCommand: 'map --headless "Write final" --disable-agent writer',
+        selfOptimizationReason: 'failed 1/1 step (empty output)',
+      }),
+    ]);
   });
 
 

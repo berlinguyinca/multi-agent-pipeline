@@ -102,6 +102,10 @@ describe('markdown artifacts', () => {
       content: 'Final answer',
       filesCreated: ['src/index.ts'],
       rawLogPath: '/tmp/raw.log',
+      rerun: {
+        command: 'map --headless "Research"',
+        disableAgentFlag: '--disable-agent <agent-name>',
+      },
       consensusDiagnostics: [{
         source: 'router',
         method: 'majority',
@@ -122,6 +126,9 @@ describe('markdown artifacts', () => {
     expect(saved).toContain('## Consensus diagnostics');
     expect(saved).toContain('router: majority, selected gemma4');
     expect(saved).toContain('ollama/qwen3 run 2: contributed 100%');
+    expect(saved).toContain('## Agent contributions');
+    expect(saved).toContain('**researcher** (completed): Research');
+    expect(saved).toContain('map --headless "Research" --disable-agent researcher');
     expect(saved).toContain('src/index.ts');
     expect(saved).toContain('/tmp/raw.log');
   });

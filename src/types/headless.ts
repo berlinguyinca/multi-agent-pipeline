@@ -1,6 +1,6 @@
 import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
-import type { ConsensusDiagnostics, DAGResult, StepResult, StepTerminalOutcome } from './dag.js';
+import type { ConsensusDiagnostics, DAGResult, RouterRationale, StepResult, StepTerminalOutcome } from './dag.js';
 import type { OllamaConfig } from './config.js';
 
 export interface HeadlessOptions {
@@ -17,9 +17,51 @@ export interface HeadlessOptions {
   routerTimeoutMs?: number;
   routerModel?: string;
   routerConsensusModels?: string[];
+  disabledAgents?: string[];
+  rerunPrompt?: string;
+  compareAgents?: string[];
+  semanticJudge?: boolean;
   ollama?: Partial<OllamaConfig>;
   personality?: string;
   verbose?: boolean;
+}
+
+export interface HeadlessRerunHints {
+  command: string;
+  disableAgentFlag: string;
+  disabledAgents?: string[];
+}
+
+export interface HeadlessAgentContribution {
+  agent: string;
+  totalSteps: number;
+  completedSteps: number;
+  failedSteps: number;
+  recoveredSteps: number;
+  status: 'completed' | 'failed' | 'recovered' | 'mixed';
+  tasks: string[];
+  benefits: string[];
+  evidence: string[];
+  disableCommand?: string;
+  selfOptimizationReason?: string;
+}
+
+export interface HeadlessAgentComparison {
+  disabledAgent: string;
+  baselineSuccess: boolean;
+  variantSuccess: boolean;
+  baselineDuration: number;
+  variantDuration: number;
+  finalSimilarity: number;
+  recommendation: string;
+  variantOutputDir: string;
+}
+
+export interface HeadlessSemanticJudge {
+  enabled: boolean;
+  method: 'deterministic-output-similarity';
+  score: number;
+  verdict: 'equivalent' | 'different' | 'needs-review';
 }
 
 export interface HeadlessResult {
@@ -54,4 +96,9 @@ export interface HeadlessResultV2 {
   error?: string | null;
   githubReport?: GitHubReportResult;
   consensusDiagnostics?: ConsensusDiagnostics[];
+  routerRationale?: RouterRationale;
+  rerun?: HeadlessRerunHints;
+  agentContributions?: HeadlessAgentContribution[];
+  agentComparisons?: HeadlessAgentComparison[];
+  semanticJudge?: HeadlessSemanticJudge;
 }

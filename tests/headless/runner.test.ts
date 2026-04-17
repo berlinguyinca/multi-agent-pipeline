@@ -1106,6 +1106,80 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
+  it('filters disabled agents out of smart routing and records rerun hints', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-disabled-agents-'));
+    const routerPrompts: string[] = [];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a task router')) {
+          routerPrompts.push(prompt);
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"docs-maintainer","task":"Summarize the task","dependsOn":[]}]}';
+          return;
+        }
+
+        yield 'Documentation result';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      { prompt: 'Summarize this task', outputDir, disabledAgents: ['researcher'] },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(routerPrompts[0]).not.toContain('**researcher**');
+    expect(result.rerun?.disabledAgents).toEqual(['researcher']);
+    expect(result.rerun?.command).toContain('map --headless');
+    expect(result.rerun?.disableAgentFlag).toBe('--disable-agent <agent-name>');
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
   it('writes an agent summary for v2 runs when enabled', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-summary-'));
 
@@ -1178,6 +1252,115 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     const summaryPath = path.join(outputDir, 'AGENTS_SUMMARY.md');
     expect(result.markdownFiles).toContain(summaryPath);
     await expect(fs.readFile(summaryPath, 'utf8')).resolves.toContain('### researcher');
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
+  it('runs agent ablation comparisons and writes performance memory', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-compare-'));
+    const routerPrompts: string[] = [];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a task router')) {
+          routerPrompts.push(prompt);
+          if (prompt.includes('**researcher**')) {
+            yield JSON.stringify({
+              kind: 'plan',
+              plan: [{ id: 'step-1', agent: 'researcher', task: 'Research the topic', dependsOn: [] }],
+              rationale: {
+                selectedAgents: [{ agent: 'researcher', reason: 'Evidence synthesis helps the answer' }],
+                rejectedAgents: [{ agent: 'docs-maintainer', reason: 'No docs requested' }],
+              },
+            });
+            return;
+          }
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"docs-maintainer","task":"Summarize without research","dependsOn":[]}]}';
+          return;
+        }
+        if (prompt.includes('Fact-check the researcher report')) {
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
+          return;
+        }
+
+        yield prompt.includes('Research the topic')
+          ? 'Detailed evidence-backed answer with sources'
+          : 'Short answer';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      {
+        prompt: 'Research this task',
+        outputDir,
+        compareAgents: ['researcher'],
+        semanticJudge: true,
+      },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          generateAgentSummary: false,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.routerRationale?.selectedAgents[0]).toEqual({
+      agent: 'researcher',
+      reason: 'Evidence synthesis helps the answer',
+    });
+    expect(result.agentComparisons).toEqual([
+      expect.objectContaining({
+        disabledAgent: 'researcher',
+        baselineSuccess: true,
+        variantSuccess: true,
+        recommendation: expect.stringContaining('Keep'),
+      }),
+    ]);
+    expect(result.semanticJudge).toMatchObject({ enabled: true, method: 'deterministic-output-similarity' });
+    expect(routerPrompts.some((prompt) => !prompt.includes('**researcher**'))).toBe(true);
+    await expect(fs.readFile(path.join(outputDir, '.map', 'agent-performance.json'), 'utf8'))
+      .resolves.toContain('"researcher"');
 
     await fs.rm(outputDir, { recursive: true, force: true });
   });

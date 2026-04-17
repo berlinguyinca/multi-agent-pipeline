@@ -6,12 +6,11 @@ import { createAdapter } from '../adapters/adapter-factory.js';
 import { createPipelineActor } from '../pipeline/machine.js';
 import { createPipelineContext } from '../pipeline/context.js';
 import type { PipelineContext } from '../types/pipeline.js';
-import type { HeadlessOptions, HeadlessResult } from '../types/headless.js';
+import type { HeadlessAgentComparison, HeadlessOptions, HeadlessResult, HeadlessResultV2 } from '../types/headless.js';
 import { loadAgentRegistry, getEnabledAgents, mergeWithOverrides } from '../agents/registry.js';
 import { routeTask } from '../router/router.js';
 import { executeDAG } from '../orchestrator/orchestrator.js';
 import { buildHeadlessResultV2 } from './result-builder.js';
-import type { HeadlessResultV2 } from '../types/headless.js';
 import type {
   DocumentationResult,
   ExecutionResult,
@@ -133,6 +132,55 @@ function applyHeadlessOllamaOverrides(config: PipelineConfig, options: HeadlessO
     ...config.ollama,
     ...options.ollama,
   } as OllamaConfig;
+}
+
+function applyHeadlessDisabledAgentOverrides(config: PipelineConfig, options: HeadlessOptions): void {
+  const disabledAgents = options.disabledAgents;
+  if (!disabledAgents || disabledAgents.length === 0) return;
+  const existingOverrides = config.agentOverrides ?? {};
+  config.agentOverrides = {
+    ...existingOverrides,
+    ...Object.fromEntries(
+      disabledAgents.map((name) => [
+        name,
+        {
+          ...(existingOverrides[name] ?? {}),
+          enabled: false,
+        },
+      ]),
+    ),
+  };
+}
+
+function buildRerunHints(options: HeadlessOptions): HeadlessResultV2['rerun'] {
+  const args = ['map', '--headless'];
+  if (options.configPath) args.push('--config', quoteShellArg(options.configPath));
+  if (options.specFilePath) args.push('--spec-file', quoteShellArg(options.specFilePath));
+  if (options.workspaceDir) args.push('--workspace-dir', quoteShellArg(options.workspaceDir));
+  if (options.outputDir) args.push('--output-dir', quoteShellArg(options.outputDir));
+  if (options.routerModel) args.push('--router-model', quoteShellArg(options.routerModel));
+  if (options.routerConsensusModels && options.routerConsensusModels.length > 0) {
+    args.push('--router-consensus-models', quoteShellArg(options.routerConsensusModels.join(',')));
+  }
+  if (options.disabledAgents && options.disabledAgents.length > 0) {
+    args.push('--disable-agent', quoteShellArg(options.disabledAgents.join(',')));
+  }
+  const promptTail = options.specFilePath ? options.rerunPrompt?.trim() : options.prompt;
+  if (promptTail) {
+    args.push(quoteShellArg(promptTail));
+  }
+  return {
+    command: args.join(' '),
+    disableAgentFlag: '--disable-agent <agent-name>',
+    ...(options.disabledAgents && options.disabledAgents.length > 0
+      ? { disabledAgents: [...options.disabledAgents] }
+      : {}),
+  };
+}
+
+function quoteShellArg(value: string): string {
+  if (/^[A-Za-z0-9_./:=,+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 interface HeadlessDependencies {
@@ -378,6 +426,7 @@ async function runHeadlessLive(
     const config = await dependencies.loadConfigFn(options.configPath);
     applyHeadlessOllamaOverrides(config, options);
     applyHeadlessRouterOverrides(config, options);
+    applyHeadlessDisabledAgentOverrides(config, options);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
     await fs.mkdir(outputDir, { recursive: true });
     const prompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
@@ -1097,8 +1146,11 @@ export async function runHeadlessV2(
   dependencies: HeadlessDependencies = defaultDependencies,
 ): Promise<HeadlessResultV2> {
   const startTime = Date.now();
-  const reporter = createReporter(options.verbose ?? false);
   const outputDir = path.resolve(options.outputDir ?? process.cwd());
+  if (options.compareAgents !== undefined) {
+    return runHeadlessV2Comparison(options, dependencies, outputDir, startTime);
+  }
+  const reporter = createReporter(options.verbose ?? false);
   const markdownFiles: string[] = [];
   let workspaceDir: string | undefined;
   let issueContext: GitHubIssueContext | undefined;
@@ -1126,6 +1178,7 @@ export async function runHeadlessV2(
     const config = await dependencies.loadConfigFn(options.configPath);
     applyHeadlessOllamaOverrides(config, options);
     applyHeadlessRouterOverrides(config, options);
+    applyHeadlessDisabledAgentOverrides(config, options);
     workspaceDir = path.resolve(options.workspaceDir ?? config.workspaceDir ?? outputDir);
     await fs.mkdir(workspaceDir, { recursive: true });
     const securityConfig = resolveSecurityConfig(config);
@@ -1139,13 +1192,15 @@ export async function runHeadlessV2(
     const agents = await loadEnabledAgentRegistry(agentsDir, config);
 
     if (agents.size === 0) {
-      return await finish(buildHeadlessResultV2(
+      const finalResult = buildHeadlessResultV2(
         { plan: [] },
         [],
         Date.now() - startTime,
         'No agents available',
-        { outputDir, workspaceDir, markdownFiles },
-      ));
+        { outputDir, workspaceDir, markdownFiles, rerun: buildRerunHints(options) },
+      );
+      await recordAgentPerformance(finalResult, workspaceDir);
+      return await finish(finalResult);
     }
 
     reporter.pipelineStart(resolvedPrompt);
@@ -1175,13 +1230,22 @@ export async function runHeadlessV2(
     const routerAdapters = buildRouterAdapters(config, dependencies.createAdapterFn);
     const decision = await routeTask(resolvedPrompt, agents, routerAdapters, routerConfig);
     if (decision.kind === 'no-match') {
-      return await finish(buildHeadlessResultV2(
+      const finalResult = buildHeadlessResultV2(
         { plan: [] },
         [],
         Date.now() - startTime,
         formatRouterNoMatch(decision),
-        { outputDir, workspaceDir, markdownFiles },
-      ));
+        {
+          outputDir,
+          workspaceDir,
+          markdownFiles,
+          rerun: buildRerunHints(options),
+          routerRationale: decision.rationale,
+          semanticJudge: buildSemanticJudge(options, null),
+        },
+      );
+      await recordAgentPerformance(finalResult, workspaceDir);
+      return await finish(finalResult);
     }
 
     const plan = decision.plan;
@@ -1269,6 +1333,7 @@ export async function runHeadlessV2(
         content: finalStep?.output ?? '',
         filesCreated: dagResult.steps.flatMap((step) => step.filesCreated ?? []),
         consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
+        rerun: buildRerunHints(options),
       }),
     );
     if (config.generateAgentSummary) {
@@ -1283,20 +1348,208 @@ export async function runHeadlessV2(
       );
     }
     reporter.dagComplete(dagResult.success, duration);
-    return await finish(buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
+    const finalResult = buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
       outputDir,
       workspaceDir,
       markdownFiles,
       consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
-    }));
+      rerun: buildRerunHints(options),
+      routerRationale: decision.rationale,
+      semanticJudge: buildSemanticJudge(options, null),
+    });
+    await recordAgentPerformance(finalResult, workspaceDir);
+    return await finish(finalResult);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return await finish(buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
+    const finalResult = buildHeadlessResultV2({ plan: [] }, [], Date.now() - startTime, message, {
       outputDir,
       ...(typeof workspaceDir !== 'undefined' ? { workspaceDir } : {}),
       markdownFiles,
-    }));
+      rerun: buildRerunHints(options),
+      semanticJudge: buildSemanticJudge(options, null),
+    });
+    await recordAgentPerformance(finalResult, workspaceDir ?? outputDir);
+    return await finish(finalResult);
   }
+}
+
+async function runHeadlessV2Comparison(
+  options: HeadlessOptions,
+  dependencies: HeadlessDependencies,
+  outputDir: string,
+  startedAt: number,
+): Promise<HeadlessResultV2> {
+  await fs.mkdir(outputDir, { recursive: true });
+  const baseline = await runHeadlessV2({
+    ...options,
+    compareAgents: undefined,
+    outputDir: path.join(outputDir, 'comparison-baseline'),
+    githubIssueUrl: undefined,
+  }, dependencies);
+  const candidates = resolveComparisonCandidates(options, baseline);
+  const comparisons: HeadlessAgentComparison[] = [];
+  const markdownFiles = [...baseline.markdownFiles];
+
+  for (const agent of candidates) {
+    const variant = await runHeadlessV2({
+      ...options,
+      compareAgents: undefined,
+      disabledAgents: [...new Set([...(options.disabledAgents ?? []), agent])],
+      outputDir: path.join(outputDir, `comparison-without-${safePathSegment(agent)}`),
+      githubIssueUrl: undefined,
+    }, dependencies);
+    markdownFiles.push(...variant.markdownFiles);
+    comparisons.push(compareAgentVariant(agent, baseline, variant));
+  }
+
+  const semanticJudge = buildSemanticJudge(options, comparisons);
+  const result: HeadlessResultV2 = {
+    ...baseline,
+    outputDir,
+    markdownFiles,
+    duration: Date.now() - startedAt,
+    rerun: buildRerunHints(options),
+    ...(comparisons.length > 0 ? { agentComparisons: comparisons } : {}),
+    ...(semanticJudge ? { semanticJudge } : {}),
+  };
+  await recordAgentPerformance(result, outputDir, comparisons);
+  return result;
+}
+
+function resolveComparisonCandidates(options: HeadlessOptions, baseline: HeadlessResultV2): string[] {
+  if (options.compareAgents && options.compareAgents.length > 0) {
+    return [...new Set(options.compareAgents)];
+  }
+  const fromContributions = baseline.agentContributions?.map((entry) => entry.agent) ?? [];
+  if (fromContributions.length > 0) return [...new Set(fromContributions)];
+  return [...new Set(baseline.steps.map((step) => step.agent))];
+}
+
+function compareAgentVariant(
+  disabledAgent: string,
+  baseline: HeadlessResultV2,
+  variant: HeadlessResultV2,
+): HeadlessAgentComparison {
+  const similarity = textSimilarity(extractComparableFinalOutput(baseline), extractComparableFinalOutput(variant));
+  return {
+    disabledAgent,
+    baselineSuccess: baseline.success,
+    variantSuccess: variant.success,
+    baselineDuration: baseline.duration,
+    variantDuration: variant.duration,
+    finalSimilarity: similarity,
+    recommendation: recommendAgent(disabledAgent, baseline, variant, similarity),
+    variantOutputDir: variant.outputDir,
+  };
+}
+
+function recommendAgent(
+  agent: string,
+  baseline: HeadlessResultV2,
+  variant: HeadlessResultV2,
+  similarity: number,
+): string {
+  if (baseline.success && !variant.success) return `Keep ${agent}: disabling it caused the comparison run to fail.`;
+  if (baseline.success && similarity < 0.6) return `Keep ${agent}: disabling it materially changed the final output.`;
+  if (variant.success && variant.duration < baseline.duration * 0.8 && similarity >= 0.85) {
+    return `Consider disabling ${agent}: output stayed similar while runtime improved.`;
+  }
+  return `Review ${agent}: comparison was inconclusive.`;
+}
+
+function buildSemanticJudge(
+  options: HeadlessOptions,
+  comparisons: HeadlessAgentComparison[] | null,
+): HeadlessResultV2['semanticJudge'] {
+  if (!options.semanticJudge) return undefined;
+  const score = comparisons && comparisons.length > 0
+    ? comparisons.reduce((sum, comparison) => sum + comparison.finalSimilarity, 0) / comparisons.length
+    : 1;
+  return {
+    enabled: true,
+    method: 'deterministic-output-similarity',
+    score,
+    verdict: score >= 0.85 ? 'equivalent' : score >= 0.6 ? 'needs-review' : 'different',
+  };
+}
+
+function extractComparableFinalOutput(result: HeadlessResultV2): string {
+  const completed = result.steps.filter((step) => step.status === 'completed' || step.status === 'recovered');
+  return completed.at(-1)?.output ?? result.error ?? '';
+}
+
+function textSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(tokenizeComparisonText(left));
+  const rightTokens = new Set(tokenizeComparisonText(right));
+  if (leftTokens.size === 0 && rightTokens.size === 0) return 1;
+  const union = new Set([...leftTokens, ...rightTokens]);
+  let intersection = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) intersection += 1;
+  }
+  return union.size === 0 ? 0 : intersection / union.size;
+}
+
+function tokenizeComparisonText(value: string): string[] {
+  return value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2);
+}
+
+function safePathSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
+}
+
+async function recordAgentPerformance(
+  result: HeadlessResultV2,
+  rootDir: string,
+  comparisons: HeadlessAgentComparison[] = result.agentComparisons ?? [],
+): Promise<void> {
+  const filePath = path.join(rootDir, '.map', 'agent-performance.json');
+  let existing: Record<string, {
+    runs: number;
+    successes: number;
+    failures: number;
+    totalDurationMs: number;
+    selfOptimizationCandidates: number;
+    lastRecommendation?: string;
+  }> = {};
+  try {
+    existing = JSON.parse(await fs.readFile(filePath, 'utf8')) as typeof existing;
+  } catch {
+    existing = {};
+  }
+
+  for (const contribution of result.agentContributions ?? []) {
+    const current = existing[contribution.agent] ?? {
+      runs: 0,
+      successes: 0,
+      failures: 0,
+      totalDurationMs: 0,
+      selfOptimizationCandidates: 0,
+    };
+    current.runs += contribution.totalSteps;
+    current.successes += contribution.completedSteps + contribution.recoveredSteps;
+    current.failures += contribution.failedSteps;
+    current.totalDurationMs += result.steps
+      .filter((step) => step.agent === contribution.agent)
+      .reduce((sum, step) => sum + (step.duration ?? 0), 0);
+    if (contribution.selfOptimizationReason) current.selfOptimizationCandidates += 1;
+    existing[contribution.agent] = current;
+  }
+
+  for (const comparison of comparisons) {
+    const current = existing[comparison.disabledAgent] ?? {
+      runs: 0,
+      successes: 0,
+      failures: 0,
+      totalDurationMs: 0,
+      selfOptimizationCandidates: 0,
+    };
+    current.lastRecommendation = comparison.recommendation;
+    existing[comparison.disabledAgent] = current;
+  }
+
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
 }
 
 function appendWorkspaceContext(prompt: string, workspaceDir: string, outputDir: string): string {

@@ -42,16 +42,17 @@ ${cleanTask}
 11. For high-stakes judgment-heavy tasks, you may plan multiple candidate-producing steps followed by a result-judge step that selects the best outcome. Do not use result-judge to format, summarize, or prepare customer reports; deterministic local renderers produce final Markdown/HTML/PDF output from completed source-agent results.
 12. Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents. The adviser recommends the launch order, parallelization, custom agents to create, and whether the agent list must be refreshed. Adviser may replace pending downstream steps at runtime by returning adviser-workflow JSON.
 13. Do not explicitly add grammar-spelling-specialist steps for ordinary text polishing; the orchestrator automatically schedules that specialist after human-facing text outputs.
+14. Include a concise rationale object explaining selected agents and notable rejected agents so users can understand and tune the network.
 
 ## Output Format
 
 Respond with ONLY valid JSON, no markdown fences, no explanation, and no thinking text:
 
-{"kind":"plan","plan":[{"id":"step-1","agent":"<agent-name>","task":"<sub-task description>","dependsOn":[]},{"id":"step-2","agent":"<agent-name>","task":"<sub-task description>","dependsOn":["step-1"]}]}
+{"kind":"plan","plan":[{"id":"step-1","agent":"<agent-name>","task":"<sub-task description>","dependsOn":[]},{"id":"step-2","agent":"<agent-name>","task":"<sub-task description>","dependsOn":["step-1"]}],"rationale":{"selectedAgents":[{"agent":"<agent-name>","reason":"<why this agent helps>"}],"rejectedAgents":[{"agent":"<agent-name>","reason":"<why this agent was not needed>"}]}}
 
 or
 
-{"kind":"no-match","reason":"<why no existing agent fits>","suggestedAgent":{"name":"<short-kebab-name>","description":"<what the missing agent should handle>"}}`;
+{"kind":"no-match","reason":"<why no existing agent fits>","suggestedAgent":{"name":"<short-kebab-name>","description":"<what the missing agent should handle>"},"rationale":{"selectedAgents":[],"rejectedAgents":[{"agent":"<agent-name>","reason":"<why this available agent does not fit>"}]}}`;
 }
 
 function sanitizeRouterTask(text: string): string {

@@ -410,6 +410,7 @@ describe('runCli', () => {
     expect(runHeadlessV2Mock).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining('# Loaded Spec'),
+        rerunPrompt: 'Use this for the next implementation pass',
         initialSpec: '# Loaded Spec\n\nBuild the thing from this spec.',
         specFilePath: expect.stringContaining('docs/spec.md'),
       }),
@@ -474,6 +475,50 @@ describe('runCli', () => {
     );
   });
 
+  it('passes disabled agent overrides to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--disable-agent',
+        'output-formatter,researcher',
+        '--disable-agents',
+        'grammar-spelling-specialist',
+        'Research the task and produce a concise implementation readiness plan',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'Research the task and produce a concise implementation readiness plan',
+        disabledAgents: ['output-formatter', 'researcher', 'grammar-spelling-specialist'],
+      }),
+    );
+  });
+
+  it('passes agent comparison and semantic judge flags to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--compare-agents',
+        'researcher,writer',
+        '--semantic-judge',
+        'Research the task and produce a concise implementation readiness plan',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'Research the task and produce a concise implementation readiness plan',
+        compareAgents: ['researcher', 'writer'],
+        semanticJudge: true,
+      }),
+    );
+  });
+
   it('passes Ollama server overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -528,6 +573,22 @@ describe('runCli', () => {
             numParallel: 4,
             maxLoadedModels: 3,
           },
+        }),
+      }),
+    );
+  });
+
+  it('applies disabled agent overrides before launching the TUI', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await runCli(['--disable-agent', 'researcher']);
+
+    expect(createTuiAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          agentOverrides: expect.objectContaining({
+            researcher: expect.objectContaining({ enabled: false }),
+          }),
         }),
       }),
     );

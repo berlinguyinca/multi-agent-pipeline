@@ -91,6 +91,26 @@ describe('routeTask', () => {
     expect(result.plan.plan[0].agent).toBe('researcher');
   });
 
+  it('preserves router rationale for selected and rejected agents', async () => {
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Research topic', dependsOn: [] }],
+      rationale: {
+        selectedAgents: [{ agent: 'researcher', reason: 'Needs evidence synthesis' }],
+        rejectedAgents: [{ agent: 'coder', reason: 'No code changes requested' }],
+      },
+    });
+
+    const result = await routeTask('What is PostgreSQL?', agents, mockAdapter(json), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.rationale).toEqual({
+      selectedAgents: [{ agent: 'researcher', reason: 'Needs evidence synthesis' }],
+      rejectedAgents: [{ agent: 'coder', reason: 'No code changes requested' }],
+    });
+  });
+
   it('parses a multi-agent plan', async () => {
     const json = '{"plan":[{"id":"step-1","agent":"researcher","task":"Research","dependsOn":[]},{"id":"step-2","agent":"coder","task":"Implement","dependsOn":["step-1"]}]}';
     const adapter = mockAdapter(json);
