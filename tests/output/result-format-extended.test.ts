@@ -67,6 +67,24 @@ describe('extended result formats', () => {
     expect(output).toContain('<table>');
   });
 
+  it('renders only safe relative visual artifact sources', () => {
+    const output = formatMapOutput({
+      ...result,
+      artifacts: [
+        { id: 'safe', title: 'Safe', description: 'Safe figure', src: 'artifacts/safe.svg' },
+        { id: 'external', title: 'External', description: 'External figure', src: 'https://example.test/evil.svg' },
+        { id: 'absolute', title: 'Absolute', description: 'Absolute figure', path: '/tmp/secret.svg' },
+        { id: 'traversal', title: 'Traversal', description: 'Traversal figure', src: '../secret.svg' },
+      ],
+    }, 'html', { compact: true });
+
+    expect(output).toContain('Visual Artifacts');
+    expect(output).toContain('artifacts/safe.svg');
+    expect(output).not.toContain('https://example.test/evil.svg');
+    expect(output).not.toContain('/tmp/secret.svg');
+    expect(output).not.toContain('../secret.svg');
+  });
+
   it('renders full plain text output', () => {
     const output = formatMapOutput(result, 'text');
 
