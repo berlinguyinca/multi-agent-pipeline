@@ -792,7 +792,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         createAdapter({
           ...adapterConfig,
           ...(adapterConfig.type === 'ollama' && adapterConfig.host === undefined
-            ? { host: config.ollama.host }
+            ? config.ollama
             : {}),
         });
 
@@ -1140,13 +1140,13 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
         const currentAgents = await loadCurrentAgents();
         const agent = currentAgents.get(agentName);
         if (!agent || agent.adapter !== 'ollama' || !agent.model) return;
-        await syncReferencedOllamaModels([agent], config.ollama.host);
+        await syncReferencedOllamaModels([agent], config.ollama);
         await openAgentManager();
       }
 
       async function syncAllAgentModels(): Promise<void> {
         const currentAgents = await loadCurrentAgents();
-        await syncReferencedOllamaModels(currentAgents.values(), config.ollama.host);
+        await syncReferencedOllamaModels(currentAgents.values(), config.ollama);
         await openAgentManager();
       }
 
@@ -1457,7 +1457,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
           const ollamaConcurrency =
             config.router.adapter === 'ollama'
               ? await probeOllamaConcurrencyCapacity({
-                  host: config.ollama.host,
+                  ...config.ollama,
                   model: config.router.model,
                   models:
                     config.router.consensus?.models && config.router.consensus.models.length > 0

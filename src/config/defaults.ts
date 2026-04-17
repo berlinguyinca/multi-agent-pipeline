@@ -1,6 +1,11 @@
 import type { AdapterType } from '../types/adapter.js';
 import type { AgentConsensusConfig, PipelineConfig, RouterConsensusConfig } from '../types/config.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
+import {
+  DEFAULT_OLLAMA_CONTEXT_LENGTH,
+  DEFAULT_OLLAMA_MAX_LOADED_MODELS,
+  DEFAULT_OLLAMA_NUM_PARALLEL,
+} from './ollama-defaults.js';
 
 export const DEFAULT_ROUTER_CONSENSUS_CONFIG: RouterConsensusConfig = {
   enabled: true,
@@ -40,6 +45,9 @@ export const DEFAULT_CONFIG: PipelineConfig = {
   github: {},
   ollama: {
     host: 'http://localhost:11434',
+    contextLength: DEFAULT_OLLAMA_CONTEXT_LENGTH,
+    numParallel: DEFAULT_OLLAMA_NUM_PARALLEL,
+    maxLoadedModels: DEFAULT_OLLAMA_MAX_LOADED_MODELS,
   },
   quality: {
     maxSpecQaIterations: 3,

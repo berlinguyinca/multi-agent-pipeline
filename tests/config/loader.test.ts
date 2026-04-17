@@ -53,6 +53,9 @@ agents:
     model: mistral
 ollama:
   host: http://127.0.0.1:11435
+  contextLength: 64000
+  numParallel: 4
+  maxLoadedModels: 3
 quality:
   maxSpecQaIterations: 2
   maxCodeQaIterations: 4
@@ -72,8 +75,24 @@ quality:
     expect(config.agents.docs.adapter).toBe('ollama');
     expect(config.agents.docs.model).toBe('mistral');
     expect(config.ollama.host).toBe('http://127.0.0.1:11435');
+    expect(config.ollama.contextLength).toBe(64000);
+    expect(config.ollama.numParallel).toBe(4);
+    expect(config.ollama.maxLoadedModels).toBe(3);
     expect(config.quality.maxSpecQaIterations).toBe(2);
     expect(config.quality.maxCodeQaIterations).toBe(4);
+  });
+
+  it('rejects invalid Ollama server resource settings', async () => {
+    const yamlContent = `
+ollama:
+  contextLength: 0
+  numParallel: 1.5
+  maxLoadedModels: two
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('ollama.contextLength');
   });
 
   it('ships sample configs with bounded local-model retry and consensus defaults', async () => {
@@ -222,6 +241,9 @@ outputDir: ./my-output
     expect(config.agents.execute.adapter).toBe('claude');
     expect(config.agents.docs.adapter).toBe('claude');
     expect(config.ollama.host).toBe('http://localhost:11434');
+    expect(config.ollama.contextLength).toBe(100000);
+    expect(config.ollama.numParallel).toBe(2);
+    expect(config.ollama.maxLoadedModels).toBe(2);
     expect(config.router.timeoutMs).toBe(300_000);
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
   });

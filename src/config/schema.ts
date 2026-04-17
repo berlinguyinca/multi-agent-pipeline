@@ -177,6 +177,27 @@ function validateOllamaConfig(value: unknown): Partial<OllamaConfig> {
     ollama.host = obj['host'].trim();
   }
 
+  if (obj['contextLength'] !== undefined) {
+    ollama.contextLength = validatePositiveInteger(
+      obj['contextLength'],
+      'ollama.contextLength',
+    );
+  }
+
+  if (obj['numParallel'] !== undefined) {
+    ollama.numParallel = validatePositiveInteger(
+      obj['numParallel'],
+      'ollama.numParallel',
+    );
+  }
+
+  if (obj['maxLoadedModels'] !== undefined) {
+    ollama.maxLoadedModels = validatePositiveInteger(
+      obj['maxLoadedModels'],
+      'ollama.maxLoadedModels',
+    );
+  }
+
   return ollama;
 }
 

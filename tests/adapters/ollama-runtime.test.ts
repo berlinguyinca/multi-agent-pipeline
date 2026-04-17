@@ -104,8 +104,51 @@ describe('ollama runtime guard', () => {
     expect(mocks.spawn).toHaveBeenCalledWith('ollama', ['serve'], {
       detached: true,
       stdio: 'ignore',
-      env: process.env,
+      env: expect.objectContaining({
+        OLLAMA_CONTEXT_LENGTH: '100000',
+        OLLAMA_NUM_PARALLEL: '2',
+        OLLAMA_MAX_LOADED_MODELS: '2',
+      }),
     });
+  });
+
+  it('uses configured Ollama server env when starting and pulling models', async () => {
+    mockExecSequence(
+      execSuccess('ollama version 1.0.0'),
+      execFailure('connection refused'),
+      execSuccess('NAME ID SIZE MODIFIED\n'),
+      execSuccess('success'),
+    );
+
+    await ensureOllamaReadyForConfigs([
+      {
+        type: 'ollama',
+        model: 'qwen3:latest',
+        host: 'http://127.0.0.1:11435',
+        contextLength: 64000,
+        numParallel: 4,
+        maxLoadedModels: 3,
+      },
+    ]);
+
+    const expectedEnv = expect.objectContaining({
+      OLLAMA_HOST: 'http://127.0.0.1:11435',
+      OLLAMA_CONTEXT_LENGTH: '64000',
+      OLLAMA_NUM_PARALLEL: '4',
+      OLLAMA_MAX_LOADED_MODELS: '3',
+    });
+
+    expect(mocks.spawn).toHaveBeenCalledWith('ollama', ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+      env: expectedEnv,
+    });
+    expect(mocks.execFile).toHaveBeenCalledWith(
+      'ollama',
+      ['pull', 'qwen3:latest'],
+      { env: expectedEnv },
+      expect.any(Function),
+    );
   });
 
   it('pulls missing models and refreshes existing tags once per process run', async () => {

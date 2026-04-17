@@ -4,6 +4,9 @@ export interface AdapterConfig {
   type: AdapterType;
   model?: string;
   host?: string;
+  contextLength?: number;
+  numParallel?: number;
+  maxLoadedModels?: number;
   apiKey?: string;
   binaryPath?: string;
 }

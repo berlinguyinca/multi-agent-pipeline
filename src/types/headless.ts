@@ -1,6 +1,7 @@
 import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
 import type { ConsensusDiagnostics, DAGResult, StepResult, StepTerminalOutcome } from './dag.js';
+import type { OllamaConfig } from './config.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -16,6 +17,7 @@ export interface HeadlessOptions {
   routerTimeoutMs?: number;
   routerModel?: string;
   routerConsensusModels?: string[];
+  ollama?: Partial<OllamaConfig>;
   personality?: string;
   verbose?: boolean;
 }

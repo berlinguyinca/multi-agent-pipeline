@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AdapterType, RunOptions, OllamaDetectInfo } from '../types/adapter.js';
 import { BaseAdapter, AdapterError } from './base-adapter.js';
-import { ensureOllamaReadyForConfigs } from './ollama-runtime.js';
+import { buildOllamaEnv, ensureOllamaReadyForConfigs } from './ollama-runtime.js';
 import { isAbortError } from '../utils/error.js';
 
 const execFileAsync = promisify(execFile);
@@ -11,11 +11,21 @@ export class OllamaAdapter extends BaseAdapter {
   readonly type: AdapterType = 'ollama';
   readonly model: string | undefined;
   readonly host: string | undefined;
+  readonly contextLength: number | undefined;
+  readonly numParallel: number | undefined;
+  readonly maxLoadedModels: number | undefined;
 
-  constructor(model?: string, host?: string) {
+  constructor(
+    model?: string,
+    host?: string,
+    options?: { contextLength?: number; numParallel?: number; maxLoadedModels?: number },
+  ) {
     super();
     this.model = model;
     this.host = host;
+    this.contextLength = options?.contextLength;
+    this.numParallel = options?.numParallel;
+    this.maxLoadedModels = options?.maxLoadedModels;
   }
 
   async detect(): Promise<OllamaDetectInfo> {
@@ -44,7 +54,14 @@ export class OllamaAdapter extends BaseAdapter {
     }
 
     await ensureOllamaReadyForConfigs([
-      { type: this.type, model: this.model, host: this.host },
+      {
+        type: this.type,
+        model: this.model,
+        host: this.host,
+        contextLength: this.contextLength,
+        numParallel: this.numParallel,
+        maxLoadedModels: this.maxLoadedModels,
+      },
     ]);
 
     const fullPrompt = options?.systemPrompt
@@ -147,7 +164,11 @@ export class OllamaAdapter extends BaseAdapter {
   }
 
   private buildEnv(): NodeJS.ProcessEnv {
-    return this.host ? { ...process.env, OLLAMA_HOST: this.host } : process.env;
+    return buildOllamaEnv(this.host, {
+      contextLength: this.contextLength,
+      numParallel: this.numParallel,
+      maxLoadedModels: this.maxLoadedModels,
+    });
   }
 }
 

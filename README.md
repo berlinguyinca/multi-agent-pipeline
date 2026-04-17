@@ -462,6 +462,10 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 | `--router-model` | `router.model` | config value | Override the smart-routing router model for this run |
 | `--router-consensus-models` | `router.consensus.models` | repeats `router.model` | Override the default router consensus candidates with up to 3 comma-separated Ollama models |
+| `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
+| `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
+| `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
+| `--ollama-max-loaded-models` | `ollama.maxLoadedModels` | `2` | Set `OLLAMA_MAX_LOADED_MODELS` for concurrently loaded models |
 | `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
@@ -583,10 +587,22 @@ npm run dev -- agent list
 | --- | --- | --- |
 | Claude CLI | `npm install -g @anthropic-ai/claude-code` | Strong default for spec generation, implementation, and docs. |
 | Codex CLI | `npm install -g @openai/codex` | Good for review, QA, and analysis. |
-| Ollama | `curl -fsSL https://ollama.com/install.sh \| sh` | Local model backend. MAP can start the server and pull/update configured models before use. |
+| Ollama | `curl -fsSL https://ollama.com/install.sh \| sh` | Local model backend. MAP can start the server with configured resource env vars and pull/update configured models before use. |
 | Hermes | Install Hermes CLI and keep `hermes` on `PATH` | Optional adapter for `hermes chat -q ... -Q` workflows. |
 
-For Ollama-backed agents, `model` is required. If an Ollama-backed stage or v2 agent runs and the server is not available, MAP starts `ollama serve` in the background, waits for it to respond, then runs `ollama pull <model>`. Pulling installs a missing model and refreshes an existing tag. MAP does this once per distinct model/host per process run.
+For Ollama-backed agents, `model` is required. If an Ollama-backed stage, router, security reviewer, or v2 agent runs and the server is not available, MAP starts `ollama serve` in the background, waits for it to respond, then runs `ollama pull <model>`. Pulling installs a missing model and refreshes an existing tag. MAP does this once per distinct model/host/server-settings tuple per process run.
+
+MAP starts Ollama with local-agent defaults intended for coding and agent workflows:
+
+```yaml
+ollama:
+  host: http://localhost:11434
+  contextLength: 100000    # OLLAMA_CONTEXT_LENGTH
+  numParallel: 2           # OLLAMA_NUM_PARALLEL
+  maxLoadedModels: 2       # OLLAMA_MAX_LOADED_MODELS
+```
+
+Override those values in `pipeline.yaml` or per run with `--ollama-host`, `--ollama-context-length`, `--ollama-num-parallel`, and `--ollama-max-loaded-models`. Higher context and concurrency settings require more RAM/VRAM; if a server is already running, Ollama keeps the settings it was started with.
 
 ## Classic Pipeline
 
@@ -621,6 +637,9 @@ agents:
 
 ollama:
   host: http://localhost:11434
+  contextLength: 100000
+  numParallel: 2
+  maxLoadedModels: 2
 
 quality:
   maxSpecQaIterations: 3
@@ -1041,6 +1060,9 @@ agentOverrides:
 
 ollama:
   host: http://localhost:11434
+  contextLength: 100000
+  numParallel: 2
+  maxLoadedModels: 2
 
 quality:
   maxSpecQaIterations: 3

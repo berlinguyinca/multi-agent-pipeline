@@ -13,6 +13,7 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../../src/adapters/ollama-runtime.js', () => ({
   ensureOllamaReadyForConfigs: mocks.ensure,
+  buildOllamaEnv: (host?: string) => (host ? { ...process.env, OLLAMA_HOST: host } : process.env),
 }));
 
 const originalFetch = globalThis.fetch;

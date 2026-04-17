@@ -37,6 +37,7 @@ import { createSpec } from '../types/spec.js';
 import type {
   AgentAssignment,
   HeadlessRuntimeConfig,
+  OllamaConfig,
   PipelineConfig,
   StageName,
 } from '../types/config.js';
@@ -88,10 +89,18 @@ function buildRouterAdapters(config: PipelineConfig, createAdapterFn: AdapterFac
       : [config.router.model];
 
   return models.slice(0, 3).map((model) =>
-    createAdapterFn({
-      type: config.router.adapter,
-      model,
-    }),
+    createAdapterFn(
+      config.router.adapter === 'ollama'
+        ? {
+            type: config.router.adapter,
+            model,
+            ...config.ollama,
+          }
+        : {
+            type: config.router.adapter,
+            model,
+          },
+    ),
   );
 }
 
@@ -116,6 +125,14 @@ function applyHeadlessRouterOverrides(config: PipelineConfig, options: HeadlessO
       },
     };
   }
+}
+
+function applyHeadlessOllamaOverrides(config: PipelineConfig, options: HeadlessOptions): void {
+  if (options.ollama === undefined) return;
+  config.ollama = {
+    ...config.ollama,
+    ...options.ollama,
+  } as OllamaConfig;
 }
 
 interface HeadlessDependencies {
@@ -273,6 +290,7 @@ async function runHeadlessWithActor(
 
   try {
     const config = await loadConfigFn(options.configPath);
+    applyHeadlessOllamaOverrides(config, options);
     const outputDir = path.resolve(options.outputDir ?? process.cwd());
     await fs.mkdir(outputDir, { recursive: true });
 
@@ -281,11 +299,11 @@ async function runHeadlessWithActor(
       initialSpec: options.initialSpec,
       specFilePath: options.specFilePath,
       agents: {
-        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama.host),
-        review: assignmentToAdapterConfig(config.agents.review, config.ollama.host),
-        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama.host),
-        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama.host),
-        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama.host),
+        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama),
+        review: assignmentToAdapterConfig(config.agents.review, config.ollama),
+        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama),
+        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama),
+        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama),
       },
       outputDir,
       personality: options.personality,
@@ -358,6 +376,7 @@ async function runHeadlessLive(
 
   try {
     const config = await dependencies.loadConfigFn(options.configPath);
+    applyHeadlessOllamaOverrides(config, options);
     applyHeadlessRouterOverrides(config, options);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
     await fs.mkdir(outputDir, { recursive: true });
@@ -376,11 +395,11 @@ async function runHeadlessLive(
       initialSpec: options.initialSpec,
       specFilePath: options.specFilePath,
       agents: {
-        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama.host),
-        review: assignmentToAdapterConfig(config.agents.review, config.ollama.host),
-        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama.host),
-        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama.host),
-        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama.host),
+        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama),
+        review: assignmentToAdapterConfig(config.agents.review, config.ollama),
+        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama),
+        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama),
+        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama),
       },
       outputDir,
       personality: options.personality,
@@ -636,7 +655,7 @@ async function runSpecStage(
   latestReviewedSpecContent = '',
   reporter?: VerboseReporter,
 ): Promise<string> {
-  const chain = buildAdapterChain(config.agents.spec, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.spec, config.ollama);
   const prompt = buildStagePrompt({
     stage: 'spec',
     context,
@@ -669,7 +688,7 @@ async function runReviewStage(
   specText: string,
   reporter?: VerboseReporter,
 ): Promise<{ reviewedSpec: ReviewedSpec; score: RefinementScore }> {
-  const chain = buildAdapterChain(config.agents.review, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.review, config.ollama);
   const prompt = buildStagePrompt({
     stage: 'review',
     context,
@@ -783,7 +802,7 @@ async function runSpecQaStage(
   reviewedSpecText: string,
   reporter?: VerboseReporter,
 ): Promise<QaAssessment> {
-  const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.qa, config.ollama);
   const basePrompt = buildSpecQaPrompt(context.initialSpec ?? context.prompt, reviewedSpecText);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
@@ -817,7 +836,7 @@ async function runExecuteStage(
   const outputDir =
     executionOutputDir ??
     (await prepareExecutionOutputDir(context.outputDir, context.prompt, context.pipelineId));
-  const chain = buildAdapterChain(config.agents.execute, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.execute, config.ollama);
   const prompt = buildStagePrompt({
     stage: 'execute',
     context,
@@ -850,7 +869,7 @@ async function runCodeQaStage(
   executionResult: ExecutionResult,
   reporter?: VerboseReporter,
 ): Promise<QaAssessment> {
-  const chain = buildAdapterChain(config.agents.qa, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.qa, config.ollama);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
   const basePrompt = buildCodeQaPrompt(reviewedSpecText, executionResult, snapshot);
   const prompt = context.personality
@@ -882,7 +901,7 @@ async function runDocsStage(
   qaAssessments: QaAssessment[],
   reporter?: VerboseReporter,
 ): Promise<DocumentationResult> {
-  const chain = buildAdapterChain(config.agents.docs, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.docs, config.ollama);
   const snapshot = await collectProjectSnapshot(executionResult.outputDir);
   const basePrompt = buildDocsPrompt({
     reviewedSpecContent: reviewedSpecText,
@@ -925,7 +944,7 @@ async function runCodeFixStage(
   outputDir: string,
   reporter?: VerboseReporter,
 ): Promise<ExecutionResult> {
-  const chain = buildAdapterChain(config.agents.execute, config.ollama.host);
+  const chain = buildAdapterChain(config.agents.execute, config.ollama);
   const basePrompt = buildCodeFixPrompt(reviewedSpecText, qaFeedbackText(assessment), outputDir);
   const prompt = context.personality
     ? `[PERSONALITY DIRECTIVE]\n${context.personality}\n[END PERSONALITY DIRECTIVE]\n\n${basePrompt}`
@@ -1105,6 +1124,8 @@ export async function runHeadlessV2(
   try {
     await fs.mkdir(outputDir, { recursive: true });
     const config = await dependencies.loadConfigFn(options.configPath);
+    applyHeadlessOllamaOverrides(config, options);
+    applyHeadlessRouterOverrides(config, options);
     workspaceDir = path.resolve(options.workspaceDir ?? config.workspaceDir ?? outputDir);
     await fs.mkdir(workspaceDir, { recursive: true });
     const securityConfig = resolveSecurityConfig(config);
@@ -1137,7 +1158,7 @@ export async function runHeadlessV2(
     const ollamaConcurrency =
       config.router.adapter === 'ollama' && probeConcurrency
         ? await probeConcurrency({
-            host: config.ollama.host,
+            ...config.ollama,
             model: config.router.model,
             models:
               config.router.consensus?.models && config.router.consensus.models.length > 0
@@ -1182,7 +1203,7 @@ export async function runHeadlessV2(
         dependencies.createAdapterFn({
           type: securityConfig.adapter,
           model: securityConfig.model,
-          ...(securityConfig.adapter === 'ollama' ? { host: config.ollama.host } : {}),
+          ...(securityConfig.adapter === 'ollama' ? config.ollama : {}),
         }),
     }, undefined, undefined, {
       stepTimeoutMs: config.router.stepTimeoutMs,

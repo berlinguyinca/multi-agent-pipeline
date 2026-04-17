@@ -34,6 +34,12 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.ollama.host).toBe('http://localhost:11434');
   });
 
+  it('defaults Ollama server startup resources for local agent workloads', () => {
+    expect(DEFAULT_CONFIG.ollama.contextLength).toBe(100000);
+    expect(DEFAULT_CONFIG.ollama.numParallel).toBe(2);
+    expect(DEFAULT_CONFIG.ollama.maxLoadedModels).toBe(2);
+  });
+
   it('defaults QA loop limits', () => {
     expect(DEFAULT_CONFIG.quality.maxSpecQaIterations).toBe(3);
     expect(DEFAULT_CONFIG.quality.maxCodeQaIterations).toBe(3);

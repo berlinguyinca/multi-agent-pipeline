@@ -1,6 +1,6 @@
-import { ensureOllamaReady } from './ollama-runtime.js';
+import { ensureOllamaReady, type OllamaServerOptions } from './ollama-runtime.js';
 
-export interface OllamaConcurrencyProbeOptions {
+export interface OllamaConcurrencyProbeOptions extends OllamaServerOptions {
   host?: string;
   model: string;
   models?: string[];
@@ -31,7 +31,15 @@ export async function probeOllamaConcurrencyCapacity(
   }
 
   const models = normalizeProbeModels(options);
-  const cacheKey = `${options.host ?? 'default'}:${models.join(',')}:${maxParallel}:${options.timeoutMs ?? 20_000}`;
+  const cacheKey = [
+    options.host ?? 'default',
+    models.join(','),
+    maxParallel,
+    options.timeoutMs ?? 20_000,
+    options.contextLength ?? 'default',
+    options.numParallel ?? 'default',
+    options.maxLoadedModels ?? 'default',
+  ].join(':');
   const cached = probeCache.get(cacheKey);
   if (cached) return cached;
 
@@ -50,7 +58,7 @@ async function probeOllamaConcurrencyCapacityUncached(
   try {
     if (!options.fetchFn) {
       for (const model of new Set(models)) {
-        await ensureOllamaReady(model, options.host);
+        await ensureOllamaReady(model, options.host, options);
       }
     }
 

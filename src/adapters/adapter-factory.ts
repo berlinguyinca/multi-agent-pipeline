@@ -11,7 +11,11 @@ export function createAdapter(config: AdapterConfig): AgentAdapter {
     case 'codex':
       return new CodexAdapter();
     case 'ollama':
-      return new OllamaAdapter(config.model, config.host);
+      return new OllamaAdapter(config.model, config.host, {
+        contextLength: config.contextLength,
+        numParallel: config.numParallel,
+        maxLoadedModels: config.maxLoadedModels,
+      });
     case 'hermes':
       return new HermesAdapter(config.model);
     default: {
