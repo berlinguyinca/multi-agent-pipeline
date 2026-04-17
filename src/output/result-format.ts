@@ -289,7 +289,14 @@ function renderHtmlStepTable(steps: Record<string, unknown>[]): string {
 
 function renderFinalResultHtml(final: string): string {
   if (!final.trim()) return '<p>No final result captured.</p>';
-  return `<article class="rendered-markdown">${marked.parse(final, { async: false }) as string}</article>`;
+  return `<article class="rendered-markdown">${marked.parse(escapeRawHtmlInMarkdown(final), { async: false }) as string}</article>`;
+}
+
+function escapeRawHtmlInMarkdown(markdown: string): string {
+  return markdown
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function renderHtmlAgentNetwork(data: Record<string, unknown>): string {

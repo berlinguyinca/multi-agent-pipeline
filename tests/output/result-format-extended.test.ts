@@ -43,6 +43,30 @@ describe('extended result formats', () => {
     expect(output).toContain('<h2>Result Data</h2>');
   });
 
+  it('escapes raw HTML from agent output before rendering report markdown', () => {
+    const unsafe = {
+      version: 2,
+      success: true,
+      outcome: 'success',
+      steps: [
+        {
+          id: 'step-1',
+          agent: 'researcher',
+          task: 'Research',
+          status: 'completed',
+          output: '# Result\n\n<script>alert("xss")</script>\n\n| Label | Value |\n| --- | --- |\n| Safe | yes |',
+        },
+      ],
+    };
+
+    const output = formatMapOutput(unsafe, 'html', { compact: true });
+
+    expect(output).toContain('<h1>Result</h1>');
+    expect(output).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+    expect(output).not.toContain('<script>alert');
+    expect(output).toContain('<table>');
+  });
+
   it('renders full plain text output', () => {
     const output = formatMapOutput(result, 'text');
 
