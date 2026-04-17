@@ -159,5 +159,39 @@ describe('DAG types', () => {
         ]),
       );
     });
+
+    it('carries consensus metadata into DAG graph nodes', () => {
+      const plan: DAGPlan = {
+        plan: [{ id: 'step-1', agent: 'researcher', task: 'Research', dependsOn: [] }],
+      };
+      const results: StepResult[] = [{
+        id: 'step-1',
+        agent: 'researcher',
+        task: 'Research',
+        status: 'completed',
+        consensus: {
+          enabled: true,
+          runs: 3,
+          candidateCount: 3,
+          selectedRun: 2,
+          agreement: 2 / 3,
+          method: 'exact-majority',
+          participants: [
+            { run: 1, provider: 'ollama', model: 'gemma4:26b', status: 'valid', contribution: 0.5 },
+            { run: 2, provider: 'ollama', model: 'qwen2.5:14b', status: 'selected', contribution: 1 },
+          ],
+        },
+      }];
+
+      const dag = buildDAGResult(results, plan);
+
+      expect((dag.nodes[0] as any).consensus).toMatchObject({
+        runs: 3,
+        method: 'exact-majority',
+        selectedRun: 2,
+      });
+      expect((dag.nodes[0] as any).consensus.participants).toHaveLength(2);
+    });
+
   });
 });

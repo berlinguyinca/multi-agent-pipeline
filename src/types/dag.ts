@@ -55,6 +55,19 @@ export interface ConsensusDiagnostics {
   participants: ConsensusParticipant[];
 }
 
+export interface DAGNodeConsensus {
+  enabled: boolean;
+  runs: number;
+  candidateCount: number;
+  selectedRun: number;
+  agreement: number;
+  method: 'exact-majority' | 'medoid-token-similarity' | 'worktree-best-passing-diff';
+  isolation?: 'git-worktree';
+  verificationPassed?: boolean;
+  changedFiles?: string[];
+  participants?: ConsensusParticipant[];
+}
+
 export interface StepResult {
   id: string;
   agent: string;
@@ -82,18 +95,7 @@ export interface StepResult {
   handoffPassed?: boolean;
   handoffFindings?: HandoffFinding[];
   specConformance?: SpecConformance;
-  consensus?: {
-    enabled: boolean;
-    runs: number;
-    candidateCount: number;
-    selectedRun: number;
-    agreement: number;
-    method: 'exact-majority' | 'medoid-token-similarity' | 'worktree-best-passing-diff';
-    isolation?: 'git-worktree';
-    verificationPassed?: boolean;
-    changedFiles?: string[];
-    participants?: ConsensusParticipant[];
-  };
+  consensus?: DAGNodeConsensus;
 }
 
 
@@ -105,6 +107,7 @@ export interface DAGNode {
   status: string;
   duration: number;
   final?: boolean;
+  consensus?: DAGNodeConsensus;
 }
 
 export interface DAGEdge {
@@ -233,6 +236,7 @@ export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult 
       status: result?.status ?? 'pending',
       duration: result?.duration ?? 0,
       ...(step.final === true ? { final: true } : {}),
+      ...(result?.consensus ? { consensus: result.consensus } : {}),
     };
   });
 

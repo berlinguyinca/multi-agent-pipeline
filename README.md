@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. PDF output writes a polished print-ready HTML file without raw JSON result dumps, and when Chrome/Chromium is available, a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -333,6 +333,8 @@ map --headless --output-format yaml "Investigate a specific question"
 map --headless --output-format html "Investigate a specific question"
 map --headless --output-format text "Investigate a specific question"
 map --headless --output-format pdf "Investigate a specific question"
+map --headless --output-format html --dag-layout metro "Investigate a branching workflow"
+map --headless --output-format pdf --dag-layout cluster "Summarize a large workflow"
 
 # Open generated HTML/PDF output automatically when finished
 map --headless --output-format html --open-output "Investigate a specific question"
@@ -476,26 +478,34 @@ Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `ro
 
 ### Compact Output
 
-Use `--compact` when you only want the utilized agent path and the final answer. Compact is independent from `--output-format`: it reduces whichever selected format you choose to graph plus final result.
+Use `--compact` when you only want the utilized agent flow and the final answer. Compact is independent from `--output-format`: it reduces whichever selected format you choose to a stage-oriented graph plus final result. The graph groups steps by dependency layer so independent steps are shown as concurrent, downstream steps show their input step IDs, and consensus-enabled steps include the run count, method, participating provider/model, run number, status, and contribution.
 
-```markdown
+````markdown
 ## Agent Graph
 
-- step-1 [researcher] -> step-1-grammar-1 [grammar-spelling-specialist]
-- step-1-grammar-1 [grammar-spelling-specialist] -> step-2 [writer]
+```text
+Stage 1 (concurrent):
+- step-1 [researcher] completed | consensus 3x exact-majority: ollama/gemma4:26b r1 contributed 100%; ollama/qwen2.5:14b r2 rejected 0%
+- step-2 [data-loader] completed
+Stage 2 (sequence):
+- step-3 [writer] completed | inputs: step-1, step-2
+Connections:
+- step-1 -> step-3 (planned)
+- step-2 -> step-3 (planned)
+```
 
 ## Final Result
 
 <final output from the last completed agent>
-```
+````
 
-The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, and automatic grammar/spelling polishing steps.
+The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports five layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), and `cluster` (D summary-first grouped stages). PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
 
 For ClassyFire/ChemOnt plus usage/LCB runs, compact Markdown/HTML/PDF reports preserve the two source reports as the customer-facing final result. Deterministic rendering combines the completed taxonomy and usage outputs instead of letting optional judge or formatter steps replace them with rubrics, candidate-selection notes, or lossy spreadsheet summaries.
 
 When HTML or PDF artifacts are written to disk, MAP also creates an `artifacts/manifest.json` next to deterministic SVG visuals. Current generated visuals include:
 
-- `agent-network.svg`: the executed runtime DAG as a flowchart.
+- `agent-network.svg`: the executed runtime DAG using the selected `--dag-layout`; `auto` renders a compact layered flowchart for small/medium DAGs and a matrix lane view for large DAGs. PDF reports generate this file for inspection but do not embed it as a second full-size figure because the inline pipeline summary is the print-safe DAG representation. Concurrent stages, edge types, and consensus-enabled nodes are visually distinguished where the layout supports them.
 - `usage-commonness-ranking.svg`: a 0-100 commonness score bar chart when a usage agent emits `Usage Commonness Ranking`.
 - `taxonomy-tree.svg`: a ClassyFire/ChemOnt hierarchy diagram when a taxonomy table is present.
 
@@ -798,7 +808,7 @@ Execution order for file-output consensus:
 
 Worktrees are kept on failure when `keepWorktreesOnFailure` is true so the rejected candidates can be inspected. They are removed after successful selection. File-output consensus intentionally requires a clean checkout only when operating directly on a repository root; this prevents candidates from accidentally omitting or overwriting uncommitted user changes while still supporting ignored generated-output directories.
 
-Every consensus path reports diagnostics in the result graph/report. Reports include the participating provider/model per run, whether that run contributed, was selected, was merely valid, was rejected, or failed, and a contribution percentage. Router consensus contribution means the candidate supplied selected DAG steps. Agent-output consensus contribution means the candidate matched or was closest to the selected final output. File-output consensus contribution identifies the patch that passed verification and was applied.
+Every consensus path reports diagnostics in the result graph/report. Reports include the participating provider/model per run, whether that run contributed, was selected, was merely valid, was rejected, or failed, and a contribution percentage. Consensus-enabled DAG nodes also surface the run count, method, run models, statuses, and contributions directly in compact graphs and selected `agent-network.svg` layouts. Router consensus contribution means the candidate supplied selected DAG steps. Agent-output consensus contribution means the candidate matched or was closest to the selected final output. File-output consensus contribution identifies the patch that passed verification and was applied.
 
 ## Agent Registry
 
@@ -1109,6 +1119,7 @@ Options:
   --output-format <fmt>  Print result as json, yaml, markdown, html, text, or pdf
   --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result
+  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMapOutput, parseMapOutputFormat } from '../../src/output/result-format.js';
+import { formatMapOutput, parseDagLayoutOption, parseMapOutputFormat } from '../../src/output/result-format.js';
 
 const result = {
   version: 2,
@@ -32,12 +32,25 @@ describe('extended result formats', () => {
     expect(() => parseMapOutputFormat('compact')).toThrow('json, yaml, markdown, html, text, pdf');
   });
 
+
+  it('parses DAG layout options', () => {
+    expect(parseDagLayoutOption(undefined)).toBe('auto');
+    expect(parseDagLayoutOption('stage')).toBe('stage');
+    expect(parseDagLayoutOption('metro')).toBe('metro');
+    expect(parseDagLayoutOption('matrix')).toBe('matrix');
+    expect(parseDagLayoutOption('cluster')).toBe('cluster');
+    expect(() => parseDagLayoutOption('radial')).toThrow('auto, stage, metro, matrix, cluster');
+  });
+
+
   it('renders full html output', () => {
     const output = formatMapOutput(result, 'html');
 
     expect(output).toContain('<!doctype html>');
     expect(output).toContain('<h2>Agent Graph</h2>');
-    expect(output).toContain('step-1 [researcher] -&gt; step-2 [writer]');
+    expect(output).toContain('Stage 1 (sequence):');
+    expect(output).toContain('step-1 -&gt; step-2 (planned)');
+    expect(output).toContain('class="agent-stage sequence"');
     expect(output).toContain('<h2>Final Result</h2>');
     expect(output).toContain('Final answer');
     expect(output).toContain('<h2>Result Data</h2>');
@@ -96,7 +109,8 @@ describe('extended result formats', () => {
 
     expect(output).toContain('MAP Result');
     expect(output).toContain('Agent Graph');
-    expect(output).toContain('step-1 [researcher] -> step-2 [writer]');
+    expect(output).toContain('Stage 1 (sequence):');
+    expect(output).toContain('step-1 -> step-2 (planned)');
     expect(output).toContain('Final Result');
     expect(output).toContain('Final answer');
   });
@@ -108,7 +122,14 @@ describe('extended result formats', () => {
     expect(parsed).toEqual({
       success: true,
       outcome: 'success',
-      agentGraph: ['step-1 [researcher] -> step-2 [writer]'],
+      agentGraph: [
+        'Stage 1 (sequence):',
+        '- step-1 [researcher] completed',
+        'Stage 2 (sequence):',
+        '- step-2 [writer] completed | inputs: step-1',
+        'Connections:',
+        '- step-1 -> step-2 (planned)',
+      ],
       finalResult: 'Final answer',
     });
     expect(parsed.steps).toBeUndefined();

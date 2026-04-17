@@ -28,6 +28,7 @@ const flagsWithValues = new Set([
   '--personality',
   '--review-pr',
   '--output-format',
+  '--dag-layout',
 ]);
 
 const booleanFlags = new Set([

@@ -1,6 +1,7 @@
 import blessed from 'neo-blessed';
 import { BaseScreen } from './base-screen.js';
-import type { StepResult } from '../../types/dag.js';
+import type { DAGEdge, DAGResult, StepResult } from '../../types/dag.js';
+import { renderSimplifiedGraph } from '../../dag/graph-renderer.js';
 import { getTheme, fgTag } from '../theme.js';
 
 export interface DAGExecutionScreenData {
@@ -30,36 +31,48 @@ function formatDuration(ms?: number): string {
 }
 
 function buildGraphContent(steps: StepResult[], selectedIndex: number): string {
+  const selectedStepId = steps[selectedIndex]?.id;
+  return renderSimplifiedGraph(buildRuntimeDag(steps))
+    .map((line) => selectedStepId && line.startsWith(`- ${selectedStepId} `) ? `> ${line.slice(2)}` : `  ${line}`)
+    .join('\n');
+}
+
+function buildRuntimeDag(steps: StepResult[]): DAGResult {
   const stepIds = new Set(steps.map((step) => step.id));
-  const lines: string[] = [];
+  const edges: DAGEdge[] = [];
+  const seenEdges = new Set<string>();
+  const addEdge = (edge: DAGEdge) => {
+    if (!stepIds.has(edge.from) || !stepIds.has(edge.to)) return;
+    const key = `${edge.from}:${edge.to}:${edge.type}`;
+    if (seenEdges.has(key)) return;
+    seenEdges.add(key);
+    edges.push(edge);
+  };
 
-  for (const [index, step] of steps.entries()) {
-    const color = STATUS_COLORS[step.status] ?? '{white-fg}';
-    const icon = STATUS_ICONS[step.status] ?? '?';
-    const duration = step.duration ? ` ${formatDuration(step.duration)}` : '';
-    const selected = index === selectedIndex ? '>' : ' ';
-    const security =
-      step.securityPassed === true
-        ? ' ◊ security passed'
-        : step.securityPassed === false
-          ? ' ◊ security failed'
-          : '';
-    lines.push(
-      `${selected} ${color}${icon}{/} ${step.id} [${step.agent}] ${step.status}${duration}${security}`,
-    );
+  for (const step of steps) {
+    for (const dep of getStepDependsOn(step)) {
+      addEdge({ from: dep, to: step.id, type: 'planned' });
+    }
+    if (step.parentStepId && step.parentStepId !== step.id) {
+      addEdge({ from: step.parentStepId, to: step.id, type: step.edgeType ?? 'handoff' });
+    }
+    if (step.replacementStepId) {
+      addEdge({ from: step.id, to: step.replacementStepId, type: 'recovery' });
+    }
   }
 
-  const edges = steps.flatMap((step) =>
-    (getStepDependsOn(step))
-      .filter((dep) => stepIds.has(dep))
-      .map((dep) => `${dep} -> ${step.id}`),
-  );
-
-  if (edges.length > 0) {
-    lines.push('', ...edges.map((edge) => `  ${edge}`));
-  }
-
-  return lines.join('\n');
+  return {
+    nodes: steps.map((step) => ({
+      id: step.id,
+      agent: step.agent,
+      provider: step.provider,
+      model: step.model,
+      status: step.status,
+      duration: step.duration ?? 0,
+      ...(step.consensus ? { consensus: step.consensus } : {}),
+    })),
+    edges,
+  };
 }
 
 function buildDetailContent(step: StepResult | undefined): string {
@@ -74,6 +87,16 @@ function buildDetailContent(step: StepResult | undefined): string {
     ...(step.duration ? [`Duration: ${formatDuration(step.duration)}`] : []),
     ...(step.error ? [`Error: ${step.error}`] : []),
   ];
+
+  if (step.consensus) {
+    lines.push('', `Consensus: ${step.consensus.runs}x ${step.consensus.method}`);
+    for (const participant of step.consensus.participants ?? []) {
+      const model = participant.provider && participant.model
+        ? `${participant.provider}/${participant.model}`
+        : participant.model ?? participant.provider ?? 'unknown';
+      lines.push(`- ${model} r${participant.run}: ${participant.status} ${Math.round(participant.contribution * 100)}%`);
+    }
+  }
 
   if (step.securityFindings && step.securityFindings.length > 0) {
     lines.push('', 'Security Findings:');

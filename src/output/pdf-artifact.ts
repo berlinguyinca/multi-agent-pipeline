@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { formatMapOutput } from './result-format.js';
+import { formatMapOutput, type FormatMapOutputOptions } from './result-format.js';
 import { createReportVisualArtifacts } from './visual-artifacts.js';
 
 const execFileAsync = promisify(execFile);
@@ -17,25 +17,37 @@ export interface PdfArtifactResult {
 
 export async function writeHtmlArtifact(
   result: unknown,
-  options: { compact?: boolean; outputDir?: string } = {},
+  options: { compact?: boolean; outputDir?: string; dagLayout?: FormatMapOutputOptions['dagLayout']; suppressArtifactIds?: string[]; printGraphSummary?: boolean; suppressSteps?: boolean } = {},
 ): Promise<{ htmlPath: string }> {
   const outputDir = path.resolve(options.outputDir ?? inferOutputDir(result));
   await fs.mkdir(outputDir, { recursive: true });
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const htmlPath = path.join(outputDir, `map-result-${stamp}.html`);
-  const artifactManifest = await createReportVisualArtifacts(result, { outputDir });
+  const artifactManifest = await createReportVisualArtifacts(result, { outputDir, dagLayout: options.dagLayout });
   const resultWithArtifacts = attachArtifacts(result, artifactManifest);
-  const html = makePrintFriendlyHtml(formatMapOutput(resultWithArtifacts, 'pdf', { compact: options.compact }));
+  const html = makePrintFriendlyHtml(formatMapOutput(resultWithArtifacts, 'pdf', {
+    compact: options.compact,
+    dagLayout: options.dagLayout,
+    suppressArtifactIds: options.suppressArtifactIds,
+    printGraphSummary: options.printGraphSummary,
+    suppressSteps: options.suppressSteps,
+  }));
   await fs.writeFile(htmlPath, html, 'utf8');
   return { htmlPath };
 }
 
 export async function writePdfArtifact(
   result: unknown,
-  options: { compact?: boolean; outputDir?: string; renderPdf?: boolean } = {},
+  options: { compact?: boolean; outputDir?: string; renderPdf?: boolean; dagLayout?: FormatMapOutputOptions['dagLayout']; suppressArtifactIds?: string[]; printGraphSummary?: boolean; suppressSteps?: boolean } = {},
 ): Promise<PdfArtifactResult> {
-  const { htmlPath } = await writeHtmlArtifact(result, options);
+  const { htmlPath } = await writeHtmlArtifact(result, {
+    ...options,
+    dagLayout: options.dagLayout,
+    suppressArtifactIds: [...(options.suppressArtifactIds ?? []), 'agent-network'],
+    printGraphSummary: options.printGraphSummary ?? (options.dagLayout === undefined || options.dagLayout === 'auto'),
+    suppressSteps: options.suppressSteps ?? (options.dagLayout === undefined || options.dagLayout === 'auto'),
+  });
   const pdfPath = htmlPath.replace(/\.html$/i, '.pdf');
 
   if (options.renderPdf === false) {
