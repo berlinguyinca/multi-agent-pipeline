@@ -12,6 +12,12 @@ This repository is **multi-agent-pipeline (MAP)**. It orchestrates local and CLI
 - `src/orchestrator/orchestrator.ts` executes DAG steps, injects tool catalogs, handles retries/recovery, security gates, handoff validation, grammar review, adviser replans, and output consensus.
 - `src/headless/runner.ts` and `src/tui/tui-app.ts` wire config into routing and DAG execution.
 
+## Visual artifact contract notes
+
+- Deterministic visuals belong in `output/artifacts/` with a manifest, not inline base64 in prompts or Markdown.
+- Agents should produce source data; code should generate evidence visuals such as agent networks, usage commonness plots, and taxonomy diagrams.
+- Generated SVG must be sanitized and derived from run data. Treat AI-generated raster images as decorative unless explicitly validated as evidence.
+
 ## Classification agent contract notes
 
 - `agents/classyfire-taxonomy-classifier` is limited to ClassyFire/ChemOnt-style chemical taxonomy and must not mix in usage, exposure, anatomical target, or indication claims.

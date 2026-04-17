@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and includes a flowchart-style visual agent network so stakeholders can see the orchestration graph. PDF output writes a polished print-ready HTML file and, when Chrome/Chromium is available, a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. PDF output writes a polished print-ready HTML file and, when Chrome/Chromium is available, a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -479,6 +479,14 @@ Use `--compact` when you only want the utilized agent path and the final answer.
 The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, and automatic grammar/spelling polishing steps.
 
 For ClassyFire/ChemOnt plus usage/LCB runs, compact Markdown/HTML/PDF reports preserve the two source reports as the customer-facing final result. Deterministic rendering combines the completed taxonomy and usage outputs instead of letting optional judge or formatter steps replace them with rubrics, candidate-selection notes, or lossy spreadsheet summaries.
+
+When HTML or PDF artifacts are written to disk, MAP also creates an `artifacts/manifest.json` next to deterministic SVG visuals. Current generated visuals include:
+
+- `agent-network.svg`: the executed runtime DAG as a flowchart.
+- `usage-commonness-ranking.svg`: a 0-100 commonness score bar chart when a usage agent emits `Usage Commonness Ranking`.
+- `taxonomy-tree.svg`: a ClassyFire/ChemOnt hierarchy diagram when a taxonomy table is present.
+
+These visuals are derived from validated run data and are embedded as figures in the HTML/PDF report. Decorative AI-generated images should remain separate from evidence graphics and must be labeled as decorative.
 
 ### Verbose Progress
 

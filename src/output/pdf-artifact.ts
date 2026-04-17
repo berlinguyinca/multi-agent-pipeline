@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { formatMapOutput } from './result-format.js';
+import { createReportVisualArtifacts } from './visual-artifacts.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,7 +24,9 @@ export async function writeHtmlArtifact(
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const htmlPath = path.join(outputDir, `map-result-${stamp}.html`);
-  const html = makePrintFriendlyHtml(formatMapOutput(result, 'html', { compact: options.compact }));
+  const artifactManifest = await createReportVisualArtifacts(result, { outputDir });
+  const resultWithArtifacts = attachArtifacts(result, artifactManifest);
+  const html = makePrintFriendlyHtml(formatMapOutput(resultWithArtifacts, 'html', { compact: options.compact }));
   await fs.writeFile(htmlPath, html, 'utf8');
   return { htmlPath };
 }
@@ -80,6 +83,17 @@ export async function openOutputArtifact(filePath: string): Promise<void> {
   }
 
   await execFileAsync('xdg-open', [filePath]);
+}
+
+function attachArtifacts(result: unknown, manifest: Awaited<ReturnType<typeof createReportVisualArtifacts>>): unknown {
+  if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
+    return {
+      ...result,
+      artifacts: manifest.artifacts,
+      artifactManifestPath: manifest.manifestPath,
+    };
+  }
+  return { result, artifacts: manifest.artifacts, artifactManifestPath: manifest.manifestPath };
 }
 
 function inferOutputDir(result: unknown): string {

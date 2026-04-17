@@ -247,7 +247,7 @@ function buildHtmlDocument(
     '<head>',
     '<meta charset="utf-8">',
     `<title>${escapeHtml(title)}</title>`,
-    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{min-width:170px;max-width:230px;position:relative;padding:.85rem 1rem;border:1px solid #c5d6ea;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.11);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:16px 0 0 16px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta{font-size:.75rem;color:#475569}.flow-arrow{display:flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:34px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:10px solid #8db5ec}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}</style>',
+    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{min-width:170px;max-width:230px;position:relative;padding:.85rem 1rem;border:1px solid #c5d6ea;border-radius:16px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.11);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:16px 0 0 16px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta{font-size:.75rem;color:#475569}.flow-arrow{display:flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:34px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:10px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}</style>',
     '</head>',
     '<body>',
     `<h1>${escapeHtml(title)}</h1>`,
@@ -255,6 +255,7 @@ function buildHtmlDocument(
     '<h2>Agent Graph</h2>',
     graph.length > 0 ? `<ul>${graph.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '<p>No graph available.</p>',
     renderHtmlAgentNetwork(data),
+    renderHtmlVisualArtifacts(data),
     ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
     ...renderHtmlWarnings(data),
@@ -297,6 +298,29 @@ function escapeRawHtmlInMarkdown(markdown: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function renderHtmlVisualArtifacts(data: Record<string, unknown>): string {
+  const artifacts = Array.isArray(data['artifacts']) ? data['artifacts'].filter(isRecord) : [];
+  if (artifacts.length === 0) return '';
+
+  const figures = artifacts
+    .map((artifact) => {
+      const src = typeof artifact['src'] === 'string' ? artifact['src'] : typeof artifact['path'] === 'string' ? artifact['path'] : '';
+      if (!src) return '';
+      const title = String(artifact['title'] ?? artifact['id'] ?? 'Visual artifact');
+      const description = String(artifact['description'] ?? title);
+      return [
+        '<figure class="artifact-figure">',
+        `<img src="${escapeHtml(src)}" alt="${escapeHtml(description)}">`,
+        `<figcaption><strong>${escapeHtml(title)}</strong><br>${escapeHtml(description)}</figcaption>`,
+        '</figure>',
+      ].join('');
+    })
+    .filter(Boolean);
+
+  if (figures.length === 0) return '';
+  return ['<h2>Visual Artifacts</h2>', '<section class="artifact-gallery">', ...figures, '</section>'].join('');
 }
 
 function renderHtmlAgentNetwork(data: Record<string, unknown>): string {
