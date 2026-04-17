@@ -901,6 +901,128 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     expect(adapterCreated).toBe(false);
   });
 
+  it('applies v2 router and Ollama CLI overrides before probing and routing', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-overrides-'));
+    const adapterConfigs: AdapterConfig[] = [];
+    const probeCalls: unknown[] = [];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
+        void options;
+        if (prompt.includes('You are a task router')) {
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research the task","dependsOn":[]}]}';
+          return;
+        }
+        if (prompt.includes('Fact-check the researcher report')) {
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
+          return;
+        }
+
+        yield 'Research result';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      {
+        prompt: 'Research this task',
+        outputDir,
+        routerModel: 'qwen3:latest',
+        routerConsensusModels: ['qwen3:latest', 'llama3.1:8b'],
+        ollama: {
+          host: 'http://127.0.0.1:11435',
+          contextLength: 64000,
+          numParallel: 4,
+          maxLoadedModels: 3,
+        },
+      },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            consensus: { enabled: true, models: [] },
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => {
+          adapterConfigs.push(config);
+          return new FakeAdapter(config.type);
+        },
+        probeOllamaConcurrencyCapacityFn: async (options) => {
+          probeCalls.push(options);
+          return { maxParallel: 2, testedParallel: 3 };
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(probeCalls[0]).toMatchObject({
+      host: 'http://127.0.0.1:11435',
+      contextLength: 64000,
+      numParallel: 4,
+      maxLoadedModels: 3,
+      model: 'qwen3:latest',
+      models: ['qwen3:latest', 'llama3.1:8b'],
+    });
+    expect(adapterConfigs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'ollama',
+          model: 'qwen3:latest',
+          host: 'http://127.0.0.1:11435',
+          contextLength: 64000,
+          numParallel: 4,
+          maxLoadedModels: 3,
+        }),
+        expect.objectContaining({
+          type: 'ollama',
+          model: 'llama3.1:8b',
+          host: 'http://127.0.0.1:11435',
+          contextLength: 64000,
+          numParallel: 4,
+          maxLoadedModels: 3,
+        }),
+      ]),
+    );
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
   it('runs v2 agents in workspaceDir while keeping reports in outputDir', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-output-'));
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-workspace-'));

@@ -63,7 +63,7 @@ export async function runPRReview(
     const prContext = await fetchGitHubPRContext(ref, token, dependencies.fetchFn);
     const adapterConfig = assignmentToAdapterConfig(
       config.agents.review,
-      config.ollama.host,
+      config.ollama,
     );
     const adapter = dependencies.createAdapterFn(adapterConfig);
 

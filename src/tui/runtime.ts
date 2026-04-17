@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DetectionResult, AdapterConfig, AdapterType } from '../types/adapter.js';
-import type { AgentAssignment, StageName } from '../types/config.js';
+import type { AgentAssignment, OllamaConfig, StageName } from '../types/config.js';
 import type {
   ExecutionResult,
   DocumentationResult,
@@ -42,13 +42,34 @@ const DEFAULT_SNAPSHOT_MAX_BYTES = 120_000;
 
 export function assignmentToAdapterConfig(
   assignment: AgentAssignment,
-  ollamaHost?: string,
+  ollama?: string | OllamaConfig,
 ): AdapterConfig {
   if (assignment.adapter === 'ollama') {
-    return { type: 'ollama', model: assignment.model, host: ollamaHost };
+    return {
+      type: 'ollama',
+      model: assignment.model,
+      ...normalizeOllamaAdapterConfig(ollama),
+    };
   }
 
   return { type: assignment.adapter };
+}
+
+function normalizeOllamaAdapterConfig(
+  ollama?: string | OllamaConfig,
+): Pick<AdapterConfig, 'host' | 'contextLength' | 'numParallel' | 'maxLoadedModels'> {
+  if (typeof ollama === 'string') {
+    return { host: ollama };
+  }
+  if (ollama === undefined) {
+    return {};
+  }
+  return {
+    host: ollama.host,
+    contextLength: ollama.contextLength,
+    numParallel: ollama.numParallel,
+    maxLoadedModels: ollama.maxLoadedModels,
+  };
 }
 
 export function assertAdapterInstalled(

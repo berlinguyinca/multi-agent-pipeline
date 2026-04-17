@@ -10,6 +10,7 @@ import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
 import { formatMapOutput, parseMapOutputFormat, type MapOutputFormat } from './output/result-format.js';
 import { openOutputArtifact, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
+import type { OllamaConfig, PipelineConfig } from './types/config.js';
 
 export async function runCli(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -50,6 +51,13 @@ Options:
   --router-model <name>  Override the smart-routing router model
   --router-consensus-models <csv>
                          Override default router consensus with up to 3 comma-separated Ollama models
+  --ollama-host <url>    Override Ollama host for this run
+  --ollama-context-length <n>
+                         Context length used when MAP starts ollama serve (default: 100000)
+  --ollama-num-parallel <n>
+                         Parallel requests per loaded model when MAP starts ollama serve (default: 2)
+  --ollama-max-loaded-models <n>
+                         Max models loaded concurrently when MAP starts ollama serve (default: 2)
   --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
@@ -120,6 +128,7 @@ Commands:
     const routerConsensusModels = parseRouterConsensusModels(
       extractFlag(args, '--router-consensus-models'),
     );
+    const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
 
@@ -151,6 +160,7 @@ Commands:
         verbose,
         routerModel,
         routerConsensusModels,
+        ollama,
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
@@ -170,6 +180,7 @@ Commands:
       verbose,
       routerModel,
       routerConsensusModels,
+      ollama,
       routerTimeoutMs:
         routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       totalTimeoutMs:
@@ -221,12 +232,14 @@ Commands:
   const routerConsensusModels = parseRouterConsensusModels(
     extractFlag(args, '--router-consensus-models'),
   );
+  const ollama = parseOllamaOverrides(args);
   if (routerTimeout !== undefined) {
     config.router = {
       ...config.router,
       timeoutMs: parseDuration(routerTimeout, '--router-timeout'),
     };
   }
+  applyOllamaOverrides(config, ollama);
   applyRouterOverrides(config, routerModel, routerConsensusModels);
   const detection = await detectAllAdapters(config.ollama.host);
 
@@ -255,6 +268,45 @@ function parseRouterConsensusModels(value: string | undefined): string[] | undef
     throw new Error('--router-consensus-models accepts at most 3 models');
   }
   return models;
+}
+
+function parseOllamaOverrides(args: string[]): Partial<OllamaConfig> | undefined {
+  const host = extractFlag(args, '--ollama-host');
+  const contextLength = parsePositiveIntegerFlag(
+    extractFlag(args, '--ollama-context-length'),
+    '--ollama-context-length',
+  );
+  const numParallel = parsePositiveIntegerFlag(
+    extractFlag(args, '--ollama-num-parallel'),
+    '--ollama-num-parallel',
+  );
+  const maxLoadedModels = parsePositiveIntegerFlag(
+    extractFlag(args, '--ollama-max-loaded-models'),
+    '--ollama-max-loaded-models',
+  );
+
+  const override: Partial<OllamaConfig> = {};
+  if (host !== undefined) {
+    const trimmed = host.trim();
+    if (trimmed === '') {
+      throw new Error('--ollama-host must be a non-empty string');
+    }
+    override.host = trimmed;
+  }
+  if (contextLength !== undefined) override.contextLength = contextLength;
+  if (numParallel !== undefined) override.numParallel = numParallel;
+  if (maxLoadedModels !== undefined) override.maxLoadedModels = maxLoadedModels;
+
+  return Object.keys(override).length > 0 ? override : undefined;
+}
+
+function parsePositiveIntegerFlag(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${flag} must be a positive integer`);
+  }
+  return parsed;
 }
 
 function resolveOutputFormat(args: string[]): MapOutputFormat {
@@ -291,6 +343,17 @@ function applyRouterOverrides(
       },
     };
   }
+}
+
+function applyOllamaOverrides(
+  config: PipelineConfig,
+  ollama: Partial<OllamaConfig> | undefined,
+): void {
+  if (ollama === undefined) return;
+  config.ollama = {
+    ...config.ollama,
+    ...ollama,
+  };
 }
 
 async function loadSpecFile(specFilePath: string): Promise<string> {

@@ -427,4 +427,63 @@ describe('runCli', () => {
       }),
     );
   });
+
+  it('passes Ollama server overrides to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--ollama-host',
+        'http://127.0.0.1:11435',
+        '--ollama-context-length',
+        '64000',
+        '--ollama-num-parallel',
+        '4',
+        '--ollama-max-loaded-models',
+        '3',
+        'Research the task and produce a concise implementation readiness plan',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ollama: {
+          host: 'http://127.0.0.1:11435',
+          contextLength: 64000,
+          numParallel: 4,
+          maxLoadedModels: 3,
+        },
+      }),
+    );
+  });
+
+  it('applies Ollama server overrides before launching the TUI', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await runCli([
+      '--ollama-host',
+      'http://127.0.0.1:11435',
+      '--ollama-context-length',
+      '64000',
+      '--ollama-num-parallel',
+      '4',
+      '--ollama-max-loaded-models',
+      '3',
+    ]);
+
+    expect(detectAllAdaptersMock).toHaveBeenCalledWith('http://127.0.0.1:11435');
+    expect(createTuiAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          ollama: {
+            host: 'http://127.0.0.1:11435',
+            contextLength: 64000,
+            numParallel: 4,
+            maxLoadedModels: 3,
+          },
+        }),
+      }),
+    );
+  });
 });

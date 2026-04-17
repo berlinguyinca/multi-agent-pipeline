@@ -82,11 +82,11 @@ export class PipelineRunner {
     const initialContext = createPipelineContext({
       prompt: '',
       agents: {
-        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama.host),
-        review: assignmentToAdapterConfig(config.agents.review, config.ollama.host),
-        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama.host),
-        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama.host),
-        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama.host),
+        spec: assignmentToAdapterConfig(config.agents.spec, config.ollama),
+        review: assignmentToAdapterConfig(config.agents.review, config.ollama),
+        qa: assignmentToAdapterConfig(config.agents.qa, config.ollama),
+        execute: assignmentToAdapterConfig(config.agents.execute, config.ollama),
+        docs: assignmentToAdapterConfig(config.agents.docs, config.ollama),
       },
       outputDir: config.outputDir,
     });
@@ -240,7 +240,7 @@ export class PipelineRunner {
 
     const stage: StageName = resolveAgentStage(stateValue);
     const assignment = this.agents[stage];
-    const adapter = createAdapter(assignmentToAdapterConfig(assignment, this.config.ollama.host));
+    const adapter = createAdapter(assignmentToAdapterConfig(assignment, this.config.ollama));
 
     let cancelled = false;
     this.cancelCurrentRun = () => {

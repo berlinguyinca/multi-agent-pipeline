@@ -25,6 +25,9 @@ export interface GitHubConfig {
 
 export interface OllamaConfig {
   host: string;
+  contextLength: number;
+  numParallel: number;
+  maxLoadedModels: number;
 }
 
 export interface QualityConfig {

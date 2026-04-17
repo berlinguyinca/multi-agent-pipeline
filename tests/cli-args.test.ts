@@ -23,6 +23,12 @@ describe('cli argument parsing', () => {
       '20m',
       '--router-timeout',
       '5m',
+      '--ollama-context-length',
+      '64000',
+      '--ollama-num-parallel',
+      '4',
+      '--ollama-max-loaded-models',
+      '3',
       '--github-issue',
       'https://github.com/openai/codex/issues/1',
     ]);

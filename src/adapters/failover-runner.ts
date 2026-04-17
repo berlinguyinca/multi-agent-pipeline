@@ -1,5 +1,5 @@
 import type { AdapterConfig, AgentAdapter } from '../types/adapter.js';
-import type { AgentAssignment } from '../types/config.js';
+import type { AgentAssignment, OllamaConfig } from '../types/config.js';
 import { assignmentToAdapterConfig } from '../tui/runtime.js';
 import { isQuotaExhaustion } from './quota-detector.js';
 import { AllAdaptersExhaustedError } from '../utils/error.js';
@@ -41,11 +41,11 @@ export async function runWithFailover<T>(
 
 export function buildAdapterChain(
   assignment: AgentAssignment,
-  ollamaHost?: string,
+  ollama?: string | OllamaConfig,
 ): AdapterConfig[] {
-  const primary = assignmentToAdapterConfig(assignment, ollamaHost);
+  const primary = assignmentToAdapterConfig(assignment, ollama);
   const fallbacks = (assignment.fallbacks ?? []).map((fb) =>
-    assignmentToAdapterConfig(fb, ollamaHost),
+    assignmentToAdapterConfig(fb, ollama),
   );
   return [primary, ...fallbacks];
 }

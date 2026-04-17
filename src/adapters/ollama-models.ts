@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import type { AgentDefinition } from '../types/agent-definition.js';
+import type { OllamaConfig } from '../types/config.js';
 import { detectAllAdapters } from './detect.js';
 import { ensureOllamaReadyForConfigs } from './ollama-runtime.js';
 
@@ -19,11 +20,23 @@ export async function listInstalledOllamaModels(host?: string): Promise<string[]
 
 export async function syncReferencedOllamaModels(
   agents: Iterable<Pick<AgentDefinition, 'adapter' | 'model'>>,
-  host?: string,
+  ollama?: string | OllamaConfig,
 ): Promise<void> {
+  const host = typeof ollama === 'string' ? ollama : ollama?.host;
   await ensureOllamaReadyForConfigs(
     [...agents]
       .filter((agent) => agent.adapter === 'ollama' && agent.model)
-      .map((agent) => ({ type: 'ollama' as const, model: agent.model, host })),
+      .map((agent) => ({
+        type: 'ollama' as const,
+        model: agent.model,
+        host,
+        ...(typeof ollama === 'object'
+          ? {
+              contextLength: ollama.contextLength,
+              numParallel: ollama.numParallel,
+              maxLoadedModels: ollama.maxLoadedModels,
+            }
+          : {}),
+      })),
   );
 }

@@ -61,6 +61,9 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
     },
     ollama: {
       host: override.ollama?.host ?? base.ollama.host,
+      contextLength: override.ollama?.contextLength ?? base.ollama.contextLength,
+      numParallel: override.ollama?.numParallel ?? base.ollama.numParallel,
+      maxLoadedModels: override.ollama?.maxLoadedModels ?? base.ollama.maxLoadedModels,
     },
     quality: {
       maxSpecQaIterations:
