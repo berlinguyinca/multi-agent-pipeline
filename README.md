@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Reports also include an **Agent Contributions** section that explains how each agent improved the result, what evidence it produced for downstream steps, and how to manually rerun the same prompt while disabling a specific agent for comparison. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -342,6 +342,12 @@ map --headless --output-format pdf --open-output "Investigate a specific questio
 
 # Print only the utilized agent graph and the final output
 map --headless --compact "Investigate a specific question"
+
+# Rerun while removing one or more smart-routing agents from consideration
+map --headless --disable-agent output-formatter,researcher "Investigate a specific question"
+
+# Automatically compare the full network against reruns with selected agents disabled
+map --headless --compare-agents researcher,output-formatter --semantic-judge "Investigate a specific question"
 
 # Inject a personality or tone into all AI prompts
 map --headless \
@@ -464,6 +470,10 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--router-timeout` | `router.timeoutMs` | 5m | Maximum time allowed for router planning |
 | `--router-model` | `router.model` | config value | Override the smart-routing router model for this run |
 | `--router-consensus-models` | `router.consensus.models` | repeats `router.model` | Override the default router consensus candidates with up to 3 comma-separated Ollama models |
+| `--disable-agent` / `--disable-agents` | `agentOverrides.<name>.enabled=false` | none | Remove one or more comma-separated smart-routing agents from the available-agent list for this run |
+| `--compare-agents [csv]` | run option | off | Run ablation comparisons by rerunning with selected agents disabled; omit CSV to compare agents used by the baseline |
+| `--compare-agent-list <csv>` | run option | off | Explicit comma-separated comparison candidate list when shell quoting makes optional `--compare-agents` ambiguous |
+| `--semantic-judge` | run option | off | Include deterministic output-similarity verdicts for comparison runs |
 | `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
@@ -474,6 +484,16 @@ Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship mu
 
 Use `--workspace-dir` when MAP should build on an existing project or collected-data directory. The workspace becomes the agent/tool/adaptor working directory, while `--output-dir` remains the location for MAP reports, run Markdown, PDFs, and visual artifacts. If `--workspace-dir` is omitted, smart-routing mode preserves the previous behavior and executes agents in `--output-dir`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `router.stepTimeoutMs` is a per-step no-progress timeout: MAP aborts a step only when no output chunk arrives within that window. When a step times out, MAP retries it and doubles the next step timeout budget. If the retried step succeeds, MAP records the larger per-agent timeout in `.map/adaptive-timeouts.json` and uses it for later runs in the same checkout. The default retry count is intentionally low to avoid hour-scale local-model stalls.
+
+### Agent contribution reports and self-optimization
+
+Every human-readable result now includes:
+
+- **Agent Contributions** — per-agent step counts, status, task summary, role-specific benefit explanation, consensus confidence notes, and a ready-to-copy rerun command such as `map --headless "prompt" --disable-agent researcher`.
+- **Rerun and self-optimization** — the original rerun command plus network self-check recommendations. Failed agents, failed handoffs, or missed spec-conformance checks are surfaced as candidates to question or disable on the next run.
+- **Agent Comparison Runs** when `--compare-agents` is used — baseline-vs-disabled-agent success, duration, final-output similarity, and a keep/disable/review recommendation.
+
+The same data is also exposed in JSON/YAML as `agentContributions`, `agentComparisons`, `routerRationale`, `semanticJudge`, and `rerun`, so downstream automation can detect weak agents without scraping prose. MAP also records rolling per-agent counters in `.map/agent-performance.json`. This lets users compare the full network against narrower runs without editing `pipeline.yaml`. The router receives a filtered available-agent list, so disabled agents cannot be selected for the initial DAG or adviser refreshes during that run. When a run starts from `--spec-file` and includes extra prompt text, that prompt tail is preserved in the generated rerun command.
 
 
 ### Compact Output
@@ -1124,6 +1144,14 @@ Options:
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
   --poll-interval <dur>  Internal polling cadence for timeout checks, e.g. 10s
+  --router-timeout <dur> Router planning timeout, e.g. 300s
+  --router-model <name>  Override the smart-routing router model
+  --router-consensus-models <csv>
+                         Override router consensus with up to 3 Ollama models
+  --disable-agent <csv>  Disable one or more smart-routing agents for this run
+  --compare-agents [csv]
+                         Run ablation comparisons for selected agents
+  --semantic-judge       Add deterministic semantic comparison scores
   --github-issue <url>   GitHub issue URL for prompt/reporting
   --personality <text>   Personality or tone injected into AI prompts
 ```

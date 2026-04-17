@@ -49,6 +49,11 @@ export interface SaveFinalReportMarkdownOptions {
   filesCreated?: string[];
   rawLogPath?: string;
   consensusDiagnostics?: ConsensusDiagnostics[];
+  rerun?: {
+    command: string;
+    disableAgentFlag: string;
+    disabledAgents?: string[];
+  };
 }
 
 function slugify(value: string): string {
@@ -143,6 +148,7 @@ export async function saveFinalReportMarkdown(
   });
   const fileLines = (options.filesCreated ?? []).map((file) => `- ${file}`);
   const consensusLines = formatConsensusDiagnostics(options.consensusDiagnostics ?? []);
+  const contributionLines = formatExecutionGraphContributions(options.executionGraph, options.rerun);
 
   const content = [
     `# ${options.title}`,
@@ -153,6 +159,7 @@ export async function saveFinalReportMarkdown(
     '',
     ...graphLines,
     ...(consensusLines.length > 0 ? ['', '## Consensus diagnostics', '', ...consensusLines] : []),
+    ...(contributionLines.length > 0 ? ['', '## Agent contributions', '', ...contributionLines] : []),
     '',
     '## Generated output',
     '',
@@ -179,6 +186,51 @@ function formatConsensusDiagnostics(diagnostics: ConsensusDiagnostics[]): string
       ),
     ];
   });
+}
+
+function formatExecutionGraphContributions(
+  graph: ExecutionGraphEntry[],
+  rerun?: SaveFinalReportMarkdownOptions['rerun'],
+): string[] {
+  if (graph.length === 0) return [];
+  const byAgent = new Map<string, ExecutionGraphEntry[]>();
+  for (const step of graph) {
+    const steps = byAgent.get(step.agent) ?? [];
+    steps.push(step);
+    byAgent.set(step.agent, steps);
+  }
+  const lines = [
+    'This section explains how each selected agent improved the result and how to compare a rerun with that agent disabled.',
+    '',
+  ];
+  for (const [agent, steps] of byAgent) {
+    const failed = steps.filter((step) => step.status === 'failed').length;
+    const completed = steps.filter((step) => step.status === 'completed' || step.status === 'recovered').length;
+    const status = failed > 0 ? 'failed' : completed === steps.length ? 'completed' : 'mixed';
+    const tasks = [...new Set(steps.map((step) => step.task).filter(Boolean))].join('; ');
+    const downstream = graph.filter((candidate) =>
+      candidate.dependsOn.some((dependency) => steps.some((step) => step.id === dependency)),
+    );
+    const benefits = [
+      `completed ${completed}/${steps.length} step${steps.length === 1 ? '' : 's'}`,
+      downstream.length > 0
+        ? `prepared inputs for downstream step${downstream.length === 1 ? '' : 's'} (${downstream.map((step) => step.id).join(', ')})`
+        : 'contributed terminal output or validation evidence',
+      steps.some((step) => step.consensus?.participants && step.consensus.participants.length > 0)
+        ? 'included consensus confidence evidence'
+        : '',
+      failed > 0 ? 'network self-check should question this agent before reuse' : '',
+    ].filter(Boolean).join('; ');
+    const rerunLine = rerun?.command
+      ? ` Rerun without it: \`${rerun.command} --disable-agent ${agent}\`.`
+      : '';
+    lines.push(`- **${agent}** (${status}): ${tasks || 'no task recorded'} — ${benefits}.${rerunLine}`);
+  }
+  if (rerun?.command) {
+    lines.push('', `Original rerun: \`${rerun.command}\``);
+    lines.push(`Manual comparison flag: \`${rerun.disableAgentFlag}\``);
+  }
+  return lines;
 }
 
 function formatParticipantModel(participant: ConsensusParticipant): string {

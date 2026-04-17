@@ -184,6 +184,10 @@ function formatMarkdownResult(result: unknown): string {
   appendSummary(lines, data);
   appendAgentGraph(lines, data);
   appendConsensusDiagnostics(lines, data);
+  appendRouterRationale(lines, data);
+  appendAgentContributions(lines, data);
+  appendAgentComparisons(lines, data);
+  appendSelfOptimization(lines, data);
   appendSteps(lines, data);
   appendFinalResult(lines, data);
   appendList(lines, 'Files Created', asStringArray(data['filesCreated']));
@@ -212,6 +216,10 @@ function formatTextResult(result: unknown): string {
   appendPlainErrors(lines, data);
   appendPlainWarnings(lines, data);
   appendPlainGraph(lines, data);
+  appendPlainRouterRationale(lines, data);
+  appendPlainAgentContributions(lines, data);
+  appendPlainAgentComparisons(lines, data);
+  appendPlainSelfOptimization(lines, data);
   appendPlainConsensusDiagnostics(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
@@ -286,6 +294,12 @@ function buildHtmlDocument(
           renderHtmlAgentNetwork(data, options.dagLayout ?? 'auto'),
         ]),
     renderHtmlVisualArtifacts(data, options.suppressArtifactIds ?? []),
+    ...(compact ? [] : [
+      renderHtmlRouterRationale(data),
+      renderHtmlAgentContributions(data),
+      renderHtmlAgentComparisons(data),
+      renderHtmlSelfOptimization(data),
+    ]),
     ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
     ...renderHtmlWarnings(data),
@@ -714,6 +728,402 @@ function renderHtmlConsensusDiagnostics(data: Record<string, unknown>): string[]
     '</tbody>',
     '</table>',
   ];
+}
+
+function appendRouterRationale(lines: string[], data: Record<string, unknown>): void {
+  const rationale = normalizeRouterRationale(data);
+  if (!rationale) return;
+  lines.push('', '## Router Rationale', '');
+  if (rationale.selectedAgents.length > 0) {
+    lines.push('Selected agents:');
+    for (const entry of rationale.selectedAgents) lines.push(`- ${entry.agent}: ${entry.reason}`);
+  }
+  if (rationale.rejectedAgents.length > 0) {
+    lines.push('', 'Rejected or skipped agents:');
+    for (const entry of rationale.rejectedAgents) lines.push(`- ${entry.agent}: ${entry.reason}`);
+  }
+}
+
+function appendPlainRouterRationale(lines: string[], data: Record<string, unknown>): void {
+  const rationale = normalizeRouterRationale(data);
+  if (!rationale) return;
+  lines.push('Router Rationale', '----------------');
+  for (const entry of rationale.selectedAgents) lines.push(`- selected ${entry.agent}: ${entry.reason}`);
+  for (const entry of rationale.rejectedAgents) lines.push(`- skipped ${entry.agent}: ${entry.reason}`);
+  lines.push('');
+}
+
+function renderHtmlRouterRationale(data: Record<string, unknown>): string {
+  const rationale = normalizeRouterRationale(data);
+  if (!rationale) return '';
+  const selected = rationale.selectedAgents.map((entry) => `<li><strong>${escapeHtml(entry.agent)}:</strong> ${escapeHtml(entry.reason)}</li>`).join('');
+  const rejected = rationale.rejectedAgents.map((entry) => `<li><strong>${escapeHtml(entry.agent)}:</strong> ${escapeHtml(entry.reason)}</li>`).join('');
+  return [
+    '<h2>Router Rationale</h2>',
+    selected ? `<h3>Selected agents</h3><ul>${selected}</ul>` : '',
+    rejected ? `<h3>Rejected or skipped agents</h3><ul>${rejected}</ul>` : '',
+  ].join('\n');
+}
+
+function normalizeRouterRationale(data: Record<string, unknown>): {
+  selectedAgents: Array<{ agent: string; reason: string }>;
+  rejectedAgents: Array<{ agent: string; reason: string }>;
+} | null {
+  const rationale = isRecord(data['routerRationale']) ? data['routerRationale'] : undefined;
+  if (!rationale) return null;
+  const selectedAgents = normalizeRationaleEntries(rationale['selectedAgents']);
+  const rejectedAgents = normalizeRationaleEntries(rationale['rejectedAgents']);
+  if (selectedAgents.length === 0 && rejectedAgents.length === 0) return null;
+  return { selectedAgents, rejectedAgents };
+}
+
+function normalizeRationaleEntries(value: unknown): Array<{ agent: string; reason: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      agent: String(entry['agent'] ?? '').trim(),
+      reason: String(entry['reason'] ?? '').trim(),
+    }))
+    .filter((entry) => entry.agent.length > 0 && entry.reason.length > 0);
+}
+
+interface AgentContributionSummary {
+  agent: string;
+  steps: Record<string, unknown>[];
+  totalSteps: number;
+  completedSteps: number;
+  failedSteps: number;
+  recoveredSteps: number;
+  status: string;
+  tasks: string[];
+  benefits: string[];
+  evidence: string[];
+  disableCommand?: string;
+  selfOptimizationReason?: string;
+}
+
+function appendAgentComparisons(lines: string[], data: Record<string, unknown>): void {
+  const comparisons = collectAgentComparisons(data);
+  if (comparisons.length === 0) return;
+  lines.push(
+    '',
+    '## Agent Comparison Runs',
+    '',
+    '| Disabled agent | Baseline | Variant | Similarity | Recommendation |',
+    '| --- | --- | --- | --- | --- |',
+  );
+  for (const comparison of comparisons) {
+    lines.push(`| ${cell(comparison.disabledAgent)} | ${cell(comparison.baselineSuccess ? 'success' : 'failed')} | ${cell(comparison.variantSuccess ? 'success' : 'failed')} | ${cell(formatPercent(comparison.finalSimilarity))} | ${cell(comparison.recommendation)} |`);
+  }
+}
+
+function appendPlainAgentComparisons(lines: string[], data: Record<string, unknown>): void {
+  const comparisons = collectAgentComparisons(data);
+  if (comparisons.length === 0) return;
+  lines.push('Agent Comparison Runs', '---------------------');
+  for (const comparison of comparisons) {
+    lines.push(`- without ${comparison.disabledAgent}: ${comparison.variantSuccess ? 'success' : 'failed'}, similarity ${formatPercent(comparison.finalSimilarity)}; ${comparison.recommendation}`);
+  }
+  lines.push('');
+}
+
+function renderHtmlAgentComparisons(data: Record<string, unknown>): string {
+  const comparisons = collectAgentComparisons(data);
+  if (comparisons.length === 0) return '';
+  return [
+    '<h2>Agent Comparison Runs</h2>',
+    '<table>',
+    '<thead><tr><th>Disabled agent</th><th>Baseline</th><th>Variant</th><th>Similarity</th><th>Recommendation</th></tr></thead>',
+    '<tbody>',
+    ...comparisons.map((comparison) => `<tr><td>${escapeHtml(comparison.disabledAgent)}</td><td>${comparison.baselineSuccess ? 'success' : 'failed'}</td><td>${comparison.variantSuccess ? 'success' : 'failed'}</td><td>${escapeHtml(formatPercent(comparison.finalSimilarity))}</td><td>${escapeHtml(comparison.recommendation)}</td></tr>`),
+    '</tbody>',
+    '</table>',
+  ].join('\n');
+}
+
+function collectAgentComparisons(data: Record<string, unknown>): Array<{
+  disabledAgent: string;
+  baselineSuccess: boolean;
+  variantSuccess: boolean;
+  finalSimilarity: number;
+  recommendation: string;
+}> {
+  const comparisons = Array.isArray(data['agentComparisons']) ? data['agentComparisons'].filter(isRecord) : [];
+  return comparisons.map((comparison) => ({
+    disabledAgent: String(comparison['disabledAgent'] ?? ''),
+    baselineSuccess: comparison['baselineSuccess'] === true,
+    variantSuccess: comparison['variantSuccess'] === true,
+    finalSimilarity: Number(comparison['finalSimilarity'] ?? 0),
+    recommendation: String(comparison['recommendation'] ?? ''),
+  })).filter((comparison) => comparison.disabledAgent.length > 0);
+}
+
+function appendAgentContributions(lines: string[], data: Record<string, unknown>): void {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return;
+  lines.push(
+    '',
+    '## Agent Contributions',
+    '',
+    'This section explains why each agent was useful, how it improved the result, and how to rerun the same prompt while disabling a role for comparison.',
+    '',
+    '| Agent | Steps | Status | Tasks | How it improved the result | Rerun without agent |',
+    '| --- | --- | --- | --- | --- | --- |',
+  );
+  for (const contribution of contributions) {
+    lines.push(
+      `| ${cell(contribution.agent)} | ${cell(contribution.totalSteps)} | ${cell(contribution.status)} | ${cell(contribution.tasks.join('; '))} | ${cell(contribution.benefits.join(' '))} | ${cell(contribution.disableCommand ?? 'unavailable')} |`,
+    );
+  }
+}
+
+function appendPlainAgentContributions(lines: string[], data: Record<string, unknown>): void {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return;
+  lines.push('Agent Contributions', '-------------------');
+  for (const contribution of contributions) {
+    lines.push(`- ${contribution.agent}: ${contribution.totalSteps} step(s), ${contribution.status}`);
+    lines.push(`  Tasks: ${contribution.tasks.join('; ') || 'none recorded'}`);
+    lines.push(`  Benefit: ${contribution.benefits.join(' ')}`);
+    if (contribution.disableCommand) {
+      lines.push(`  Compare by rerunning without it: ${contribution.disableCommand}`);
+    }
+  }
+  lines.push('');
+}
+
+function renderHtmlAgentContributions(data: Record<string, unknown>): string {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return '';
+  const rows = contributions.map((contribution) => [
+    contribution.agent,
+    contribution.totalSteps,
+    contribution.status,
+    contribution.tasks.join('; '),
+    contribution.benefits.join(' '),
+    contribution.disableCommand ?? 'unavailable',
+  ]);
+  return [
+    '<h2>Agent Contributions</h2>',
+    '<p>This section explains why each agent was useful, how it improved the result, and how to rerun the same prompt while disabling a role for comparison.</p>',
+    '<table>',
+    '<thead><tr><th>Agent</th><th>Steps</th><th>Status</th><th>Tasks</th><th>How it improved the result</th><th>Rerun without agent</th></tr></thead>',
+    '<tbody>',
+    ...rows.map((row) => `<tr>${row.map((cellValue) => `<td>${escapeHtml(String(cellValue ?? ''))}</td>`).join('')}</tr>`),
+    '</tbody>',
+    '</table>',
+  ].join('\n');
+}
+
+function appendSelfOptimization(lines: string[], data: Record<string, unknown>): void {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return;
+  lines.push('', '## Rerun and self-optimization', '');
+  const base = getRerunCommand(data);
+  if (base) {
+    lines.push(`- Original rerun: \`${base}\``);
+  }
+  lines.push('- To test whether an agent is helping, rerun with `--disable-agent <agent-name>` and compare the final answer, errors, consensus diagnostics, and agent graph.');
+  const candidates = contributions.filter((entry) => entry.selfOptimizationReason);
+  if (candidates.length === 0) {
+    lines.push('- Network self-check: no agent showed step-level failure or validation trouble in this run; keep the current network unless manual comparison shows lower quality or unnecessary cost.');
+    return;
+  }
+  lines.push('- Network self-check candidates:');
+  for (const candidate of candidates) {
+    lines.push(`  - ${candidate.agent}: ${candidate.selfOptimizationReason}${candidate.disableCommand ? ` Try: \`${candidate.disableCommand}\`` : ''}`);
+  }
+}
+
+function appendPlainSelfOptimization(lines: string[], data: Record<string, unknown>): void {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return;
+  lines.push('Rerun and self-optimization', '---------------------------');
+  const base = getRerunCommand(data);
+  if (base) lines.push(`- Original rerun: ${base}`);
+  lines.push('- To test whether an agent is helping, rerun with --disable-agent <agent-name> and compare the final answer, errors, consensus diagnostics, and agent graph.');
+  const candidates = contributions.filter((entry) => entry.selfOptimizationReason);
+  if (candidates.length === 0) {
+    lines.push('- Network self-check: no agent showed step-level failure or validation trouble in this run; keep the current network unless manual comparison shows lower quality or unnecessary cost.', '');
+    return;
+  }
+  for (const candidate of candidates) {
+    lines.push(`- ${candidate.agent}: ${candidate.selfOptimizationReason}${candidate.disableCommand ? ` Try: ${candidate.disableCommand}` : ''}`);
+  }
+  lines.push('');
+}
+
+function renderHtmlSelfOptimization(data: Record<string, unknown>): string {
+  const contributions = collectAgentContributions(data);
+  if (contributions.length === 0) return '';
+  const base = getRerunCommand(data);
+  const candidates = contributions.filter((entry) => entry.selfOptimizationReason);
+  const candidateLines = candidates.length === 0
+    ? ['<li>Network self-check: no agent showed step-level failure or validation trouble in this run; keep the current network unless manual comparison shows lower quality or unnecessary cost.</li>']
+    : candidates.map((candidate) =>
+      `<li><strong>${escapeHtml(candidate.agent)}:</strong> ${escapeHtml(candidate.selfOptimizationReason ?? '')}${candidate.disableCommand ? ` Try: <code>${escapeHtml(candidate.disableCommand)}</code>` : ''}</li>`,
+    );
+  return [
+    '<h2>Rerun and self-optimization</h2>',
+    '<ul>',
+    ...(base ? [`<li>Original rerun: <code>${escapeHtml(base)}</code></li>`] : []),
+    '<li>To test whether an agent is helping, rerun with <code>--disable-agent &lt;agent-name&gt;</code> and compare the final answer, errors, consensus diagnostics, and agent graph.</li>',
+    ...candidateLines,
+    '</ul>',
+  ].join('\n');
+}
+
+function collectAgentContributions(data: Record<string, unknown>): AgentContributionSummary[] {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  if (steps.length === 0) return [];
+  const dag = buildRenderableDag(data);
+  const dependents = new Map<string, string[]>();
+  for (const edge of dag.edges) {
+    const existing = dependents.get(edge.from) ?? [];
+    existing.push(edge.to);
+    dependents.set(edge.from, existing);
+  }
+  const grouped = new Map<string, Record<string, unknown>[]>();
+  for (const step of steps) {
+    const agent = String(step['agent'] ?? '').trim() || 'unknown';
+    const existing = grouped.get(agent) ?? [];
+    existing.push(step);
+    grouped.set(agent, existing);
+  }
+
+  return [...grouped.entries()].map(([agent, agentSteps]) => {
+    const completedSteps = agentSteps.filter((step) => step['status'] === 'completed').length;
+    const failedSteps = agentSteps.filter((step) => step['status'] === 'failed').length;
+    const recoveredSteps = agentSteps.filter((step) => step['status'] === 'recovered').length;
+    const status = failedSteps > 0
+      ? 'failed'
+      : recoveredSteps > 0
+        ? 'recovered'
+        : completedSteps === agentSteps.length
+          ? 'completed'
+          : 'mixed';
+    const tasks = uniqueStrings(agentSteps.map((step) => String(step['task'] ?? '').trim()).filter(Boolean));
+    const benefits = inferAgentBenefits(agent, agentSteps, dependents);
+    const evidence = agentSteps.map((step) => `${String(step['id'] ?? 'step')} ${String(step['status'] ?? 'unknown')}`);
+    const disableCommand = buildDisableAgentCommand(data, agent);
+    const selfOptimizationReason = inferSelfOptimizationReason(agentSteps);
+    return {
+      agent,
+      steps: agentSteps,
+      totalSteps: agentSteps.length,
+      completedSteps,
+      failedSteps,
+      recoveredSteps,
+      status,
+      tasks,
+      benefits,
+      evidence,
+      ...(disableCommand ? { disableCommand } : {}),
+      ...(selfOptimizationReason ? { selfOptimizationReason } : {}),
+    };
+  });
+}
+
+function inferAgentBenefits(
+  agent: string,
+  steps: Record<string, unknown>[],
+  dependents: Map<string, string[]>,
+): string[] {
+  const benefits: string[] = [];
+  const completed = steps.filter((step) => step['status'] === 'completed' || step['status'] === 'recovered').length;
+  if (completed > 0) {
+    benefits.push(`Completed ${completed}/${steps.length} planned step${steps.length === 1 ? '' : 's'}.`);
+  }
+  const downstream = uniqueStrings(steps.flatMap((step) => dependents.get(String(step['id'] ?? '')) ?? []));
+  if (downstream.length > 0) {
+    benefits.push(`Prepared inputs for downstream step${downstream.length === 1 ? '' : 's'} (${downstream.join(', ')}).`);
+  } else if (completed > 0) {
+    benefits.push('Contributed terminal output or validation evidence.');
+  }
+  const outputTypes = uniqueStrings(steps.map((step) => String(step['outputType'] ?? '')).filter(Boolean));
+  for (const outputType of outputTypes) {
+    benefits.push(outputTypeBenefit(outputType));
+  }
+  if (steps.some((step) => step['handoffPassed'] === true)) {
+    benefits.push('Handoff validation passed, reducing downstream loss or distortion.');
+  }
+  if (steps.some((step) => isRecord(step['specConformance']) && step['specConformance']['passed'] === true)) {
+    benefits.push('Spec conformance passed against reviewed criteria.');
+  }
+  const consensus = steps
+    .map((step) => isRecord(step['consensus']) ? step['consensus'] : undefined)
+    .filter((entry): entry is Record<string, unknown> => entry !== undefined);
+  if (consensus.length > 0) {
+    const avgAgreement = consensus.reduce((sum, entry) => sum + Number(entry['agreement'] ?? 0), 0) / consensus.length;
+    benefits.push(`Consensus improved confidence (${formatPercent(avgAgreement)} average agreement).`);
+  }
+  if (steps.some((step) => step['status'] === 'failed')) {
+    benefits.push('The run exposed a weak or blocked role that the network can question before future reruns.');
+  }
+  if (benefits.length === 0) {
+    benefits.push(defaultAgentBenefit(agent));
+  }
+  return uniqueStrings(benefits);
+}
+
+function outputTypeBenefit(outputType: string): string {
+  switch (outputType) {
+    case 'data':
+      return 'Produced structured data for deterministic downstream use.';
+    case 'files':
+      return 'Produced file changes or artifacts instead of prose-only guidance.';
+    case 'presentation':
+      return 'Produced presentation-ready deliverables.';
+    case 'answer':
+      return 'Produced analysis or review text for downstream synthesis.';
+    default:
+      return `Produced ${outputType} output.`;
+  }
+}
+
+function defaultAgentBenefit(agent: string): string {
+  if (agent.includes('grammar')) return 'Improved readability while preserving technical meaning.';
+  if (agent.includes('research')) return 'Added evidence, context, or fact-checking to reduce hallucination risk.';
+  if (agent.includes('judge') || agent.includes('review')) return 'Questioned candidate quality before final selection.';
+  if (agent.includes('test') || agent.includes('qa')) return 'Checked correctness and regression risk.';
+  if (agent.includes('coder') || agent.includes('build')) return 'Moved the result from plan to executable implementation.';
+  return 'Contributed a specialized role in the agent network.';
+}
+
+function inferSelfOptimizationReason(steps: Record<string, unknown>[]): string | undefined {
+  const failed = steps.filter((step) => step['status'] === 'failed');
+  if (failed.length > 0) {
+    const firstMessage = failed
+      .map((step) => String(step['error'] ?? step['reason'] ?? '').trim())
+      .filter(Boolean)[0];
+    return `failed ${failed.length}/${steps.length} step${steps.length === 1 ? '' : 's'}${firstMessage ? ` (${firstMessage})` : ''}`;
+  }
+  const handoffFailed = steps.find((step) => step['handoffPassed'] === false);
+  if (handoffFailed) {
+    return 'failed handoff validation, so compare a rerun without this role or with a replacement';
+  }
+  const specFailed = steps.find((step) => isRecord(step['specConformance']) && step['specConformance']['passed'] === false);
+  if (specFailed) {
+    return 'missed reviewed spec criteria, so the network should question this role before reusing it';
+  }
+  return undefined;
+}
+
+function buildDisableAgentCommand(data: Record<string, unknown>, agent: string): string | undefined {
+  const command = getRerunCommand(data);
+  if (!command) return undefined;
+  return `${command} --disable-agent ${agent}`;
+}
+
+function getRerunCommand(data: Record<string, unknown>): string | undefined {
+  const rerun = isRecord(data['rerun']) ? data['rerun'] : undefined;
+  const command = typeof rerun?.['command'] === 'string' ? rerun['command'].trim() : '';
+  return command || undefined;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function appendPlainGraph(lines: string[], data: Record<string, unknown>): void {

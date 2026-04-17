@@ -45,7 +45,13 @@ describe('result formatting', () => {
   };
 
   it('includes a Final Result section in markdown output', () => {
-    const output = formatMapOutput(result, 'markdown');
+    const output = formatMapOutput({
+      ...result,
+      rerun: {
+        command: 'map --headless "Build a report"',
+        disableAgentFlag: '--disable-agent <agent-name>',
+      },
+    }, 'markdown');
 
     expect(output).toContain('## Agent Graph');
     expect(output).toContain('Stage 1 (sequence):');
@@ -56,6 +62,11 @@ describe('result formatting', () => {
     expect(output).toContain('| step-1 | researcher | completed | pass | not checked | Research |');
     expect(output).toContain('## Consensus Diagnostics');
     expect(output).toContain('| step-1 | researcher | exact-majority | 1 | ollama/gemma4:26b | contributed | 100% |');
+    expect(output).toContain('## Agent Contributions');
+    expect(output).toContain('| researcher | 1 | completed | Research |');
+    expect(output).toContain('Consensus improved confidence');
+    expect(output).toContain('## Rerun and self-optimization');
+    expect(output).toContain('map --headless "Build a report" --disable-agent researcher');
   });
 
   it('accepts pdf as a print-oriented HTML output format', () => {
@@ -204,6 +215,33 @@ describe('result formatting', () => {
     expect(output).toContain('Final polished answer');
     expect(output).not.toContain('## Result Data');
     expect(output).not.toContain('Raw research');
+  });
+
+  it('reports underperforming agents as self-optimization candidates', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: false,
+      rerun: {
+        command: 'map --headless "Build a report"',
+        disableAgentFlag: '--disable-agent <agent-name>',
+      },
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'researcher', status: 'completed', duration: 10 },
+          { id: 'step-2', agent: 'writer', status: 'failed', duration: 10 },
+        ],
+        edges: [{ from: 'step-1', to: 'step-2', type: 'planned' }],
+      },
+      steps: [
+        { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Raw research' },
+        { id: 'step-2', agent: 'writer', task: 'Write', status: 'failed', error: 'empty output' },
+      ],
+    }, 'text');
+
+    expect(output).toContain('Agent Contributions');
+    expect(output).toContain('- writer: 1 step(s), failed');
+    expect(output).toContain('Rerun and self-optimization');
+    expect(output).toContain('map --headless "Build a report" --disable-agent writer');
   });
 
   it('selects the final result from terminal DAG sinks instead of incidental later branch output', () => {

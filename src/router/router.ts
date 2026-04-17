@@ -2,7 +2,7 @@
 import type { AgentAdapter } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { RouterConfig as PipelineRouterConfig } from '../types/config.js';
-import type { ConsensusDiagnostics, ConsensusParticipant, DAGPlan } from '../types/dag.js';
+import type { ConsensusDiagnostics, ConsensusParticipant, DAGPlan, RouterRationale } from '../types/dag.js';
 import { validateDAGPlan } from '../types/dag.js';
 import { buildRouterPrompt } from './prompt-builder.js';
 import { isAbortError } from '../utils/error.js';
@@ -33,12 +33,14 @@ export interface RouterPlanDecision {
   kind: 'plan';
   plan: DAGPlan;
   consensus?: ConsensusDiagnostics;
+  rationale?: RouterRationale;
 }
 
 export interface RouterNoMatchDecision {
   kind: 'no-match';
   reason: string;
   suggestedAgent?: SuggestedAgentDefinition;
+  rationale?: RouterRationale;
 }
 
 export type RouterDecision = RouterPlanDecision | RouterNoMatchDecision;
@@ -111,10 +113,12 @@ async function routeTaskWithConsensus(
 
   const consensusPlan = buildMajorityPlan(planCandidates.map((candidate) => candidate.decision.plan));
   if (consensusPlan !== null) {
+    const rationale = planCandidates.find((candidate) => candidate.decision.rationale)?.decision.rationale;
     return {
       kind: 'plan',
       plan: consensusPlan,
       consensus: buildRouterConsensusDiagnostics(candidates, consensusPlan, 'majority'),
+      ...(rationale ? { rationale } : {}),
     };
   }
 
@@ -486,7 +490,11 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
   const obj = parsed as Record<string, unknown>;
 
   if (Array.isArray(obj['plan'])) {
-    return { kind: 'plan', plan: { plan: normalizePlanSteps(obj['plan']) } };
+    return {
+      kind: 'plan',
+      plan: { plan: normalizePlanSteps(obj['plan']) },
+      ...normalizeRouterRationale(obj['rationale']),
+    };
   }
 
   if (obj['kind'] === 'no-match') {
@@ -497,7 +505,11 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
 
     const suggested = obj['suggestedAgent'];
     if (suggested === undefined) {
-      return { kind: 'no-match', reason: reason.trim() };
+      return {
+        kind: 'no-match',
+        reason: reason.trim(),
+        ...normalizeRouterRationale(obj['rationale']),
+      };
     }
 
     if (typeof suggested !== 'object' || suggested === null) {
@@ -519,10 +531,33 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
         name: name.trim(),
         description: description.trim(),
       },
+      ...normalizeRouterRationale(obj['rationale']),
     };
   }
 
   throw new Error('Router returned neither a plan nor a no-match decision');
+}
+
+function normalizeRouterRationale(value: unknown): { rationale?: RouterRationale } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const obj = value as Record<string, unknown>;
+  const selectedAgents = normalizeRationaleEntries(obj['selectedAgents']);
+  const rejectedAgents = normalizeRationaleEntries(obj['rejectedAgents']);
+  if (selectedAgents.length === 0 && rejectedAgents.length === 0) return {};
+  return { rationale: { selectedAgents, rejectedAgents } };
+}
+
+function normalizeRationaleEntries(value: unknown): RouterRationale['selectedAgents'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is Record<string, unknown> =>
+      typeof entry === 'object' && entry !== null && !Array.isArray(entry),
+    )
+    .map((entry) => ({
+      agent: String(entry['agent'] ?? '').trim(),
+      reason: String(entry['reason'] ?? '').trim(),
+    }))
+    .filter((entry) => entry.agent.length > 0 && entry.reason.length > 0);
 }
 
 function cleanRouterDecision(
@@ -563,6 +598,23 @@ function cleanRouterDecision(
         dependsOn: step.dependsOn.filter((dep) => ids.has(dep)),
       })),
     },
+    ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents) } : {}),
+  };
+}
+
+function cleanRouterRationale(
+  rationale: RouterRationale,
+  agents: Map<string, AgentDefinition>,
+): RouterRationale {
+  return {
+    selectedAgents: rationale.selectedAgents.map((entry) => ({
+      ...entry,
+      agent: normalizeRouterAgentName(entry.agent, agents),
+    })),
+    rejectedAgents: rationale.rejectedAgents.map((entry) => ({
+      ...entry,
+      agent: normalizeRouterAgentName(entry.agent, agents),
+    })),
   };
 }
 

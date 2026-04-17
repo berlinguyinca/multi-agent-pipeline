@@ -80,6 +80,31 @@ describe('cli argument parsing', () => {
     expect(prompt).toBe('Build a tiny pantry CLI');
   });
 
+  it('excludes disabled agent values from the prompt', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--disable-agent',
+      'output-formatter,researcher',
+      '--disable-agents',
+      'grammar-spelling-specialist',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
+  it('excludes agent comparison values from the prompt', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--compare-agents',
+      'researcher,writer',
+      '--semantic-judge',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
   it('does not treat --classic as prompt text', () => {
     const prompt = extractPrompt([
       '--headless',

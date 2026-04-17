@@ -52,6 +52,12 @@ Options:
   --router-model <name>  Override the smart-routing router model
   --router-consensus-models <csv>
                          Override default router consensus with up to 3 comma-separated Ollama models
+  --disable-agent <csv>  Disable one or more smart-routing agents for this run (alias: --disable-agents)
+  --compare-agents [csv]
+                         Run ablation comparisons for selected agents (auto when csv omitted)
+  --compare-agent-list <csv>
+                         Explicit comparison candidates when optional compare value is ambiguous
+  --semantic-judge       Add deterministic semantic comparison scores to agent comparisons
   --ollama-host <url>    Override Ollama host for this run
   --ollama-context-length <n>
                          Context length used when MAP starts ollama serve (default: 100000)
@@ -130,6 +136,9 @@ Commands:
     const routerConsensusModels = parseRouterConsensusModels(
       extractFlag(args, '--router-consensus-models'),
     );
+    const disabledAgents = parseDisabledAgents(args);
+    const compareAgents = parseCompareAgents(args);
+    const semanticJudge = hasFlag(args, '--semantic-judge');
     const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
@@ -162,6 +171,10 @@ Commands:
         verbose,
         routerModel,
         routerConsensusModels,
+        disabledAgents,
+        rerunPrompt: prompt,
+        compareAgents,
+        semanticJudge,
         ollama,
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
@@ -234,6 +247,8 @@ Commands:
   const routerConsensusModels = parseRouterConsensusModels(
     extractFlag(args, '--router-consensus-models'),
   );
+  const disabledAgents = parseDisabledAgents(args);
+  const compareAgents = parseCompareAgents(args);
   const ollama = parseOllamaOverrides(args);
   if (routerTimeout !== undefined) {
     config.router = {
@@ -243,6 +258,10 @@ Commands:
   }
   applyOllamaOverrides(config, ollama);
   applyRouterOverrides(config, routerModel, routerConsensusModels);
+  applyDisabledAgentOverrides(config, disabledAgents);
+  if (compareAgents !== undefined) {
+    config.generateAgentSummary = true;
+  }
   const detection = await detectAllAdapters(config.ollama.host);
 
   const app = createTuiApp({
@@ -255,6 +274,49 @@ Commands:
     specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
   });
   await app.run();
+}
+
+function parseCompareAgents(args: string[]): string[] | undefined {
+  if (!hasFlag(args, '--compare-agents')) {
+    const explicit = extractFlag(args, '--compare-agent-list');
+    return explicit === undefined ? undefined : parseCsvList(explicit);
+  }
+  const idx = args.indexOf('--compare-agents');
+  const value = args[idx + 1];
+  if (value && !value.startsWith('--') && value.includes(',')) {
+    return parseCsvList(value);
+  }
+  if (value && !value.startsWith('--')) {
+    const following = args.slice(idx + 2).some((arg) => !arg.startsWith('--'));
+    if (following) return parseCsvList(value);
+  }
+  return [];
+}
+
+function parseDisabledAgents(args: string[]): string[] | undefined {
+  const values = collectFlagValues(args, ['--disable-agent', '--disable-agents']);
+  const agents = values.flatMap(parseCsvList);
+  if (agents.length === 0) return undefined;
+  return [...new Set(agents)];
+}
+
+function parseCsvList(value: string): string[] {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function collectFlagValues(args: string[], flags: string[]): string[] {
+  const flagSet = new Set(flags);
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (!flagSet.has(args[index] ?? '')) continue;
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) continue;
+    values.push(value);
+  }
+  return values;
 }
 
 function parseRouterConsensusModels(value: string | undefined): string[] | undefined {
@@ -270,6 +332,26 @@ function parseRouterConsensusModels(value: string | undefined): string[] | undef
     throw new Error('--router-consensus-models accepts at most 3 models');
   }
   return models;
+}
+
+function applyDisabledAgentOverrides(
+  config: PipelineConfig,
+  disabledAgents: string[] | undefined,
+): void {
+  if (!disabledAgents || disabledAgents.length === 0) return;
+  const existingOverrides = config.agentOverrides ?? {};
+  config.agentOverrides = {
+    ...existingOverrides,
+    ...Object.fromEntries(
+      disabledAgents.map((name) => [
+        name,
+        {
+          ...(existingOverrides[name] ?? {}),
+          enabled: false,
+        },
+      ]),
+    ),
+  };
 }
 
 function parseOllamaOverrides(args: string[]): Partial<OllamaConfig> | undefined {

@@ -19,6 +19,9 @@ const flagsWithValues = new Set([
   '--router-timeout',
   '--router-model',
   '--router-consensus-models',
+  '--disable-agent',
+  '--disable-agents',
+  '--compare-agent-list',
   '--ollama-host',
   '--ollama-context-length',
   '--ollama-num-parallel',
@@ -39,6 +42,8 @@ const booleanFlags = new Set([
   '-V',
   '--compact',
   '--open-output',
+  '--compare-agents',
+  '--semantic-judge',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {
@@ -59,8 +64,16 @@ export function extractPrompt(args: string[]): string {
       (arg, idx) =>
         !arg.startsWith('--') &&
         !booleanFlags.has(arg) &&
+        !(idx > 0 && args[idx - 1] === '--compare-agents' && isCompareAgentsValue(args, idx)) &&
         !(idx > 0 && flagsWithValues.has(args[idx - 1] ?? '')),
     )
     .join(' ')
     .trim();
+}
+
+function isCompareAgentsValue(args: string[], index: number): boolean {
+  const value = args[index];
+  if (!value || value.startsWith('--')) return false;
+  if (value.includes(',')) return true;
+  return args.slice(index + 1).some((arg) => !arg.startsWith('--'));
 }

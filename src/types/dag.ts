@@ -55,6 +55,16 @@ export interface ConsensusDiagnostics {
   participants: ConsensusParticipant[];
 }
 
+export interface RouterAgentRationale {
+  agent: string;
+  reason: string;
+}
+
+export interface RouterRationale {
+  selectedAgents: RouterAgentRationale[];
+  rejectedAgents: RouterAgentRationale[];
+}
+
 export interface DAGNodeConsensus {
   enabled: boolean;
   runs: number;
