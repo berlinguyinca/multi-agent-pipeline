@@ -36,6 +36,7 @@ export const DEFAULT_AGENT_CONSENSUS_CONFIG: AgentConsensusConfig = {
 
 export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
   enabled: true,
+  mode: 'strict',
   requiredAgents: [
     'usage-classification-tree',
     'researcher',
@@ -44,8 +45,15 @@ export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
     'release-readiness-reviewer',
   ],
   currentClaimMaxSourceAgeDays: 730,
+  freshnessProfiles: {
+    'usage-commonness': 730,
+    software: 180,
+    medical: 365,
+    'chemical-taxonomy': 3650,
+  },
   requireRetrievedAtForWebClaims: true,
   blockUnsupportedCurrentClaims: true,
+  remediationMaxRetries: 1,
 };
 
 export const DEFAULT_CONFIG: PipelineConfig = {

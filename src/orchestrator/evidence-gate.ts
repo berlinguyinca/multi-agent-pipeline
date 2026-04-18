@@ -11,7 +11,7 @@ export function runEvidenceGate(options: {
   result: StepResult;
   config?: EvidenceConfig;
 }): EvidenceGateResult {
-  if (options.config?.enabled === false) {
+  if (options.config?.enabled === false || options.config?.mode === 'off') {
     return { checked: false, passed: true, claims: [], findings: [] };
   }
   const requiredAgents = options.config
@@ -25,11 +25,12 @@ export function runEvidenceGate(options: {
   const claims = extractClaimEvidenceLedger(output);
   const findings: EvidenceGateFinding[] = [];
   if (claims === null) {
+    const draftClaims = buildDraftClaimEvidenceLedger(output);
     findings.push({
       severity: 'high',
       message: 'Claim Evidence Ledger is required for fact-critical usage classification output.',
     });
-    return { checked: true, passed: false, claims: [], findings };
+    return { checked: true, passed: false, claims: draftClaims, findings };
   }
 
   for (const claim of claims) {
@@ -38,7 +39,7 @@ export function runEvidenceGate(options: {
 
   return {
     checked: true,
-    passed: !findings.some((finding) => finding.severity === 'high'),
+    passed: evidenceFindingsPass(findings, options.config),
     claims,
     findings,
   };
@@ -50,10 +51,50 @@ export function auditEvidenceText(markdown: string, config?: EvidenceConfig): Ev
   const findings = claims.flatMap((claim) => validateClaimEvidence(claim, config));
   return {
     checked: true,
-    passed: !findings.some((finding) => finding.severity === 'high'),
+    passed: evidenceFindingsPass(findings, config),
     claims,
     findings,
   };
+}
+
+export function buildDraftClaimEvidenceLedger(markdown: string): ClaimEvidence[] {
+  const candidates = markdown
+    .replace(/```[\s\S]*?```/g, '')
+    .split(/\n+/)
+    .map((line) => line.replace(/^#+\s*/, '').replace(/^\|/, '').trim())
+    .filter((line) =>
+      line.length > 20 &&
+      !line.includes('---') &&
+      !/^rank\s*\|/i.test(line) &&
+      !/^level\s*\|/i.test(line),
+    )
+    .slice(0, 10);
+
+  return candidates.map((claim, index) => ({
+    id: `draft-${index + 1}`,
+    claim,
+    claimType: inferDraftClaimType(claim),
+    confidence: 'low',
+    evidence: [{
+      sourceType: 'model-prior',
+      summary: 'Draft ledger entry generated from report text; requires direct evidence before downstream use.',
+      supports: 'unsupported draft claim extraction',
+    }],
+  }));
+}
+
+function inferDraftClaimType(claim: string): ClaimEvidence['claimType'] {
+  return /commonness|score|very common|rare|prevalen/i.test(claim)
+    ? 'commonness-score'
+    : /taxonomy|classyfire|chemont|kingdom|superclass/i.test(claim)
+      ? 'chemical-taxonomy'
+      : 'general-research';
+}
+
+function evidenceFindingsPass(findings: EvidenceGateFinding[], config: EvidenceConfig | undefined): boolean {
+  if (config?.mode === 'warn') return true;
+  if (config?.mode === 'high-stakes') return findings.length === 0;
+  return !findings.some((finding) => finding.severity === 'high');
 }
 
 function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | undefined): EvidenceGateFinding[] {
@@ -82,7 +123,7 @@ function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | un
     findings.push(...validateCommonnessClaim(claim, config));
   }
   if (config?.blockUnsupportedCurrentClaims !== false && claim.timeframe === 'current' && claim.confidence !== 'unavailable') {
-    if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentClaim(source, config))) {
+    if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentClaim(source, config, claim))) {
       findings.push({
         severity: 'high',
         claimId: claim.id,
@@ -114,7 +155,7 @@ function validateCommonnessClaim(claim: ClaimEvidence, config: EvidenceConfig | 
     const hasCurrentEvidence =
       claim.timeframe === 'current' &&
       (claim.recencyStatus === 'current' || claim.recencyStatus === 'recent') &&
-      claim.evidence.some((source) => supportsCurrentUse(source, config));
+      claim.evidence.some((source) => supportsCurrentUse(source, config, claim));
     if (!hasCurrentEvidence) {
       findings.push({
         severity: 'high',
@@ -126,23 +167,48 @@ function validateCommonnessClaim(claim: ClaimEvidence, config: EvidenceConfig | 
   return findings;
 }
 
-function supportsCurrentUse(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
-  if (!isAcceptablyFreshSource(source, config)) {
+function freshnessMaxAgeDays(source: EvidenceSource, config: EvidenceConfig | undefined, claim?: Pick<ClaimEvidence, 'claimType'>): number {
+  const profile = source.freshnessProfile;
+  if (profile && config?.freshnessProfiles?.[profile]) {
+    return config.freshnessProfiles[profile]!;
+  }
+  const claimProfile = claim ? freshnessProfileForClaimType(claim.claimType) : undefined;
+  if (claimProfile && config?.freshnessProfiles?.[claimProfile]) {
+    return config.freshnessProfiles[claimProfile]!;
+  }
+  return config?.currentClaimMaxSourceAgeDays ?? 730;
+}
+
+function freshnessProfileForClaimType(claimType: ClaimEvidence['claimType']): string | undefined {
+  switch (claimType) {
+    case 'commonness-score':
+      return 'usage-commonness';
+    case 'documentation':
+      return 'software';
+    case 'chemical-taxonomy':
+      return 'chemical-taxonomy';
+    default:
+      return undefined;
+  }
+}
+
+function supportsCurrentUse(source: EvidenceSource, config: EvidenceConfig | undefined, claim?: Pick<ClaimEvidence, 'claimType'>): boolean {
+  if (!isAcceptablyFreshSource(source, config, claim)) {
     return false;
   }
   const combined = `${source.supports} ${source.summary}`.toLowerCase();
   return /\b(current|recent|ongoing|today|contemporary|prevalen|widespread)\b/.test(combined);
 }
 
-function supportsCurrentClaim(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
-  return isAcceptablyFreshSource(source, config);
+function supportsCurrentClaim(source: EvidenceSource, config: EvidenceConfig | undefined, claim?: Pick<ClaimEvidence, 'claimType'>): boolean {
+  return isAcceptablyFreshSource(source, config, claim);
 }
 
-function isAcceptablyFreshSource(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
+function isAcceptablyFreshSource(source: EvidenceSource, config: EvidenceConfig | undefined, claim?: Pick<ClaimEvidence, 'claimType'>): boolean {
   if (config?.requireRetrievedAtForWebClaims !== false && source.sourceType === 'url' && !source.retrievedAt?.trim()) {
     return false;
   }
-  if (source.publishedAt && isOlderThan(source.publishedAt, config?.currentClaimMaxSourceAgeDays ?? 730)) {
+  if (source.publishedAt && isOlderThan(source.publishedAt, freshnessMaxAgeDays(source, config, claim))) {
     return false;
   }
   return true;
@@ -198,6 +264,7 @@ function normalizeEvidenceSource(value: Record<string, unknown>): EvidenceSource
     ...(typeof value['publishedAt'] === 'string' ? { publishedAt: value['publishedAt'] } : {}),
     summary: typeof value['summary'] === 'string' ? value['summary'] : '',
     supports: typeof value['supports'] === 'string' ? value['supports'] : '',
+    ...(typeof value['freshnessProfile'] === 'string' ? { freshnessProfile: value['freshnessProfile'] } : {}),
   };
 }
 

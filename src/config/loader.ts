@@ -77,6 +77,10 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
       requiredAgents: [
         ...(override.evidence?.requiredAgents ?? base.evidence.requiredAgents),
       ],
+      freshnessProfiles: {
+        ...base.evidence.freshnessProfiles,
+        ...override.evidence?.freshnessProfiles,
+      },
     },
     outputDir: override.outputDir ?? base.outputDir,
     workspaceDir: override.workspaceDir ?? base.workspaceDir,
@@ -152,6 +156,7 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       evidence: {
         ...DEFAULT_CONFIG.evidence,
         requiredAgents: [...DEFAULT_CONFIG.evidence.requiredAgents],
+        freshnessProfiles: { ...DEFAULT_CONFIG.evidence.freshnessProfiles },
       },
       generateAgentSummary: DEFAULT_CONFIG.generateAgentSummary,
       headless: { ...DEFAULT_CONFIG.headless },

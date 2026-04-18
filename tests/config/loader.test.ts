@@ -277,13 +277,17 @@ headless:
   it('parses evidence gate config values', async () => {
     const yamlContent = `
 evidence:
-  enabled: true
+  mode: warn
   requiredAgents:
     - usage-classification-tree
     - researcher
   currentClaimMaxSourceAgeDays: 365
   requireRetrievedAtForWebClaims: false
   blockUnsupportedCurrentClaims: true
+  remediationMaxRetries: 2
+  freshnessProfiles:
+    usage-commonness: 90
+    software: 30
 `;
     const configPath = path.join(tmpDir, 'pipeline.yaml');
     await fs.writeFile(configPath, yamlContent, 'utf-8');
@@ -291,10 +295,18 @@ evidence:
     const config = await loadConfig(configPath);
     expect(config.evidence).toEqual({
       enabled: true,
+      mode: 'warn',
       requiredAgents: ['usage-classification-tree', 'researcher'],
       currentClaimMaxSourceAgeDays: 365,
       requireRetrievedAtForWebClaims: false,
       blockUnsupportedCurrentClaims: true,
+      remediationMaxRetries: 2,
+      freshnessProfiles: expect.objectContaining({
+        'usage-commonness': 90,
+        software: 30,
+        medical: 365,
+        'chemical-taxonomy': 3650,
+      }),
     });
   });
 

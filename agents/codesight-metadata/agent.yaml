@@ -1,0 +1,38 @@
+name: codesight-metadata
+description: "Strict read-only metadata generator inspired by CodeSight: maps files, symbols, imports, exports, routes, and components for LLM codebase understanding"
+adapter: metadata
+model: codesight
+prompt: prompt.md
+pipeline:
+  - name: scan-source-tree
+  - name: map-symbols-and-imports
+  - name: emit-code-intelligence
+handles: "codesight metadata, symbols, imports, exports, route map, model map, component map, read-only code intelligence"
+output:
+  type: data
+tools: []
+contract:
+  mission: "Generate read-only code intelligence metadata so downstream LLM agents understand source structure before editing."
+  capabilities:
+    - "Map files, symbols, imports, and exports."
+    - "Surface route/model/component-like metadata when detectable."
+    - "Provide compact context for downstream implementation and review agents."
+  nonGoals:
+    - "Do not edit, create, delete, or format source files."
+    - "Do not claim runtime behavior that is not visible in source metadata."
+    - "Do not call LLMs."
+  process:
+    - "Read source-like files from the workspace."
+    - "Emit code intelligence metadata only."
+    - "Preserve source code unchanged."
+  verification:
+    requiredEvidence:
+      - "Output is generated from local source files."
+      - "No source files are modified."
+  handoff:
+    deliverable: "CodeSight-style source metadata report"
+    includes:
+      - "Symbols"
+      - "Imports"
+      - "Exports"
+      - "Source inventory"

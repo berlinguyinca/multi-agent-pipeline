@@ -3,6 +3,7 @@ import { createAdapter } from '../../src/adapters/adapter-factory.js';
 import { ClaudeAdapter } from '../../src/adapters/claude-adapter.js';
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
 import { OllamaAdapter } from '../../src/adapters/ollama-adapter.js';
+import { MetadataAdapter } from '../../src/adapters/metadata-adapter.js';
 
 describe('createAdapter', () => {
   it('creates ClaudeAdapter for claude type', () => {
@@ -22,6 +23,13 @@ describe('createAdapter', () => {
     expect(adapter).toBeInstanceOf(OllamaAdapter);
     expect(adapter.type).toBe('ollama');
     expect(adapter.model).toBe('hermes');
+  });
+
+  it('creates MetadataAdapter for metadata type', () => {
+    const adapter = createAdapter({ type: 'metadata', model: 'codefetch' });
+    expect(adapter).toBeInstanceOf(MetadataAdapter);
+    expect(adapter.type).toBe('metadata');
+    expect(adapter.model).toBe('codefetch');
   });
 
   it('passes model to OllamaAdapter', () => {

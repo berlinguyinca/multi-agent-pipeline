@@ -48,9 +48,11 @@ describe('DEFAULT_CONFIG', () => {
   it('enables evidence gates for fact-critical agents by default', () => {
     expect(DEFAULT_CONFIG.evidence).toMatchObject({
       enabled: true,
+      mode: 'strict',
       currentClaimMaxSourceAgeDays: 730,
       requireRetrievedAtForWebClaims: true,
       blockUnsupportedCurrentClaims: true,
+      remediationMaxRetries: 1,
     });
     expect(DEFAULT_CONFIG.evidence.requiredAgents).toEqual([
       'usage-classification-tree',
@@ -59,6 +61,12 @@ describe('DEFAULT_CONFIG', () => {
       'security-advisor',
       'release-readiness-reviewer',
     ]);
+    expect(DEFAULT_CONFIG.evidence.freshnessProfiles).toMatchObject({
+      'usage-commonness': 730,
+      software: 180,
+      medical: 365,
+      'chemical-taxonomy': 3650,
+    });
   });
 
   it('enables router consensus by default', () => {

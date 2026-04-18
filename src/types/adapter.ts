@@ -1,4 +1,4 @@
-export type AdapterType = 'claude' | 'codex' | 'ollama' | 'hermes';
+export type AdapterType = 'claude' | 'codex' | 'ollama' | 'hermes' | 'metadata';
 
 export interface AdapterConfig {
   type: AdapterType;
@@ -26,6 +26,7 @@ export interface DetectionResult {
   codex: DetectInfo;
   ollama: OllamaDetectInfo;
   hermes: DetectInfo;
+  metadata: DetectInfo;
 }
 
 export interface RunOptions {

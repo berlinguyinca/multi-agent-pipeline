@@ -23,6 +23,7 @@ import { appendSecurityRemediationContext, buildSecurityRemediationContext } fro
 import { validateStepHandoff } from './handoff-validation.js';
 import { runFileConsensusInWorktrees } from './file-consensus.js';
 import { runEvidenceGate } from './evidence-gate.js';
+import { writeEvidenceSourceSnapshots } from './evidence-snapshots.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -179,6 +180,8 @@ export async function executeDAG(
         let errorRetries = 0;
         let securityRemediationRetries = 0;
         let securityRemediationContext: string | undefined;
+        let evidenceRemediationRetries = 0;
+        let evidenceRemediationContext: string | undefined;
 
         while (true) {
           if (signal?.aborted) break;
@@ -200,6 +203,9 @@ export async function executeDAG(
               workspaceAwareContext,
               securityRemediationContext,
             );
+            const fullContext = evidenceRemediationContext
+              ? `${rawContext}\n\n${evidenceRemediationContext}`
+              : rawContext;
 
             const configs: AdapterConfig[] = [
               { type: agent.adapter, model: agent.model },
@@ -239,7 +245,7 @@ export async function executeDAG(
             const resolvedSeed = adapterDefaults?.[agent.adapter]?.seed;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
-              const context = injectToolCatalog(rawContext, tools, agent.prompt);
+              const context = injectToolCatalog(fullContext, tools, agent.prompt);
               return runStepWithTools({
                 context,
                 tools,
@@ -363,7 +369,13 @@ export async function executeDAG(
             const evidenceGate = runEvidenceGate({ step, result, config: retry?.evidence });
             result.evidenceGate = evidenceGate;
             result.evidenceClaims = evidenceGate.claims;
+            await writeEvidenceSourceSnapshots(workingDir, step, result);
             if (evidenceGate.checked && !evidenceGate.passed) {
+              if (evidenceRemediationRetries < (retry?.evidence?.remediationMaxRetries ?? 0)) {
+                evidenceRemediationRetries += 1;
+                evidenceRemediationContext = buildEvidenceRemediationContext(result, evidenceGate);
+                continue;
+              }
               result.status = 'failed';
               result.error = evidenceGate.findings
                 .filter((finding) => finding.severity === 'high')
@@ -545,6 +557,26 @@ export async function executeDAG(
     plan: mutablePlan,
     ...(replans.length > 0 ? { replans } : {}),
   };
+}
+
+function buildEvidenceRemediationContext(
+  result: StepResult,
+  evidenceGate: NonNullable<StepResult['evidenceGate']>,
+): string {
+  return [
+    '--- Evidence Gate Remediation Required ---',
+    'Your previous output failed deterministic evidence validation.',
+    'Revise the output and Claim Evidence Ledger. Do not invent evidence.',
+    'Allowed fixes: add direct evidence, downgrade confidence, change timeframe, lower commonness score, mark unavailable, or remove unsupported claims.',
+    '',
+    'Evidence findings:',
+    ...evidenceGate.findings.map((finding) =>
+      `- ${finding.severity}${finding.claimId ? ` ${finding.claimId}` : ''}: ${finding.message}`,
+    ),
+    '',
+    'Previous output:',
+    result.output ?? '',
+  ].join('\n');
 }
 
 interface AdviserWorkflowOptions {

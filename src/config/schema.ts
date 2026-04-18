@@ -17,7 +17,7 @@ import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
 import { DEFAULT_AGENT_CONSENSUS_CONFIG, DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
 
-const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes'];
+const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata'];
 const VALID_AGENT_CONSENSUS_OUTPUT_TYPES = ['answer', 'data', 'presentation'] as const;
 
 function isValidAdapter(value: unknown): value is AdapterType {
@@ -244,6 +244,13 @@ function validateEvidenceConfig(value: unknown): Partial<EvidenceConfig> {
     if (typeof obj['enabled'] !== 'boolean') throw new Error('evidence.enabled must be a boolean');
     evidence.enabled = obj['enabled'];
   }
+  if (obj['mode'] !== undefined) {
+    if (obj['mode'] !== 'strict' && obj['mode'] !== 'warn' && obj['mode'] !== 'off' && obj['mode'] !== 'high-stakes') {
+      throw new Error('evidence.mode must be one of: strict, warn, off, high-stakes');
+    }
+    evidence.mode = obj['mode'];
+    evidence.enabled = obj['mode'] !== 'off';
+  }
   if (obj['requiredAgents'] !== undefined) {
     if (!Array.isArray(obj['requiredAgents'])) throw new Error('evidence.requiredAgents must be an array');
     evidence.requiredAgents = obj['requiredAgents'].map((entry, index) => {
@@ -259,6 +266,17 @@ function validateEvidenceConfig(value: unknown): Partial<EvidenceConfig> {
       'evidence.currentClaimMaxSourceAgeDays',
     );
   }
+  if (obj['freshnessProfiles'] !== undefined) {
+    if (typeof obj['freshnessProfiles'] !== 'object' || obj['freshnessProfiles'] === null || Array.isArray(obj['freshnessProfiles'])) {
+      throw new Error('evidence.freshnessProfiles must be an object');
+    }
+    evidence.freshnessProfiles = Object.fromEntries(
+      Object.entries(obj['freshnessProfiles'] as Record<string, unknown>).map(([name, value]) => [
+        name,
+        validatePositiveInteger(value, `evidence.freshnessProfiles.${name}`),
+      ]),
+    );
+  }
   if (obj['requireRetrievedAtForWebClaims'] !== undefined) {
     if (typeof obj['requireRetrievedAtForWebClaims'] !== 'boolean') {
       throw new Error('evidence.requireRetrievedAtForWebClaims must be a boolean');
@@ -271,7 +289,20 @@ function validateEvidenceConfig(value: unknown): Partial<EvidenceConfig> {
     }
     evidence.blockUnsupportedCurrentClaims = obj['blockUnsupportedCurrentClaims'];
   }
+  if (obj['remediationMaxRetries'] !== undefined) {
+    evidence.remediationMaxRetries = validateNonNegativeInteger(
+      obj['remediationMaxRetries'],
+      'evidence.remediationMaxRetries',
+    );
+  }
   return evidence;
+}
+
+function validateNonNegativeInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative integer`);
+  }
+  return value;
 }
 
 function validateRouterConfig(value: unknown): Partial<RouterConfig> {

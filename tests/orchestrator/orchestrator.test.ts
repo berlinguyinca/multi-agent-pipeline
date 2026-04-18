@@ -767,6 +767,87 @@ describe('executeDAG', () => {
     expect(result.steps[0].error).toContain('High commonness scores require current/recent prevalence evidence');
   });
 
+  it('remediates a failing evidence ledger once before blocking downstream', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    let usageRuns = 0;
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Use usage')) {
+          yield 'writer saw remediated usage';
+          return;
+        }
+        usageRuns += 1;
+        const good = prompt.includes('Evidence Gate Remediation');
+        yield [
+          '# Usage Classification Tree',
+          good ? 'Current supported classification.' : 'Weak classification.',
+          '',
+          '## Claim Evidence Ledger',
+          '```json',
+          JSON.stringify({
+            claims: [{
+              id: 'claim-1',
+              claim: good ? 'Current supported classification.' : 'Weak classification.',
+              claimType: 'usage-classification',
+              confidence: 'high',
+              timeframe: 'current',
+              recencyStatus: 'current',
+              evidence: good ? [{
+                sourceType: 'url',
+                retrievedAt: '2026-04-18',
+                summary: 'direct evidence',
+                supports: 'current classification',
+              }] : [],
+            }],
+          }),
+          '```',
+        ].join('\n');
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        evidence: {
+          enabled: true,
+          mode: 'strict',
+          requiredAgents: ['usage-classification-tree'],
+          currentClaimMaxSourceAgeDays: 730,
+          freshnessProfiles: {},
+          requireRetrievedAtForWebClaims: true,
+          blockUnsupportedCurrentClaims: true,
+          remediationMaxRetries: 1,
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(usageRuns).toBe(2);
+    expect(result.steps.find((step) => step.id === 'step-1')?.evidenceGate?.passed).toBe(true);
+    expect(result.steps.find((step) => step.id === 'step-2')?.status).toBe('completed');
+  });
+
   it('automatically fact-checks researcher output before downstream use', async () => {
     const plan: DAGPlan = {
       plan: [

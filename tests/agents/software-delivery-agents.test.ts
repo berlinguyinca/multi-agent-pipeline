@@ -274,6 +274,23 @@ describe('software delivery agent bundle', () => {
     expect(security.prompt).toContain('tool-output');
   });
 
+  it('loads strict source metadata generator agents as non-LLM metadata adapters', async () => {
+    const insight = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'insightcode-metadata'));
+    const codefetch = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'codefetch-metadata'));
+    const codesight = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'codesight-metadata'));
+
+    for (const agent of [insight, codefetch, codesight]) {
+      expect(agent.adapter).toBe('metadata');
+      expect(agent.output.type).toBe('data');
+      expect(agent.prompt).toContain('strict metadata generator');
+      expect(agent.prompt).toContain('Do not modify source files');
+      expect(agent.contract?.nonGoals?.join(' ')).toContain('Do not edit');
+    }
+    expect(insight.model).toBe('insightcode');
+    expect(codefetch.model).toBe('codefetch');
+    expect(codesight.model).toBe('codesight');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 

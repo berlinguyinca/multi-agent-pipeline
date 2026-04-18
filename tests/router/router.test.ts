@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { routeTask } from '../../src/router/router.js';
+import { buildRouterPrompt } from '../../src/router/prompt-builder.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 import type { AgentAdapter } from '../../src/types/adapter.js';
 
@@ -124,6 +125,14 @@ describe('routeTask', () => {
 
     expect(result.plan.plan).toHaveLength(2);
     expect(result.plan.plan[1].dependsOn).toEqual(['step-1']);
+  });
+
+  it('tells the router to use read-only metadata generators for existing-codebase work', () => {
+    const prompt = buildRouterPrompt(agents, 'Refactor an existing codebase');
+
+    expect(prompt).toContain('read-only metadata generator step');
+    expect(prompt).toContain('codesight-metadata');
+    expect(prompt).toContain('must not modify source files');
   });
 
 

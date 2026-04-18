@@ -43,6 +43,7 @@ ${cleanTask}
 12. Coding workflows with a reviewed and QA-approved spec must route through adviser before execution agents. The adviser recommends the launch order, parallelization, custom agents to create, and whether the agent list must be refreshed. Adviser may replace pending downstream steps at runtime by returning adviser-workflow JSON.
 13. Do not explicitly add grammar-spelling-specialist steps for ordinary text polishing; the orchestrator automatically schedules that specialist after human-facing text outputs.
 14. Include a concise rationale object explaining selected agents and notable rejected agents so users can understand and tune the network.
+15. For existing-codebase implementation, refactor, review, or architecture tasks, prefer one read-only metadata generator step (insightcode-metadata, codefetch-metadata, or codesight-metadata when available) before LLM editing/review steps when it materially improves codebase understanding. Metadata agents are deterministic and must not modify source files.
 
 ## Output Format
 

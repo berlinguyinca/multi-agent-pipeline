@@ -7,9 +7,9 @@ import type {
 } from '../../src/types/adapter.js';
 
 describe('AdapterType', () => {
-  it('supports claude, codex, and ollama', () => {
-    const types: AdapterType[] = ['claude', 'codex', 'ollama'];
-    expect(types).toHaveLength(3);
+  it('supports LLM and metadata adapter types', () => {
+    const types: AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata'];
+    expect(types).toHaveLength(5);
   });
 });
 
@@ -44,6 +44,7 @@ describe('DetectionResult', () => {
       claude: { installed: true, version: '1.0.0' },
       codex: { installed: false },
       ollama: { installed: true, models: ['hermes:latest', 'codellama:7b'] },
+      metadata: { installed: true },
     };
     expect(result.claude.installed).toBe(true);
     expect(result.codex.installed).toBe(false);

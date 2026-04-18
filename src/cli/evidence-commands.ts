@@ -26,13 +26,26 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', '.map/worktrees']);
 
 export async function handleEvidenceCommand(args: string[]): Promise<void> {
   const action = args[0];
-  if (action !== 'audit') {
+  if (action !== 'audit' && action !== 'explain') {
     console.log([
       'Usage:',
       '  map evidence audit [path]',
+      '  map evidence explain <claim-id> [path]',
       '',
       'Scans Markdown/JSON artifacts for Claim Evidence Ledger sections and reports deterministic evidence-gate findings.',
     ].join('\n'));
+    return;
+  }
+
+  if (action === 'explain') {
+    const claimId = args[1];
+    if (!claimId || claimId.startsWith('--')) {
+      console.log('Usage: map evidence explain <claim-id> [path]');
+      return;
+    }
+    const target = args.find((arg, index) => index > 1 && !arg.startsWith('--')) ?? process.cwd();
+    const audit = await auditEvidenceDirectory(target);
+    console.log(formatClaimExplanation(audit, claimId));
     return;
   }
 
@@ -40,6 +53,30 @@ export async function handleEvidenceCommand(args: string[]): Promise<void> {
   const asJson = args.includes('--json');
   const audit = await auditEvidenceDirectory(target);
   console.log(asJson ? JSON.stringify(audit, null, 2) : formatEvidenceAudit(audit));
+}
+
+function formatClaimExplanation(audit: EvidenceAuditResult, claimId: string): string {
+  for (const file of audit.files) {
+    const findings = file.findings.filter((finding) => finding.claimId === claimId);
+    if (findings.length === 0) continue;
+    return [
+      `# Claim ${claimId}`,
+      '',
+      `File: ${file.path}`,
+      '',
+      'Findings:',
+      ...findings.map((finding) => `- ${finding.severity}: ${finding.message}`),
+      '',
+      'Fix options:',
+      '1. Add current/recent evidence that directly supports the claim.',
+      '2. Downgrade confidence when evidence is weak or indirect.',
+      '3. Change timeframe to historical/obsolete when evidence is not current.',
+      '4. Lower high commonness scores or mark commonness unavailable.',
+      '5. Remove unsupported claims from the output and ledger.',
+      '',
+    ].join('\n');
+  }
+  return `Claim ${claimId} was not found in evidence findings under ${audit.root}.\n`;
 }
 
 export async function auditEvidenceDirectory(

@@ -8,6 +8,8 @@ export interface EvidenceSource {
   publishedAt?: string;
   summary: string;
   supports: string;
+  freshnessProfile?: string;
+  snapshotPath?: string;
 }
 
 export interface ClaimEvidence {
