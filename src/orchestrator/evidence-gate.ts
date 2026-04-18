@@ -70,7 +70,7 @@ function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | un
     findings.push(...validateCommonnessClaim(claim, config));
   }
   if (config?.blockUnsupportedCurrentClaims !== false && claim.timeframe === 'current' && claim.confidence !== 'unavailable') {
-    if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentUse(source, config))) {
+    if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentClaim(source, config))) {
       findings.push({
         severity: 'high',
         claimId: claim.id,
@@ -115,14 +115,25 @@ function validateCommonnessClaim(claim: ClaimEvidence, config: EvidenceConfig | 
 }
 
 function supportsCurrentUse(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
+  if (!isAcceptablyFreshSource(source, config)) {
+    return false;
+  }
+  const combined = `${source.supports} ${source.summary}`.toLowerCase();
+  return /\b(current|recent|ongoing|today|contemporary|prevalen|widespread)\b/.test(combined);
+}
+
+function supportsCurrentClaim(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
+  return isAcceptablyFreshSource(source, config);
+}
+
+function isAcceptablyFreshSource(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
   if (config?.requireRetrievedAtForWebClaims !== false && source.sourceType === 'url' && !source.retrievedAt?.trim()) {
     return false;
   }
   if (source.publishedAt && isOlderThan(source.publishedAt, config?.currentClaimMaxSourceAgeDays ?? 730)) {
     return false;
   }
-  const combined = `${source.supports} ${source.summary}`.toLowerCase();
-  return /\b(current|recent|ongoing|today|contemporary|prevalen|widespread)\b/.test(combined);
+  return true;
 }
 
 function isOlderThan(value: string, maxAgeDays: number): boolean {
