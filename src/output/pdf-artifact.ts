@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { formatMapOutput, type FormatMapOutputOptions } from './result-format.js';
-import { createReportVisualArtifacts } from './visual-artifacts.js';
+import { createAgentGraphPngArtifacts, createReportVisualArtifacts } from './visual-artifacts.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -13,6 +13,15 @@ export interface PdfArtifactResult {
   htmlPath: string;
   renderer?: string;
   warning?: string;
+}
+
+export async function writeGraphPngArtifacts(
+  result: unknown,
+  options: { outputDir?: string } = {},
+): Promise<Awaited<ReturnType<typeof createAgentGraphPngArtifacts>>> {
+  const outputDir = path.resolve(options.outputDir ?? inferOutputDir(result));
+  await fs.mkdir(outputDir, { recursive: true });
+  return createAgentGraphPngArtifacts(result, { outputDir });
 }
 
 export async function writeHtmlArtifact(

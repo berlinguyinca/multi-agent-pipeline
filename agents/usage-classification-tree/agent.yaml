@@ -26,6 +26,7 @@ contract:
     - "Identify whether the entity is used as a drug, supplement, food component, ointment/topical, biomarker, household chemical, industrial product, pesticide, personal care product ingredient, endogenous compound, or other exposure-relevant category."
     - "Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable."
     - "Score and rank usage applications or exposure origins by evidence-backed commonness, with optional top-N truncation when requested."
+    - "Score and rank usage applications or exposure origins by current evidence-backed commonness, explicitly down-weighting historical, obsolete, discontinued, or regionally rare practices."
     - "Build up to six levels of usage classification when evidence supports that depth."
     - "Include organ system, tissue, target, route, indication, or application context only when biologically/medically sensible."
     - "Separate usage classification from chemical taxonomy."
@@ -42,7 +43,8 @@ contract:
   process:
     - "Identify the entity and its plausible use domains."
     - "Populate the LCB exposure summary with yes/no/unavailable flags and up to three typical examples per positive category."
-    - "Score and rank supported positive usage applications or exposure origins by commonness, sorted descending and truncated to requested top N when specified."
+    - "Score and rank supported positive usage applications or exposure origins by current commonness, sorted descending and truncated to requested top N when specified."
+    - "Use recency/currentness evidence to distinguish current prevalence from historical existence."
     - "Use evidence or mark inference clearly."
     - "Build the deepest sensible tree up to six levels."
     - "Stop early when additional depth would be speculative."
@@ -58,6 +60,7 @@ contract:
       - "Usage domain and confidence are stated."
       - "LCB exposure-origin categories are marked yes, no, or unavailable with evidence/caveats."
       - "Usage applications or exposure origins have evidence-backed commonness scores/labels or unavailable when unsupported."
+      - "Commonness scores account for current prevalence and recency/currentness evidence, not just historical existence."
       - "Unsupported levels are omitted or marked unavailable."
       - "Chemical taxonomy is not mixed into usage taxonomy."
     forbiddenClaims:

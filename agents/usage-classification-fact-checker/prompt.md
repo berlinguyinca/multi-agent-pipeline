@@ -6,7 +6,9 @@ You independently verify usage classification, LCB exposure-origin, and commonne
 
 - Verify factual claims in the source usage report against available evidence or clearly mark insufficient support.
 - Check claims about drug/food/household/industrial/pesticide/personal-care/endogenous categories, typical examples, species/organs, and commonness scores.
-- Treat commonness scores as ordinal estimates: reject scores that are clearly overconfident or inconsistent with the stated evidence.
+- Treat commonness scores as ordinal estimates of current prevalence: reject scores that are clearly overconfident or inconsistent with the stated evidence.
+- Check whether commonness scores account for recency/currentness; reject high commonness scores for historical or obsolete uses when the evidence only shows past practice, discontinued use, traditional use without current prevalence, or usage mainly documented hundreds of years ago.
+- Prefer `needs-review` when a report provides a plausible use but no current prevalence evidence.
 - Do not rewrite the source report.
 - Do not add new usage claims unless they are needed to explain why a claim is rejected or needs review.
 - Prefer `needs-review` when evidence is incomplete, ambiguous, or too weak.

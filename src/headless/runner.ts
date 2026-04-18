@@ -6,7 +6,7 @@ import { createAdapter } from '../adapters/adapter-factory.js';
 import { createPipelineActor } from '../pipeline/machine.js';
 import { createPipelineContext } from '../pipeline/context.js';
 import type { PipelineContext } from '../types/pipeline.js';
-import type { HeadlessAgentComparison, HeadlessOptions, HeadlessResult, HeadlessResultV2 } from '../types/headless.js';
+import type { HeadlessAgentComparison, HeadlessJudgePanel, HeadlessJudgePanelVote, HeadlessOptions, HeadlessResult, HeadlessResultV2 } from '../types/headless.js';
 import { loadAgentRegistry, getEnabledAgents, mergeWithOverrides } from '../agents/registry.js';
 import { routeTask } from '../router/router.js';
 import { executeDAG } from '../orchestrator/orchestrator.js';
@@ -41,7 +41,7 @@ import type {
   StageName,
 } from '../types/config.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
-import type { DetectionResult, AgentAdapter } from '../types/adapter.js';
+import type { AdapterType, DetectionResult, AgentAdapter } from '../types/adapter.js';
 import type { GitHubIssueContext } from '../types/github.js';
 
 import { validateDurationRelationship } from '../utils/duration.js';
@@ -1348,7 +1348,7 @@ export async function runHeadlessV2(
       );
     }
     reporter.dagComplete(dagResult.success, duration);
-    const finalResult = buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
+    let finalResult = buildHeadlessResultV2(dagResult.plan, dagResult.steps, duration, undefined, {
       outputDir,
       workspaceDir,
       markdownFiles,
@@ -1356,6 +1356,14 @@ export async function runHeadlessV2(
       rerun: buildRerunHints(options),
       routerRationale: decision.rationale,
       semanticJudge: buildSemanticJudge(options, null),
+    });
+    finalResult = await maybeApplyJudgePanel({
+      result: finalResult,
+      prompt: baseResolvedPrompt,
+      options,
+      config,
+      dependencies,
+      outputDir,
     });
     await recordAgentPerformance(finalResult, workspaceDir);
     return await finish(finalResult);
@@ -1414,6 +1422,304 @@ async function runHeadlessV2Comparison(
   };
   await recordAgentPerformance(result, outputDir, comparisons);
   return result;
+}
+
+async function maybeApplyJudgePanel(options: {
+  result: HeadlessResultV2;
+  prompt: string;
+  options: HeadlessOptions;
+  config: PipelineConfig;
+  dependencies: HeadlessDependencies;
+  outputDir: string;
+}): Promise<HeadlessResultV2> {
+  const judgeSpecs = resolveJudgePanelSpecs(options.options, options.config);
+  if (judgeSpecs.length === 0 || options.result.steps.length === 0) {
+    return options.result;
+  }
+
+  const maxSteeringRounds = options.options.judgePanelSteer === true
+    ? Math.max(0, options.options.judgePanelMaxSteeringRounds ?? 1)
+    : 0;
+  const rounds: HeadlessJudgePanel['rounds'] = [];
+  let current = options.result;
+  let steeringApplied = false;
+  let lastSteeringPrompt: string | undefined;
+  let lastSteeringOutputDir: string | undefined;
+  let finalPanel: HeadlessJudgePanel | undefined;
+
+  for (let round = 1; round <= maxSteeringRounds + 1; round += 1) {
+    const panel = await runJudgePanel({
+      result: current,
+      prompt: options.prompt,
+      judges: judgeSpecs,
+      config: options.config,
+      createAdapterFn: options.dependencies.createAdapterFn,
+    });
+    rounds.push({
+      round,
+      verdict: panel.verdict,
+      voteCount: panel.voteCount,
+      votes: panel.votes,
+      improvements: panel.improvements,
+      rationale: panel.rationale,
+    });
+    finalPanel = panel;
+
+    const shouldSteer =
+      round <= maxSteeringRounds &&
+      panel.verdict !== 'accept';
+    if (!shouldSteer) break;
+
+    const steeringPrompt = buildJudgePanelSteeringPrompt(options.prompt, panel);
+    const steeringOutputDir = path.join(options.outputDir, `judge-panel-steered-${round}`);
+    const steered = await runHeadlessV2({
+      ...options.options,
+      prompt: steeringPrompt,
+      githubIssueUrl: undefined,
+      outputDir: steeringOutputDir,
+      judgePanelModels: undefined,
+      judgePanelSteer: false,
+      judgePanelMaxSteeringRounds: 0,
+      compareAgents: undefined,
+    }, options.dependencies);
+
+    current = {
+      ...steered,
+      outputDir: options.outputDir,
+      markdownFiles: [...current.markdownFiles, ...steered.markdownFiles],
+    };
+    steeringApplied = true;
+    lastSteeringPrompt = steeringPrompt;
+    lastSteeringOutputDir = steeringOutputDir;
+  }
+
+  if (!finalPanel) return current;
+  const allImprovements = uniqueStrings(rounds.flatMap((round) => round.improvements));
+  return {
+    ...current,
+    outputDir: options.outputDir,
+    markdownFiles: current.markdownFiles,
+    judgePanel: {
+      ...finalPanel,
+      rounds,
+      improvements: finalPanel.improvements.length > 0 ? finalPanel.improvements : allImprovements,
+      steeringApplied,
+      ...(lastSteeringPrompt ? { steeringPrompt: lastSteeringPrompt } : {}),
+      ...(lastSteeringOutputDir ? { steeringOutputDir: lastSteeringOutputDir } : {}),
+    },
+  };
+}
+
+interface JudgeSpec {
+  adapter: AdapterType;
+  model: string;
+  label: string;
+}
+
+function resolveJudgePanelSpecs(options: HeadlessOptions, config: PipelineConfig): JudgeSpec[] {
+  if (options.judgePanelModels && options.judgePanelModels.length > 0) {
+    return uniqueJudgeSpecs(options.judgePanelModels.map((entry) => parseJudgeSpec(entry, config.router.adapter)));
+  }
+  if (options.judgePanelSteer !== true) {
+    return [];
+  }
+  const consensusModels = config.router.consensus?.models ?? [];
+  const models = consensusModels.length > 0
+    ? consensusModels
+    : [config.router.model, config.router.model, config.router.model];
+  return uniqueJudgeSpecs(models.slice(0, 3).map((model) => ({
+    adapter: config.router.adapter,
+    model,
+    label: `${config.router.adapter}/${model}`,
+  })));
+}
+
+function parseJudgeSpec(value: string, defaultAdapter: AdapterType): JudgeSpec {
+  const trimmed = value.trim();
+  const slash = trimmed.indexOf('/');
+  if (slash > 0) {
+    const adapter = trimmed.slice(0, slash);
+    const model = trimmed.slice(slash + 1);
+    if (isAdapterType(adapter) && model.trim().length > 0) {
+      return { adapter, model: model.trim(), label: `${adapter}/${model.trim()}` };
+    }
+  }
+  return { adapter: defaultAdapter, model: trimmed, label: `${defaultAdapter}/${trimmed}` };
+}
+
+function isAdapterType(value: string): value is AdapterType {
+  return value === 'ollama' || value === 'claude' || value === 'codex' || value === 'hermes';
+}
+
+function uniqueJudgeSpecs(specs: JudgeSpec[]): JudgeSpec[] {
+  const seen = new Set<string>();
+  return specs.filter((spec) => {
+    const key = `${spec.adapter}/${spec.model}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return spec.model.length > 0;
+  });
+}
+
+async function runJudgePanel(options: {
+  result: HeadlessResultV2;
+  prompt: string;
+  judges: JudgeSpec[];
+  config: PipelineConfig;
+  createAdapterFn: AdapterFactory;
+}): Promise<HeadlessJudgePanel> {
+  const finalOutput = extractComparableFinalOutput(options.result);
+  const prompt = buildJudgePanelPrompt(options.prompt, options.result, finalOutput);
+  const votes = await Promise.all(options.judges.map(async (judge, index) => {
+    const adapter = options.createAdapterFn(
+      judge.adapter === 'ollama'
+        ? { type: judge.adapter, model: judge.model, ...options.config.ollama }
+        : { type: judge.adapter, model: judge.model },
+    );
+    try {
+      let output = '';
+      for await (const chunk of adapter.run(prompt, {
+        responseFormat: 'json',
+        hideThinking: true,
+        think: false,
+        systemPrompt: 'Return only valid JSON for the MAP outcome judge vote.',
+      })) {
+        output += chunk;
+      }
+      return normalizeJudgeVote(output, index + 1, adapter.type, judge.model);
+    } catch (error) {
+      return {
+        run: index + 1,
+        provider: adapter.type,
+        model: judge.model,
+        verdict: 'revise' as const,
+        confidence: 0,
+        improvements: ['Judge run failed; manually review this outcome.'],
+        rationale: error instanceof Error ? error.message : String(error),
+        shouldSteer: false,
+      };
+    }
+  }));
+  return buildJudgePanelResult(votes);
+}
+
+function buildJudgePanelPrompt(prompt: string, result: HeadlessResultV2, finalOutput: string): string {
+  const steps = result.steps.map((step) => ({
+    id: step.id,
+    agent: step.agent,
+    status: step.status,
+    task: step.task,
+    error: step.error,
+  }));
+  return [
+    'You are a MAP outcome judge. Vote independently on whether the completed DAG outcome satisfies the user task.',
+    '',
+    'Return ONLY JSON with this shape:',
+    '{"verdict":"accept|revise|reject","confidence":0.0,"improvements":["specific improvement"],"rationale":"brief reason","shouldSteer":true}',
+    '',
+    'User task:',
+    prompt,
+    '',
+    'DAG steps:',
+    JSON.stringify(steps, null, 2),
+    '',
+    'Final output:',
+    finalOutput || '(no final output captured)',
+  ].join('\n');
+}
+
+function normalizeJudgeVote(
+  output: string,
+  run: number,
+  provider: string,
+  model: string,
+): HeadlessJudgePanelVote {
+  const parsed = parseFirstJsonObject(output);
+  const verdict = parsed?.['verdict'] === 'accept' || parsed?.['verdict'] === 'reject' || parsed?.['verdict'] === 'revise'
+    ? parsed['verdict']
+    : 'revise';
+  const improvements = Array.isArray(parsed?.['improvements'])
+    ? parsed!['improvements'].map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+  return {
+    run,
+    provider,
+    model,
+    verdict,
+    confidence: clamp01(Number(parsed?.['confidence'] ?? 0)),
+    improvements,
+    rationale: String(parsed?.['rationale'] ?? '').trim(),
+    shouldSteer: parsed?.['shouldSteer'] === true,
+  };
+}
+
+function parseFirstJsonObject(output: string): Record<string, unknown> | null {
+  const start = output.indexOf('{');
+  if (start === -1) return null;
+  for (let end = output.length; end > start; end -= 1) {
+    const candidate = output.slice(start, end).trim();
+    if (!candidate.endsWith('}')) continue;
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function buildJudgePanelResult(votes: HeadlessJudgePanelVote[]): HeadlessJudgePanel {
+  const verdict = majorityVerdict(votes);
+  const improvements = uniqueStrings(votes.flatMap((vote) => vote.improvements));
+  return {
+    enabled: true,
+    verdict,
+    voteCount: votes.length,
+    votes,
+    improvements,
+    rationale: votes.map((vote) => `${vote.model ?? vote.run}: ${vote.rationale}`).filter(Boolean).join('\n'),
+    steeringApplied: false,
+  };
+}
+
+function majorityVerdict(votes: HeadlessJudgePanelVote[]): HeadlessJudgePanel['verdict'] {
+  const weight = new Map<HeadlessJudgePanel['verdict'], number>([
+    ['accept', 0],
+    ['revise', 0],
+    ['reject', 0],
+  ]);
+  for (const vote of votes) {
+    weight.set(vote.verdict, (weight.get(vote.verdict) ?? 0) + Math.max(0.01, vote.confidence || 0.5));
+    if (vote.shouldSteer && vote.verdict === 'accept') {
+      weight.set('revise', (weight.get('revise') ?? 0) + 0.25);
+    }
+  }
+  return [...weight.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'revise';
+}
+
+function buildJudgePanelSteeringPrompt(prompt: string, panel: HeadlessJudgePanel): string {
+  return [
+    prompt,
+    '',
+    '--- MAP Judge Panel Steering Feedback ---',
+    `Panel verdict: ${panel.verdict}`,
+    'Required improvements:',
+    ...panel.improvements.map((improvement) => `- ${improvement}`),
+    '',
+    'Revise the DAG plan and final output to address this feedback. Preserve correct prior work, but add missing verification, clarity, and user-facing guidance requested by the judges.',
+  ].join('\n');
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function resolveComparisonCandidates(options: HeadlessOptions, baseline: HeadlessResultV2): string[] {

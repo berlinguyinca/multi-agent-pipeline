@@ -105,6 +105,20 @@ describe('cli argument parsing', () => {
     expect(prompt).toBe('Build a tiny pantry CLI');
   });
 
+  it('excludes judge panel model values from the prompt', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--judge-panel-models',
+      'ollama/gemma4,claude/sonnet,codex/gpt-5',
+      '--judge-panel-max-rounds',
+      '2',
+      '--judge-panel-steer',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
   it('does not treat --classic as prompt text', () => {
     const prompt = extractPrompt([
       '--headless',
@@ -119,6 +133,16 @@ describe('cli argument parsing', () => {
     const prompt = extractPrompt([
       '--headless',
       '--compact',
+      'Build a tiny pantry CLI',
+    ]);
+
+    expect(prompt).toBe('Build a tiny pantry CLI');
+  });
+
+  it('does not treat --graph as prompt text', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--graph',
       'Build a tiny pantry CLI',
     ]);
 

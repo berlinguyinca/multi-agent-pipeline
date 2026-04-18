@@ -21,6 +21,14 @@ const writePdfArtifactMock = vi.fn(async () => ({
 const writeHtmlArtifactMock = vi.fn(async () => ({
   htmlPath: '/tmp/map-result.html',
 }));
+const writeGraphPngArtifactsMock = vi.fn(async () => ({
+  manifestPath: '/tmp/out/artifacts/agent-graph-manifest.json',
+  artifacts: [
+    { id: 'agent-network-auto', src: 'artifacts/agent-network-auto.png', path: '/tmp/out/artifacts/agent-network-auto.png' },
+    { id: 'agent-network-stage', src: 'artifacts/agent-network-stage.png', path: '/tmp/out/artifacts/agent-network-stage.png' },
+  ],
+  warnings: [],
+}));
 const openOutputArtifactMock = vi.fn(async () => {});
 
 vi.mock('../src/tui/tui-app.js', () => ({
@@ -39,6 +47,7 @@ vi.mock('../src/headless/pr-review.js', () => ({
 vi.mock('../src/output/pdf-artifact.js', () => ({
   openOutputArtifact: openOutputArtifactMock,
   writeHtmlArtifact: writeHtmlArtifactMock,
+  writeGraphPngArtifacts: writeGraphPngArtifactsMock,
   writePdfArtifact: writePdfArtifactMock,
 }));
 
@@ -314,6 +323,42 @@ describe('runCli', () => {
     });
   });
 
+  it('generates graph PNG artifacts when --graph is requested', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outcome: 'success',
+      outputDir: '/tmp/out',
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'researcher', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'writer', status: 'completed', duration: 1 },
+        ],
+        edges: [{ from: 'step-1', to: 'step-2', type: 'planned' }],
+      },
+      steps: [
+        { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Research' },
+        { id: 'step-2', agent: 'writer', task: 'Write', status: 'completed', output: 'Final' },
+      ],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--graph', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writeGraphPngArtifactsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outputDir: '/tmp/out' }),
+      { outputDir: '/tmp/out' },
+    );
+    const parsed = JSON.parse(String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+    expect(parsed.graphArtifacts.map((artifact: { id: string }) => artifact.id)).toEqual([
+      'agent-network-auto',
+      'agent-network-stage',
+    ]);
+    expect(parsed.graphArtifactManifestPath).toBe('/tmp/out/artifacts/agent-graph-manifest.json');
+  });
+
   it('runs headless classic mode when --classic is provided', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -515,6 +560,31 @@ describe('runCli', () => {
         prompt: 'Research the task and produce a concise implementation readiness plan',
         compareAgents: ['researcher', 'writer'],
         semanticJudge: true,
+      }),
+    );
+  });
+
+  it('passes LLM judge panel options to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--judge-panel-models',
+        'ollama/gemma4:26b,claude/sonnet,codex/gpt-5',
+        '--judge-panel-steer',
+        '--judge-panel-max-rounds',
+        '2',
+        'Research the task and produce a concise implementation readiness plan',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'Research the task and produce a concise implementation readiness plan',
+        judgePanelModels: ['ollama/gemma4:26b', 'claude/sonnet', 'codex/gpt-5'],
+        judgePanelSteer: true,
+        judgePanelMaxSteeringRounds: 2,
       }),
     );
   });

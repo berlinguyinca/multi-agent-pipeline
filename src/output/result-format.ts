@@ -184,6 +184,7 @@ function formatMarkdownResult(result: unknown): string {
   appendSummary(lines, data);
   appendAgentGraph(lines, data);
   appendConsensusDiagnostics(lines, data);
+  appendJudgePanel(lines, data);
   appendRouterRationale(lines, data);
   appendAgentContributions(lines, data);
   appendAgentComparisons(lines, data);
@@ -216,6 +217,7 @@ function formatTextResult(result: unknown): string {
   appendPlainErrors(lines, data);
   appendPlainWarnings(lines, data);
   appendPlainGraph(lines, data);
+  appendPlainJudgePanel(lines, data);
   appendPlainRouterRationale(lines, data);
   appendPlainAgentContributions(lines, data);
   appendPlainAgentComparisons(lines, data);
@@ -295,6 +297,7 @@ function buildHtmlDocument(
         ]),
     renderHtmlVisualArtifacts(data, options.suppressArtifactIds ?? []),
     ...(compact ? [] : [
+      renderHtmlJudgePanel(data),
       renderHtmlRouterRationale(data),
       renderHtmlAgentContributions(data),
       renderHtmlAgentComparisons(data),
@@ -728,6 +731,105 @@ function renderHtmlConsensusDiagnostics(data: Record<string, unknown>): string[]
     '</tbody>',
     '</table>',
   ];
+}
+
+function appendJudgePanel(lines: string[], data: Record<string, unknown>): void {
+  const panel = normalizeJudgePanel(data);
+  if (!panel) return;
+  lines.push('', '## LLM Judge Panel', '');
+  lines.push(`- Verdict: ${panel.verdict}`);
+  lines.push(`- Votes: ${panel.voteCount}`);
+  lines.push(`- Steering applied: ${panel.steeringApplied ? 'yes' : 'no'}`);
+  if (panel.improvements.length > 0) {
+    lines.push('- Improvements:', ...panel.improvements.map((entry) => `  - ${entry}`));
+  }
+  if (panel.rounds.length > 0) {
+    lines.push('- Rounds:', ...panel.rounds.map((round) => `  - Round ${round.round}: ${round.verdict} (${round.voteCount} vote${round.voteCount === 1 ? '' : 's'})`));
+  }
+  lines.push('', '| Run | Model | Verdict | Confidence | Steering | Rationale |', '| --- | --- | --- | --- | --- | --- |');
+  for (const vote of panel.votes) {
+    lines.push(`| ${cell(vote.run)} | ${cell(vote.model ?? vote.provider ?? 'unknown')} | ${cell(vote.verdict)} | ${cell(formatPercent(vote.confidence))} | ${cell(vote.shouldSteer ? 'yes' : 'no')} | ${cell(vote.rationale)} |`);
+  }
+}
+
+function appendPlainJudgePanel(lines: string[], data: Record<string, unknown>): void {
+  const panel = normalizeJudgePanel(data);
+  if (!panel) return;
+  lines.push('LLM Judge Panel', '---------------');
+  lines.push(`- Verdict: ${panel.verdict}`);
+  lines.push(`- Votes: ${panel.voteCount}`);
+  lines.push(`- Steering applied: ${panel.steeringApplied ? 'yes' : 'no'}`);
+  for (const round of panel.rounds) lines.push(`- Round ${round.round}: ${round.verdict}`);
+  for (const improvement of panel.improvements) lines.push(`- Improvement: ${improvement}`);
+  lines.push('');
+}
+
+function renderHtmlJudgePanel(data: Record<string, unknown>): string {
+  const panel = normalizeJudgePanel(data);
+  if (!panel) return '';
+  const rows = panel.votes.map((vote) => [
+    vote.run,
+    vote.model ?? vote.provider ?? 'unknown',
+    vote.verdict,
+    formatPercent(vote.confidence),
+    vote.shouldSteer ? 'yes' : 'no',
+    vote.rationale,
+  ]);
+  return [
+    '<h2>LLM Judge Panel</h2>',
+    `<p><strong>Verdict:</strong> ${escapeHtml(panel.verdict)} · <strong>Votes:</strong> ${panel.voteCount} · <strong>Steering applied:</strong> ${panel.steeringApplied ? 'yes' : 'no'}</p>`,
+    panel.rounds.length > 0 ? `<p><strong>Rounds:</strong> ${escapeHtml(panel.rounds.map((round) => `Round ${round.round}: ${round.verdict}`).join(' · '))}</p>` : '',
+    panel.improvements.length > 0 ? `<ul>${panel.improvements.map((entry) => `<li>${escapeHtml(entry)}</li>`).join('')}</ul>` : '',
+    '<table>',
+    '<thead><tr><th>Run</th><th>Model</th><th>Verdict</th><th>Confidence</th><th>Steering</th><th>Rationale</th></tr></thead>',
+    '<tbody>',
+    ...rows.map((row) => `<tr>${row.map((cellValue) => `<td>${escapeHtml(String(cellValue ?? ''))}</td>`).join('')}</tr>`),
+    '</tbody>',
+    '</table>',
+  ].join('\n');
+}
+
+function normalizeJudgePanel(data: Record<string, unknown>): {
+  verdict: string;
+  voteCount: number;
+  steeringApplied: boolean;
+  improvements: string[];
+  votes: Array<{
+    run: number;
+    provider?: string;
+    model?: string;
+    verdict: string;
+    confidence: number;
+    rationale: string;
+    shouldSteer: boolean;
+  }>;
+  rounds: Array<{ round: number; verdict: string; voteCount: number }>;
+} | null {
+  const panel = isRecord(data['judgePanel']) ? data['judgePanel'] : undefined;
+  if (!panel) return null;
+  const votes = Array.isArray(panel['votes']) ? panel['votes'].filter(isRecord).map((vote) => ({
+    run: Number(vote['run'] ?? 0),
+    ...(typeof vote['provider'] === 'string' ? { provider: vote['provider'] } : {}),
+    ...(typeof vote['model'] === 'string' ? { model: vote['model'] } : {}),
+    verdict: String(vote['verdict'] ?? ''),
+    confidence: Number(vote['confidence'] ?? 0),
+    rationale: String(vote['rationale'] ?? ''),
+    shouldSteer: vote['shouldSteer'] === true,
+  })) : [];
+  return {
+    verdict: String(panel['verdict'] ?? 'unknown'),
+    voteCount: Number(panel['voteCount'] ?? votes.length),
+    steeringApplied: panel['steeringApplied'] === true,
+    improvements: Array.isArray(panel['improvements']) ? panel['improvements'].map(String) : [],
+    votes,
+    rounds: Array.isArray(panel['rounds'])
+      ? panel['rounds'].filter(isRecord).map((round) => ({
+        round: Number(round['round'] ?? 0),
+        verdict: String(round['verdict'] ?? ''),
+        voteCount: Number(round['voteCount'] ?? 0),
+      }))
+      : [],
+  };
 }
 
 function appendRouterRationale(lines: string[], data: Record<string, unknown>): void {

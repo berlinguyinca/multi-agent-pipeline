@@ -1365,6 +1365,222 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     await fs.rm(outputDir, { recursive: true, force: true });
   });
 
+  it('runs an LLM judge panel and steers a weak DAG outcome into an improved rerun', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-judge-panel-'));
+    const judgePrompts: string[] = [];
+    const adapterConfigs: AdapterConfig[] = [];
+    const agentOutputs: string[] = [];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model: string | undefined;
+
+      constructor(readonly type: AdapterConfig['type'], model?: string) {
+        this.model = model;
+      }
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a MAP outcome judge')) {
+          judgePrompts.push(prompt);
+          const improved = prompt.includes('Improved answer with concrete verification evidence');
+          yield JSON.stringify(improved
+            ? {
+                verdict: 'accept',
+                confidence: 0.91,
+                improvements: [],
+                rationale: 'The revised answer satisfies the requested improvements.',
+                shouldSteer: false,
+              }
+            : {
+                verdict: 'revise',
+                confidence: 0.82,
+                improvements: ['Add concrete verification evidence', 'Clarify user-facing rerun guidance'],
+                rationale: 'The answer is directionally useful but underspecified.',
+                shouldSteer: true,
+              });
+          return;
+        }
+        if (prompt.includes('You are a task router')) {
+          const task = prompt.includes('MAP Judge Panel Steering Feedback')
+            ? 'Draft answer with MAP Judge Panel Steering Feedback'
+            : 'Draft answer';
+          yield JSON.stringify({ kind: 'plan', plan: [{ id: 'step-1', agent: 'docs-maintainer', task, dependsOn: [] }] });
+          return;
+        }
+
+        const output = prompt.includes('MAP Judge Panel Steering Feedback')
+          ? 'Improved answer with concrete verification evidence and rerun guidance'
+          : 'Weak answer';
+        agentOutputs.push(output);
+        yield output;
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      {
+        prompt: 'Explain the feature',
+        outputDir,
+        judgePanelModels: ['judge-a', 'judge-b', 'judge-c'],
+        judgePanelSteer: true,
+        judgePanelMaxSteeringRounds: 2,
+      },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          generateAgentSummary: false,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => {
+          adapterConfigs.push(config);
+          return new FakeAdapter(config.type, config.model);
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.judgePanel).toMatchObject({
+      enabled: true,
+      verdict: 'accept',
+      steeringApplied: true,
+      voteCount: 3,
+    });
+    expect(result.judgePanel?.rounds).toHaveLength(2);
+    expect(result.judgePanel?.rounds?.[0]?.verdict).toBe('revise');
+    expect(result.judgePanel?.rounds?.[1]?.verdict).toBe('accept');
+    expect(result.judgePanel?.votes.map((vote) => vote.model)).toEqual(['judge-a', 'judge-b', 'judge-c']);
+    expect(result.steps.at(-1)?.output).toContain('Improved answer');
+    expect(agentOutputs).toContain('Weak answer');
+    expect(agentOutputs).toContain('Improved answer with concrete verification evidence and rerun guidance');
+    expect(judgePrompts).toHaveLength(6);
+    expect(adapterConfigs.filter((config) => config.model === 'judge-a')).toHaveLength(2);
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
+  it('allows judge panel entries to use different adapter providers', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-mixed-judges-'));
+    const judgeConfigs: AdapterConfig[] = [];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model: string | undefined;
+
+      constructor(readonly type: AdapterConfig['type'], model?: string) {
+        this.model = model;
+      }
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a MAP outcome judge')) {
+          yield '{"verdict":"accept","confidence":0.9,"improvements":[],"rationale":"Looks good","shouldSteer":false}';
+          return;
+        }
+        if (prompt.includes('You are a task router')) {
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"docs-maintainer","task":"Draft answer","dependsOn":[]}]}';
+          return;
+        }
+        yield 'Good answer';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      {
+        prompt: 'Explain the feature',
+        outputDir,
+        judgePanelModels: ['ollama/judge-a', 'claude/sonnet', 'codex/gpt-5'],
+      },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          generateAgentSummary: false,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: {
+            adapter: 'ollama',
+            model: 'gemma4',
+          },
+          security: {
+            enabled: false,
+            maxRemediationRetries: 0,
+            adapter: 'ollama',
+            model: 'gemma4',
+            staticPatternsEnabled: false,
+            llmReviewEnabled: false,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => {
+          if (['judge-a', 'sonnet', 'gpt-5'].includes(config.model ?? '')) judgeConfigs.push(config);
+          return new FakeAdapter(config.type, config.model);
+        },
+      },
+    );
+
+    expect(result.judgePanel?.votes.map((vote) => `${vote.provider}/${vote.model}`)).toEqual([
+      'ollama/judge-a',
+      'claude/sonnet',
+      'codex/gpt-5',
+    ]);
+    expect(judgeConfigs).toEqual([
+      expect.objectContaining({ type: 'ollama', model: 'judge-a' }),
+      expect.objectContaining({ type: 'claude', model: 'sonnet' }),
+      expect.objectContaining({ type: 'codex', model: 'gpt-5' }),
+    ]);
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
   it('fails on inactivity timeout for a silent stage', async () => {
     class FakeAdapter implements AgentAdapter {
       readonly model = undefined;

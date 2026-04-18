@@ -21,6 +21,9 @@ export interface HeadlessOptions {
   rerunPrompt?: string;
   compareAgents?: string[];
   semanticJudge?: boolean;
+  judgePanelModels?: string[];
+  judgePanelSteer?: boolean;
+  judgePanelMaxSteeringRounds?: number;
   ollama?: Partial<OllamaConfig>;
   personality?: string;
   verbose?: boolean;
@@ -64,6 +67,39 @@ export interface HeadlessSemanticJudge {
   verdict: 'equivalent' | 'different' | 'needs-review';
 }
 
+export interface HeadlessJudgePanelVote {
+  run: number;
+  provider?: string;
+  model?: string;
+  verdict: 'accept' | 'revise' | 'reject';
+  confidence: number;
+  improvements: string[];
+  rationale: string;
+  shouldSteer: boolean;
+}
+
+export interface HeadlessJudgePanelRound {
+  round: number;
+  verdict: 'accept' | 'revise' | 'reject';
+  voteCount: number;
+  votes: HeadlessJudgePanelVote[];
+  improvements: string[];
+  rationale: string;
+}
+
+export interface HeadlessJudgePanel {
+  enabled: boolean;
+  verdict: 'accept' | 'revise' | 'reject';
+  voteCount: number;
+  votes: HeadlessJudgePanelVote[];
+  rounds?: HeadlessJudgePanelRound[];
+  improvements: string[];
+  rationale: string;
+  steeringApplied: boolean;
+  steeringPrompt?: string;
+  steeringOutputDir?: string;
+}
+
 export interface HeadlessResult {
   version: 1;
   success: boolean;
@@ -101,4 +137,5 @@ export interface HeadlessResultV2 {
   agentContributions?: HeadlessAgentContribution[];
   agentComparisons?: HeadlessAgentComparison[];
   semanticJudge?: HeadlessSemanticJudge;
+  judgePanel?: HeadlessJudgePanel;
 }

@@ -233,6 +233,28 @@ describe('software delivery agent bundle', () => {
     expect(usage.contract?.handoff.includes).toContain('Commonness ranking and score');
   });
 
+  it('requires usage commonness scores to account for current prevalence and recency', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+    const usageFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-fact-checker'));
+
+    expect(usage.prompt).toContain('current prevalence');
+    expect(usage.prompt).toContain('Recency/currentness');
+    expect(usage.prompt).toContain('historical or obsolete practices');
+    expect(usage.prompt).toContain('hundreds of years ago');
+    expect(usage.prompt).toContain('Commonness timeframe');
+    expect(usage.prompt).toContain('Recency/currentness evidence');
+    expect(usage.contract?.capabilities).toContain(
+      'Score and rank usage applications or exposure origins by current evidence-backed commonness, explicitly down-weighting historical, obsolete, discontinued, or regionally rare practices.',
+    );
+    expect(usage.contract?.verification.requiredEvidence).toContain(
+      'Commonness scores account for current prevalence and recency/currentness evidence, not just historical existence.',
+    );
+
+    expect(usageFact.prompt).toContain('current prevalence');
+    expect(usageFact.prompt).toContain('historical or obsolete');
+    expect(usageFact.prompt).toContain('reject high commonness scores');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 

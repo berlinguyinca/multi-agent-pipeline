@@ -87,6 +87,78 @@ describe('result formatting', () => {
     expect(output).toContain('step-1 -&gt; step-1-grammar-1');
   });
 
+  it('renders LLM judge panel votes and steering status', () => {
+    const output = formatMapOutput({
+      ...result,
+      judgePanel: {
+        enabled: true,
+        verdict: 'accept',
+        voteCount: 2,
+        steeringApplied: true,
+        improvements: ['Add verification evidence'],
+        rounds: [
+          {
+            round: 1,
+            verdict: 'revise',
+            voteCount: 1,
+            improvements: ['Add verification evidence'],
+            rationale: 'Needs more proof',
+            votes: [
+              {
+                run: 1,
+                provider: 'ollama',
+                model: 'judge-a',
+                verdict: 'revise',
+                confidence: 0.8,
+                improvements: ['Add verification evidence'],
+                rationale: 'Needs more proof',
+                shouldSteer: true,
+              },
+            ],
+          },
+          {
+            round: 2,
+            verdict: 'accept',
+            voteCount: 1,
+            improvements: [],
+            rationale: 'Satisfied',
+            votes: [
+              {
+                run: 1,
+                provider: 'claude',
+                model: 'sonnet',
+                verdict: 'accept',
+                confidence: 0.9,
+                improvements: [],
+                rationale: 'Satisfied',
+                shouldSteer: false,
+              },
+            ],
+          },
+        ],
+        votes: [
+          {
+            run: 1,
+            provider: 'claude',
+            model: 'sonnet',
+            verdict: 'accept',
+            confidence: 0.9,
+            improvements: [],
+            rationale: 'Satisfied',
+            shouldSteer: false,
+          },
+        ],
+      },
+    }, 'markdown');
+
+    expect(output).toContain('## LLM Judge Panel');
+    expect(output).toContain('- Verdict: accept');
+    expect(output).toContain('- Steering applied: yes');
+    expect(output).toContain('- Round 1: revise');
+    expect(output).toContain('- Round 2: accept');
+    expect(output).toContain('| 1 | sonnet | accept | 90% | no | Satisfied |');
+  });
+
 
   it('renders a compact layered HTML flowchart with consensus run models', () => {
     const branched = {
