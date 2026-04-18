@@ -510,7 +510,31 @@ describe('routeTask', () => {
       reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
     });
 
-    const result = await routeTask('classification and taxonomy report for cocaine with usage tables', agents, [
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+
+    const result = await routeTask('classification and taxonomy report for cocaine with usage tables', localAgents, [
       mockAdapter(rationaleOnly, 'gemma4:26b'),
       mockAdapter(rationaleOnly, 'gemma4:26b'),
       mockAdapter(rationaleOnly, 'gemma4:26b'),
@@ -524,17 +548,16 @@ describe('routeTask', () => {
       },
     });
 
-    expect(result).toEqual({
-      kind: 'no-match',
-      reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
-      rationale: {
-        selectedAgents: [],
-        rejectedAgents: [{
-          agent: 'researcher',
-          reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
-        }],
-      },
-    });
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected fallback plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+    expect(result.rationale?.selectedAgents.map((entry) => entry.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
   });
 
   it('runs router consensus candidates sequentially to avoid concurrent Ollama requests', async () => {
