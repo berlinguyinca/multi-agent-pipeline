@@ -535,6 +535,20 @@ function normalizeRouterDecision(parsed: unknown): RouterDecision {
     };
   }
 
+  if (typeof obj['agent'] === 'string' && typeof obj['reason'] === 'string' && obj['reason'].trim()) {
+    return {
+      kind: 'no-match',
+      reason: obj['reason'].trim(),
+      rationale: {
+        selectedAgents: [],
+        rejectedAgents: [{
+          agent: obj['agent'].trim(),
+          reason: obj['reason'].trim(),
+        }],
+      },
+    };
+  }
+
   throw new Error('Router returned neither a plan nor a no-match decision');
 }
 
