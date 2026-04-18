@@ -47,6 +47,30 @@ Confidence: <high | medium | low | unavailable>
 - This is a chemical ontology classification, not biological taxonomy.
 - The live ClassyFire API was not used.
 - <evidence/caveat notes>
+
+## Claim Evidence Ledger
+
+Provide JSON evidence for each chemical taxonomy claim:
+
+```json
+{
+  "claims": [
+    {
+      "id": "claim-1",
+      "claim": "<atomic taxonomy claim>",
+      "claimType": "chemical-taxonomy",
+      "confidence": "high",
+      "evidence": [
+        {
+          "sourceType": "document",
+          "title": "<reference or inference basis>",
+          "summary": "<short evidence summary>",
+          "supports": "<rank/classification supported>"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## Guardrails

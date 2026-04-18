@@ -61,6 +61,8 @@ Options:
   --semantic-judge       Add deterministic semantic comparison scores to agent comparisons
   --judge-panel-models <csv>
                          Run an LLM judge panel with the listed models after the DAG
+  --judge-panel-roles <csv>
+                         Assign adversarial judge roles, e.g. evidence-skeptic,recency-auditor
   --judge-panel-steer    Allow judge panel feedback to trigger one steered rerun
   --judge-panel-max-rounds <n>
                          Max judge-panel steering reruns before stopping (default: 1)
@@ -147,6 +149,7 @@ Commands:
     const compareAgents = parseCompareAgents(args);
     const semanticJudge = hasFlag(args, '--semantic-judge');
     const judgePanelModels = parseCsvFlag(args, '--judge-panel-models');
+    const judgePanelRoles = parseCsvFlag(args, '--judge-panel-roles');
     const judgePanelSteer = hasFlag(args, '--judge-panel-steer');
     const judgePanelMaxSteeringRounds = parsePositiveIntegerFlag(
       extractFlag(args, '--judge-panel-max-rounds'),
@@ -189,6 +192,7 @@ Commands:
         compareAgents,
         semanticJudge,
         judgePanelModels,
+        judgePanelRoles,
         judgePanelSteer,
         judgePanelMaxSteeringRounds,
         ollama,

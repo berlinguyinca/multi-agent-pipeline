@@ -11,6 +11,7 @@ import type {
   FileOutputConsensusConfig,
   AgentCreationConfig,
   AdapterDefaultsMap,
+  EvidenceConfig,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
@@ -231,6 +232,46 @@ function validateQualityConfig(value: unknown): Partial<QualityConfig> {
   }
 
   return quality;
+}
+
+function validateEvidenceConfig(value: unknown): Partial<EvidenceConfig> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('evidence must be an object');
+  }
+  const obj = value as Record<string, unknown>;
+  const evidence: Partial<EvidenceConfig> = {};
+  if (obj['enabled'] !== undefined) {
+    if (typeof obj['enabled'] !== 'boolean') throw new Error('evidence.enabled must be a boolean');
+    evidence.enabled = obj['enabled'];
+  }
+  if (obj['requiredAgents'] !== undefined) {
+    if (!Array.isArray(obj['requiredAgents'])) throw new Error('evidence.requiredAgents must be an array');
+    evidence.requiredAgents = obj['requiredAgents'].map((entry, index) => {
+      if (typeof entry !== 'string' || entry.trim() === '') {
+        throw new Error(`evidence.requiredAgents[${index}] must be a non-empty string`);
+      }
+      return entry.trim();
+    });
+  }
+  if (obj['currentClaimMaxSourceAgeDays'] !== undefined) {
+    evidence.currentClaimMaxSourceAgeDays = validatePositiveInteger(
+      obj['currentClaimMaxSourceAgeDays'],
+      'evidence.currentClaimMaxSourceAgeDays',
+    );
+  }
+  if (obj['requireRetrievedAtForWebClaims'] !== undefined) {
+    if (typeof obj['requireRetrievedAtForWebClaims'] !== 'boolean') {
+      throw new Error('evidence.requireRetrievedAtForWebClaims must be a boolean');
+    }
+    evidence.requireRetrievedAtForWebClaims = obj['requireRetrievedAtForWebClaims'];
+  }
+  if (obj['blockUnsupportedCurrentClaims'] !== undefined) {
+    if (typeof obj['blockUnsupportedCurrentClaims'] !== 'boolean') {
+      throw new Error('evidence.blockUnsupportedCurrentClaims must be a boolean');
+    }
+    evidence.blockUnsupportedCurrentClaims = obj['blockUnsupportedCurrentClaims'];
+  }
+  return evidence;
 }
 
 function validateRouterConfig(value: unknown): Partial<RouterConfig> {
@@ -724,6 +765,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     quality = validateQualityConfig(obj['quality']);
   }
 
+  let evidence: Partial<EvidenceConfig> | undefined;
+  if (obj['evidence'] !== undefined) {
+    evidence = validateEvidenceConfig(obj['evidence']);
+  }
+
   let router: Partial<RouterConfig> | undefined;
   if (obj['router'] !== undefined) {
     router = validateRouterConfig(obj['router']);
@@ -754,6 +800,7 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(github !== undefined ? { github } : {}),
     ...(ollama !== undefined ? { ollama } : {}),
     ...(quality !== undefined ? { quality } : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
     ...(typeof obj['outputDir'] === 'string' ? { outputDir: obj['outputDir'] } : {}),
     ...(typeof obj['workspaceDir'] === 'string' ? { workspaceDir: obj['workspaceDir'] } : {}),
     ...(typeof obj['gitCheckpoints'] === 'boolean' ? { gitCheckpoints: obj['gitCheckpoints'] } : {}),

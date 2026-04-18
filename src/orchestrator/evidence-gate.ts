@@ -1,19 +1,28 @@
 import type { DAGStep, StepResult } from '../types/dag.js';
+import type { EvidenceConfig } from '../types/config.js';
 import type { ClaimEvidence, EvidenceGateFinding, EvidenceGateResult, EvidenceSource } from '../types/evidence.js';
 
-const EVIDENCE_REQUIRED_AGENTS = new Set([
+const DEFAULT_REQUIRED_AGENTS = new Set([
   'usage-classification-tree',
 ]);
 
 export function runEvidenceGate(options: {
   step: DAGStep;
   result: StepResult;
+  config?: EvidenceConfig;
 }): EvidenceGateResult {
-  if (!EVIDENCE_REQUIRED_AGENTS.has(options.step.agent)) {
+  if (options.config?.enabled === false) {
+    return { checked: false, passed: true, claims: [], findings: [] };
+  }
+  const requiredAgents = options.config
+    ? new Set(options.config.requiredAgents)
+    : DEFAULT_REQUIRED_AGENTS;
+  const output = options.result.output ?? '';
+  if (!requiredAgents.has(options.step.agent) && !/^##\s+Claim Evidence Ledger\s*$/im.test(output)) {
     return { checked: false, passed: true, claims: [], findings: [] };
   }
 
-  const claims = extractClaimEvidenceLedger(options.result.output ?? '');
+  const claims = extractClaimEvidenceLedger(output);
   const findings: EvidenceGateFinding[] = [];
   if (claims === null) {
     findings.push({
@@ -24,7 +33,7 @@ export function runEvidenceGate(options: {
   }
 
   for (const claim of claims) {
-    findings.push(...validateClaimEvidence(claim));
+    findings.push(...validateClaimEvidence(claim, options.config));
   }
 
   return {
@@ -35,7 +44,7 @@ export function runEvidenceGate(options: {
   };
 }
 
-function validateClaimEvidence(claim: ClaimEvidence): EvidenceGateFinding[] {
+function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | undefined): EvidenceGateFinding[] {
   const findings: EvidenceGateFinding[] = [];
   if (!claim.id.trim()) {
     findings.push({ severity: 'high', message: 'Evidence claim is missing an id.' });
@@ -58,12 +67,21 @@ function validateClaimEvidence(claim: ClaimEvidence): EvidenceGateFinding[] {
     });
   }
   if (claim.claimType === 'commonness-score') {
-    findings.push(...validateCommonnessClaim(claim));
+    findings.push(...validateCommonnessClaim(claim, config));
+  }
+  if (config?.blockUnsupportedCurrentClaims !== false && claim.timeframe === 'current' && claim.confidence !== 'unavailable') {
+    if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentUse(source, config))) {
+      findings.push({
+        severity: 'high',
+        claimId: claim.id,
+        message: 'Current claims require direct current/recent supporting evidence.',
+      });
+    }
   }
   return findings;
 }
 
-function validateCommonnessClaim(claim: ClaimEvidence): EvidenceGateFinding[] {
+function validateCommonnessClaim(claim: ClaimEvidence, config: EvidenceConfig | undefined): EvidenceGateFinding[] {
   const findings: EvidenceGateFinding[] = [];
   const score = typeof claim.commonnessScore === 'number' ? claim.commonnessScore : undefined;
   if (score !== undefined && (!Number.isInteger(score) || score < 0 || score > 100)) {
@@ -84,7 +102,7 @@ function validateCommonnessClaim(claim: ClaimEvidence): EvidenceGateFinding[] {
     const hasCurrentEvidence =
       claim.timeframe === 'current' &&
       (claim.recencyStatus === 'current' || claim.recencyStatus === 'recent') &&
-      claim.evidence.some(supportsCurrentUse);
+      claim.evidence.some((source) => supportsCurrentUse(source, config));
     if (!hasCurrentEvidence) {
       findings.push({
         severity: 'high',
@@ -96,9 +114,21 @@ function validateCommonnessClaim(claim: ClaimEvidence): EvidenceGateFinding[] {
   return findings;
 }
 
-function supportsCurrentUse(source: EvidenceSource): boolean {
+function supportsCurrentUse(source: EvidenceSource, config: EvidenceConfig | undefined): boolean {
+  if (config?.requireRetrievedAtForWebClaims !== false && source.sourceType === 'url' && !source.retrievedAt?.trim()) {
+    return false;
+  }
+  if (source.publishedAt && isOlderThan(source.publishedAt, config?.currentClaimMaxSourceAgeDays ?? 730)) {
+    return false;
+  }
   const combined = `${source.supports} ${source.summary}`.toLowerCase();
   return /\b(current|recent|ongoing|today|contemporary|prevalen|widespread)\b/.test(combined);
+}
+
+function isOlderThan(value: string, maxAgeDays: number): boolean {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return false;
+  return Date.now() - date.valueOf() > maxAgeDays * 24 * 60 * 60 * 1000;
 }
 
 function extractClaimEvidenceLedger(markdown: string): ClaimEvidence[] | null {

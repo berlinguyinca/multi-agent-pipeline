@@ -33,3 +33,33 @@ These are hard output constraints for chemistry and biology prose:
 ## Output
 
 Return key findings, the reasoning behind them, relevant tradeoffs, and a clear recommendation or summary.
+
+When factual claims materially affect the answer, include a machine-readable Claim Evidence Ledger:
+
+```json
+{
+  "claims": [
+    {
+      "id": "claim-1",
+      "claim": "<atomic factual claim>",
+      "claimType": "general-research",
+      "confidence": "high",
+      "timeframe": "current",
+      "recencyStatus": "current",
+      "evidence": [
+        {
+          "sourceType": "url",
+          "title": "<source title>",
+          "url": "<source URL when available>",
+          "retrievedAt": "<YYYY-MM-DD for web/tool retrieval when available>",
+          "publishedAt": "<publication/update date when available>",
+          "summary": "<short evidence summary>",
+          "supports": "<what the source supports>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Use `model-prior` only for low-confidence background knowledge. Do not use model-prior evidence for high-confidence or current claims.

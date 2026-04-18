@@ -35,6 +35,14 @@ export interface QualityConfig {
   maxCodeQaIterations: number;
 }
 
+export interface EvidenceConfig {
+  enabled: boolean;
+  requiredAgents: string[];
+  currentClaimMaxSourceAgeDays: number;
+  requireRetrievedAtForWebClaims: boolean;
+  blockUnsupportedCurrentClaims: boolean;
+}
+
 export interface RouterConfig {
   adapter: AdapterType;
   model: string;
@@ -102,6 +110,7 @@ export interface PipelineConfig {
   github: GitHubConfig;
   ollama: OllamaConfig;
   quality: QualityConfig;
+  evidence: EvidenceConfig;
   outputDir: string;
   workspaceDir?: string;
   gitCheckpoints: boolean;

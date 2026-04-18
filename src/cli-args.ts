@@ -23,6 +23,7 @@ const flagsWithValues = new Set([
   '--disable-agents',
   '--compare-agent-list',
   '--judge-panel-models',
+  '--judge-panel-roles',
   '--judge-panel-max-rounds',
   '--ollama-host',
   '--ollama-context-length',

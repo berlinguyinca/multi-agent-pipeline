@@ -485,6 +485,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--compare-agent-list <csv>` | run option | off | Explicit comma-separated comparison candidate list when shell quoting makes optional `--compare-agents` ambiguous |
 | `--semantic-judge` | run option | off | Include deterministic output-similarity verdicts for comparison runs |
 | `--judge-panel-models <csv>` | run option | off | Run an LLM judge panel after the DAG. Entries can be plain models using the router adapter or provider-qualified specs like `ollama/gemma4:26b,claude/sonnet,codex/gpt-5` |
+| `--judge-panel-roles <csv>` | run option | defaults by index | Assign adversarial judge roles such as `evidence-skeptic`, `recency-auditor`, `contradiction-finder`, and `user-value-judge` |
 | `--judge-panel-steer` | run option | off | Let a revise/reject judge-panel verdict trigger feedback-driven reruns with panel feedback injected into the task |
 | `--judge-panel-max-rounds <n>` | run option | 1 | Maximum judge-panel steering reruns; judges re-vote after each improvement until they accept or this budget is exhausted |
 | `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
@@ -508,6 +509,24 @@ Every human-readable result now includes:
 - **LLM Judge Panel** when `--judge-panel-models` is used — independent model votes (`accept`, `revise`, or `reject`), confidence, requested improvements, per-round rejudging after improvements, and whether `--judge-panel-steer` applied feedback-driven reruns.
 
 The same data is also exposed in JSON/YAML as `agentContributions`, `agentComparisons`, `routerRationale`, `semanticJudge`, `judgePanel`, and `rerun`, so downstream automation can detect weak agents without scraping prose. MAP also records rolling per-agent counters in `.map/agent-performance.json`. This lets users compare the full network against narrower runs without editing `pipeline.yaml`. The router receives a filtered available-agent list, so disabled agents cannot be selected for the initial DAG or adviser refreshes during that run. When a run starts from `--spec-file` and includes extra prompt text, that prompt tail is preserved in the generated rerun command.
+
+Evidence gates are configurable under `evidence`:
+
+```yaml
+evidence:
+  enabled: true
+  requiredAgents:
+    - usage-classification-tree
+    - researcher
+    - classyfire-taxonomy-classifier
+    - security-advisor
+    - release-readiness-reviewer
+  currentClaimMaxSourceAgeDays: 730
+  requireRetrievedAtForWebClaims: true
+  blockUnsupportedCurrentClaims: true
+```
+
+The gate requires machine-readable Claim Evidence Ledgers from configured fact-critical agents, rejects current claims that lack direct current/recent support, and surfaces evidence findings in the **Evidence Verification** report section.
 
 
 ### Compact Output
@@ -1173,6 +1192,8 @@ Options:
   --semantic-judge       Add deterministic semantic comparison scores
   --judge-panel-models <csv>
                          Run an LLM judge panel with the listed models
+  --judge-panel-roles <csv>
+                         Assign adversarial judge roles
   --judge-panel-steer    Allow judge-panel feedback to steer reruns
   --judge-panel-max-rounds <n>
                          Max judge-panel steering reruns
