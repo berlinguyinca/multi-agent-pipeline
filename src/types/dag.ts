@@ -1,6 +1,7 @@
 // src/types/dag.ts
 
 import type { SecurityFinding } from '../security/types.js';
+import type { ClaimEvidence, EvidenceGateResult } from './evidence.js';
 
 export interface DAGStep {
   id: string;
@@ -105,6 +106,8 @@ export interface StepResult {
   handoffPassed?: boolean;
   handoffFindings?: HandoffFinding[];
   specConformance?: SpecConformance;
+  evidenceClaims?: ClaimEvidence[];
+  evidenceGate?: EvidenceGateResult;
   consensus?: DAGNodeConsensus;
 }
 

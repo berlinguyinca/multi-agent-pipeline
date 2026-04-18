@@ -536,7 +536,38 @@ describe('executeDAG', () => {
         }
         if (prompt.includes('Classify usage')) {
           calls.push({ agent: 'usage-classification-tree', model: config.model, prompt });
-          yield '# Usage Classification Tree\n\n## Usage Commonness Ranking\n\n| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Evidence/caveat |\n| --- | --- | --- | --- | --- | --- |\n| 1 | Food additive | food | 80 | common | Evidence |';
+          yield [
+            '# Usage Classification Tree',
+            '',
+            '## Usage Commonness Ranking',
+            '',
+            '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Recency/currentness evidence | Evidence/caveat |',
+            '| --- | --- | --- | --- | --- | --- | --- | --- |',
+            '| 1 | Food additive | food | 80 | common | current | Current food use evidence | Evidence |',
+            '',
+            '## Claim Evidence Ledger',
+            '',
+            '```json',
+            JSON.stringify({
+              claims: [{
+                id: 'claim-1',
+                claim: 'Food additive use has current commonness score 80.',
+                claimType: 'commonness-score',
+                confidence: 'high',
+                timeframe: 'current',
+                recencyStatus: 'current',
+                commonnessScore: 80,
+                evidence: [{
+                  sourceType: 'url',
+                  title: 'Current food use source',
+                  retrievedAt: '2026-04-18',
+                  summary: 'Current prevalence evidence for food additive use.',
+                  supports: 'current widespread food use',
+                }],
+              }],
+            }),
+            '```',
+          ].join('\n');
           return;
         }
         if (prompt.includes('Use verified usage')) {
@@ -578,6 +609,162 @@ describe('executeDAG', () => {
     const writerPrompt = calls.find((call) => call.agent === 'writer')?.prompt ?? '';
     expect(writerPrompt).toContain('[step-1: usage-classification-tree]');
     expect(writerPrompt).toContain('[step-1-fact-check-1: usage-classification-fact-checker]');
+  });
+
+  it('blocks usage classification downstream when claim evidence ledger is missing', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['usage-classification-fact-checker', makeAgent('usage-classification-fact-checker', 'answer')],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const createAdapter = vi.fn(() => mockAdapter([
+      '# Usage Classification Tree',
+      '',
+      '## Usage Commonness Ranking',
+      '',
+      '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Evidence/caveat |',
+      '| --- | --- | --- | --- | --- | --- |',
+      '| 1 | Historical tonic | drug | 90 | very common | Old source |',
+    ].join('\n')));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps.find((step) => step.id === 'step-1')).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Claim Evidence Ledger is required'),
+      evidenceGate: expect.objectContaining({ checked: true, passed: false }),
+    });
+    expect(result.steps.find((step) => step.id === 'step-2')).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('Dependency failed: step-1'),
+    });
+  });
+
+  it('rejects high commonness scores for historical usage evidence', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] }],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+    ]);
+    const output = [
+      '# Usage Classification Tree',
+      '',
+      '## Usage Commonness Ranking',
+      '',
+      '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Recency/currentness evidence | Evidence/caveat |',
+      '| --- | --- | --- | --- | --- | --- | --- | --- |',
+      '| 1 | Historical tonic | drug | 90 | very common | historical | Only historical evidence | Old source |',
+      '',
+      '## Claim Evidence Ledger',
+      '',
+      '```json',
+      JSON.stringify({
+        claims: [{
+          id: 'claim-historical',
+          claim: 'Historical tonic use has commonness score 90.',
+          claimType: 'commonness-score',
+          confidence: 'medium',
+          timeframe: 'historical',
+          recencyStatus: 'historical',
+          commonnessScore: 90,
+          evidence: [{
+            sourceType: 'document',
+            title: 'Historical source',
+            publishedAt: '1820',
+            summary: 'Historical use only.',
+            supports: 'historical use',
+          }],
+        }],
+      }),
+      '```',
+    ].join('\n');
+    const result = await executeDAG(
+      plan,
+      agents,
+      vi.fn(() => mockAdapter(output)),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Historical or obsolete practices cannot receive a current commonness score above 20'),
+      evidenceGate: expect.objectContaining({
+        checked: true,
+        passed: false,
+        claims: [expect.objectContaining({ id: 'claim-historical' })],
+      }),
+    });
+  });
+
+  it('does not treat retrieval date alone as current prevalence evidence', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] }],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+    ]);
+    const output = [
+      '# Usage Classification Tree',
+      '',
+      '## Claim Evidence Ledger',
+      '',
+      '```json',
+      JSON.stringify({
+        claims: [{
+          id: 'claim-stale',
+          claim: 'A use with only historical support is common today.',
+          claimType: 'commonness-score',
+          confidence: 'medium',
+          timeframe: 'current',
+          recencyStatus: 'current',
+          commonnessScore: 80,
+          evidence: [{
+            sourceType: 'url',
+            title: 'Retrieved old practice page',
+            retrievedAt: '2026-04-18',
+            summary: 'Describes use in historical practice only.',
+            supports: 'historical use',
+          }],
+        }],
+      }),
+      '```',
+    ].join('\n');
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      vi.fn(() => mockAdapter(output)),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.steps[0].error).toContain('High commonness scores require current/recent prevalence evidence');
   });
 
   it('automatically fact-checks researcher output before downstream use', async () => {
@@ -679,7 +866,33 @@ describe('executeDAG', () => {
           return;
         }
         if (prompt.includes('Classify usage')) {
-          yield '# Usage Classification Tree\n\nClaim: unsupported use';
+          yield [
+            '# Usage Classification Tree',
+            '',
+            'Claim: unsupported use',
+            '',
+            '## Claim Evidence Ledger',
+            '',
+            '```json',
+            JSON.stringify({
+              claims: [{
+                id: 'claim-1',
+                claim: 'Unsupported use is current.',
+                claimType: 'usage-classification',
+                confidence: 'low',
+                timeframe: 'current',
+                recencyStatus: 'current',
+                evidence: [{
+                  sourceType: 'url',
+                  title: 'Weak source',
+                  retrievedAt: '2026-04-18',
+                  summary: 'Weak but present evidence so fact-checker can adjudicate.',
+                  supports: 'current usage claim',
+                }],
+              }],
+            }),
+            '```',
+          ].join('\n');
           return;
         }
         if (prompt.includes('Use verified usage')) {

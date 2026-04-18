@@ -316,6 +316,35 @@ describe('result formatting', () => {
     expect(output).toContain('map --headless "Build a report" --disable-agent writer');
   });
 
+  it('renders evidence gate findings for fact-critical claims', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: false,
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'usage-classification-tree', status: 'failed', duration: 1 }],
+        edges: [],
+      },
+      steps: [
+        {
+          id: 'step-1',
+          agent: 'usage-classification-tree',
+          task: 'Classify usage',
+          status: 'failed',
+          error: 'Evidence gate failed',
+          evidenceGate: {
+            checked: true,
+            passed: false,
+            claims: [{ id: 'claim-1', claim: 'Historical use is common today', claimType: 'commonness-score', confidence: 'medium', evidence: [] }],
+            findings: [{ severity: 'high', claimId: 'claim-1', message: 'High commonness scores require current/recent prevalence evidence.' }],
+          },
+        },
+      ],
+    }, 'markdown');
+
+    expect(output).toContain('## Evidence Verification');
+    expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. |');
+  });
+
   it('selects the final result from terminal DAG sinks instead of incidental later branch output', () => {
     const branched = {
       version: 2,

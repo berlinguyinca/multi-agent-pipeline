@@ -184,6 +184,7 @@ function formatMarkdownResult(result: unknown): string {
   appendSummary(lines, data);
   appendAgentGraph(lines, data);
   appendConsensusDiagnostics(lines, data);
+  appendEvidenceVerification(lines, data);
   appendJudgePanel(lines, data);
   appendRouterRationale(lines, data);
   appendAgentContributions(lines, data);
@@ -296,6 +297,7 @@ function buildHtmlDocument(
           renderHtmlAgentNetwork(data, options.dagLayout ?? 'auto'),
         ]),
     renderHtmlVisualArtifacts(data, options.suppressArtifactIds ?? []),
+    ...renderHtmlEvidenceVerification(data),
     ...(compact ? [] : [
       renderHtmlJudgePanel(data),
       renderHtmlRouterRationale(data),
@@ -731,6 +733,69 @@ function renderHtmlConsensusDiagnostics(data: Record<string, unknown>): string[]
     '</tbody>',
     '</table>',
   ];
+}
+
+function appendEvidenceVerification(lines: string[], data: Record<string, unknown>): void {
+  const rows = collectEvidenceVerificationRows(data);
+  if (rows.length === 0) return;
+  lines.push(
+    '',
+    '## Evidence Verification',
+    '',
+    '| Step | Agent | Status | Claim | Severity | Finding |',
+    '| --- | --- | --- | --- | --- | --- |',
+  );
+  for (const row of rows) {
+    lines.push(`| ${cell(row.step)} | ${cell(row.agent)} | ${cell(row.status)} | ${cell(row.claimId)} | ${cell(row.severity)} | ${cell(row.message)} |`);
+  }
+}
+
+function renderHtmlEvidenceVerification(data: Record<string, unknown>): string[] {
+  const rows = collectEvidenceVerificationRows(data);
+  if (rows.length === 0) return [];
+  return [
+    '<h2>Evidence Verification</h2>',
+    '<table>',
+    '<thead><tr><th>Step</th><th>Agent</th><th>Status</th><th>Claim</th><th>Severity</th><th>Finding</th></tr></thead>',
+    '<tbody>',
+    ...rows.map((row) => `<tr><td>${escapeHtml(row.step)}</td><td>${escapeHtml(row.agent)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(row.claimId)}</td><td>${escapeHtml(row.severity)}</td><td>${escapeHtml(row.message)}</td></tr>`),
+    '</tbody>',
+    '</table>',
+  ];
+}
+
+function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
+  step: string;
+  agent: string;
+  status: string;
+  claimId: string;
+  severity: string;
+  message: string;
+}> {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  return steps.flatMap((step) => {
+    const gate = isRecord(step['evidenceGate']) ? step['evidenceGate'] : undefined;
+    if (!gate || gate['checked'] !== true) return [];
+    const findings = Array.isArray(gate['findings']) ? gate['findings'].filter(isRecord) : [];
+    if (findings.length === 0) {
+      return [{
+        step: String(step['id'] ?? ''),
+        agent: String(step['agent'] ?? ''),
+        status: gate['passed'] === true ? 'pass' : 'fail',
+        claimId: '',
+        severity: '',
+        message: gate['passed'] === true ? 'All evidence-gate checks passed.' : 'Evidence gate failed.',
+      }];
+    }
+    return findings.map((finding) => ({
+      step: String(step['id'] ?? ''),
+      agent: String(step['agent'] ?? ''),
+      status: gate['passed'] === true ? 'pass' : 'fail',
+      claimId: String(finding['claimId'] ?? ''),
+      severity: String(finding['severity'] ?? ''),
+      message: String(finding['message'] ?? ''),
+    }));
+  });
 }
 
 function appendJudgePanel(lines: string[], data: Record<string, unknown>): void {

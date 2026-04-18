@@ -73,6 +73,39 @@ Confidence: <high | medium | low | unavailable>
 | Level 5 | <specific target, formulation, or context when supported> |
 | Level 6 | <specific endpoint or unavailable> |
 
+## Claim Evidence Ledger
+
+Provide a JSON claim ledger for every factual usage classification and commonness score that downstream gates and fact-checkers can verify:
+
+```json
+{
+  "claims": [
+    {
+      "id": "claim-1",
+      "claim": "<atomic factual claim, e.g. current commonness score rationale>",
+      "claimType": "commonness-score",
+      "confidence": "high",
+      "timeframe": "current",
+      "recencyStatus": "current",
+      "commonnessScore": 80,
+      "evidence": [
+        {
+          "sourceType": "url",
+          "title": "<source title>",
+          "url": "<source URL when available>",
+          "retrievedAt": "<YYYY-MM-DD for web/tool retrieval when available>",
+          "publishedAt": "<publication/update date when available>",
+          "summary": "<short evidence summary>",
+          "supports": "<what the source supports, including current/recent prevalence when used for commonness>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Use `claimType: "usage-classification"` for category applicability claims and `claimType: "commonness-score"` for each score. High/common current commonness scores require current or recent evidence; historical-only evidence must use `timeframe: "historical"` or `"obsolete"` and a low score or `unavailable`.
+
 ## Notes
 
 - This is a usage classification, not chemical taxonomy.
