@@ -302,7 +302,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Reports also include an **Agent Contributions** section that explains how each agent improved the result, what evidence it produced for downstream steps, and how to manually rerun the same prompt while disabling a specific agent for comparison. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and progress (when `--verbose` is set) goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Reports also include an **Agent Contributions** section that explains how each agent improved the result, what evidence it produced for downstream steps, and how to manually rerun the same prompt while disabling a specific agent for comparison. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. Use `--graph` to additionally write easy-to-understand agent-network images for every supported graph layout (`auto`, `stage`, `metro`, `matrix`, and `cluster`) as PNG files when Chrome/Chromium is available, with SVG fallbacks otherwise. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -343,11 +343,21 @@ map --headless --output-format pdf --open-output "Investigate a specific questio
 # Print only the utilized agent graph and the final output
 map --headless --compact "Investigate a specific question"
 
+# Write PNG agent-network graphs for every supported DAG layout
+map --headless --graph "Investigate a specific question"
+
 # Rerun while removing one or more smart-routing agents from consideration
 map --headless --disable-agent output-formatter,researcher "Investigate a specific question"
 
 # Automatically compare the full network against reruns with selected agents disabled
 map --headless --compare-agents researcher,output-formatter --semantic-judge "Investigate a specific question"
+
+# Ask an LLM judge panel to vote on the DAG outcome and rejudge after improvements
+map --headless \
+  --judge-panel-models ollama/gemma4:26b,claude/sonnet,codex/gpt-5 \
+  --judge-panel-steer \
+  --judge-panel-max-rounds 2 \
+  "Investigate a specific question"
 
 # Inject a personality or tone into all AI prompts
 map --headless \
@@ -474,6 +484,9 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--compare-agents [csv]` | run option | off | Run ablation comparisons by rerunning with selected agents disabled; omit CSV to compare agents used by the baseline |
 | `--compare-agent-list <csv>` | run option | off | Explicit comma-separated comparison candidate list when shell quoting makes optional `--compare-agents` ambiguous |
 | `--semantic-judge` | run option | off | Include deterministic output-similarity verdicts for comparison runs |
+| `--judge-panel-models <csv>` | run option | off | Run an LLM judge panel after the DAG. Entries can be plain models using the router adapter or provider-qualified specs like `ollama/gemma4:26b,claude/sonnet,codex/gpt-5` |
+| `--judge-panel-steer` | run option | off | Let a revise/reject judge-panel verdict trigger feedback-driven reruns with panel feedback injected into the task |
+| `--judge-panel-max-rounds <n>` | run option | 1 | Maximum judge-panel steering reruns; judges re-vote after each improvement until they accept or this budget is exhausted |
 | `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
@@ -492,8 +505,9 @@ Every human-readable result now includes:
 - **Agent Contributions** — per-agent step counts, status, task summary, role-specific benefit explanation, consensus confidence notes, and a ready-to-copy rerun command such as `map --headless "prompt" --disable-agent researcher`.
 - **Rerun and self-optimization** — the original rerun command plus network self-check recommendations. Failed agents, failed handoffs, or missed spec-conformance checks are surfaced as candidates to question or disable on the next run.
 - **Agent Comparison Runs** when `--compare-agents` is used — baseline-vs-disabled-agent success, duration, final-output similarity, and a keep/disable/review recommendation.
+- **LLM Judge Panel** when `--judge-panel-models` is used — independent model votes (`accept`, `revise`, or `reject`), confidence, requested improvements, per-round rejudging after improvements, and whether `--judge-panel-steer` applied feedback-driven reruns.
 
-The same data is also exposed in JSON/YAML as `agentContributions`, `agentComparisons`, `routerRationale`, `semanticJudge`, and `rerun`, so downstream automation can detect weak agents without scraping prose. MAP also records rolling per-agent counters in `.map/agent-performance.json`. This lets users compare the full network against narrower runs without editing `pipeline.yaml`. The router receives a filtered available-agent list, so disabled agents cannot be selected for the initial DAG or adviser refreshes during that run. When a run starts from `--spec-file` and includes extra prompt text, that prompt tail is preserved in the generated rerun command.
+The same data is also exposed in JSON/YAML as `agentContributions`, `agentComparisons`, `routerRationale`, `semanticJudge`, `judgePanel`, and `rerun`, so downstream automation can detect weak agents without scraping prose. MAP also records rolling per-agent counters in `.map/agent-performance.json`. This lets users compare the full network against narrower runs without editing `pipeline.yaml`. The router receives a filtered available-agent list, so disabled agents cannot be selected for the initial DAG or adviser refreshes during that run. When a run starts from `--spec-file` and includes extra prompt text, that prompt tail is preserved in the generated rerun command.
 
 
 ### Compact Output
@@ -521,11 +535,14 @@ Connections:
 
 The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports five layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), and `cluster` (D summary-first grouped stages). PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
 
+`--graph` writes standalone graph image artifacts for all five supported layouts in `artifacts/` and adds `graphArtifacts` plus `graphArtifactManifestPath` to JSON/YAML output. PNG rendering uses Chrome/Chromium when available (`MAP_GRAPH_BROWSER` can point to a browser binary); when no compatible browser is found, MAP writes deterministic SVG fallbacks and records the reason in `graphWarnings`.
+
 For ClassyFire/ChemOnt plus usage/LCB runs, compact Markdown/HTML/PDF reports preserve the two source reports as the customer-facing final result. Deterministic rendering combines the completed taxonomy and usage outputs instead of letting optional judge or formatter steps replace them with rubrics, candidate-selection notes, or lossy spreadsheet summaries.
 
 When HTML or PDF artifacts are written to disk, MAP also creates an `artifacts/manifest.json` next to deterministic SVG visuals. Current generated visuals include:
 
 - `agent-network.svg`: the executed runtime DAG using the selected `--dag-layout`; `auto` renders a compact layered flowchart for small/medium DAGs and a matrix lane view for large DAGs. PDF reports generate this file for inspection but do not embed it as a second full-size figure because the inline pipeline summary is the print-safe DAG representation. Concurrent stages, edge types, and consensus-enabled nodes are visually distinguished where the layout supports them.
+- `agent-network-{auto,stage,metro,matrix,cluster}.png`: standalone agent-network graphs generated by `--graph` for all supported layouts. If PNG rendering is unavailable, SVG files with the same layout suffix are written instead.
 - `usage-commonness-ranking.svg`: a 0-100 commonness score bar chart when a usage agent emits `Usage Commonness Ranking`.
 - `taxonomy-tree.svg`: a ClassyFire/ChemOnt hierarchy diagram when a taxonomy table is present.
 
@@ -960,7 +977,7 @@ These tests exercise the grammar/spelling, ClassyFire/ChemOnt taxonomy, usage-cl
 MAP includes two separate classification specialists:
 
 - `classyfire-taxonomy-classifier` produces ClassyFire/ChemOnt-style chemical ontology trees. It must never use the ClassyFire API; that API is treated as broken/unreliable for this workflow.
-- `usage-classification-tree` produces evidence-backed usage trees, an LCB-ready exposure summary, and a Usage Commonness Ranking. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries. It also ranks supported usage applications or exposure origins by an ordinal 0-100 commonness score plus a label (`very common`, `common`, `less common`, `rare`, or `unavailable`), and honors prompts that request the top N rows sorted by score.
+- `usage-classification-tree` produces evidence-backed usage trees, an LCB-ready exposure summary, and a Usage Commonness Ranking. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries. It also ranks supported usage applications or exposure origins by an ordinal 0-100 commonness score plus a label (`very common`, `common`, `less common`, `rare`, or `unavailable`), and honors prompts that request the top N rows sorted by score. Commonness means current prevalence/exposure, so historical, obsolete, discontinued, or mainly centuries-old practices must be down-weighted and marked with timeframe plus recency/currentness evidence instead of being treated as common today.
 
 Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for. MAP's compact report renderer knows this pairing and will display both reports together when both branches complete, even if a downstream judge/formatter step exists in the graph.
 
@@ -986,7 +1003,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
 | `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries and commonness rankings/scores for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
-| `usage-classification-fact-checker` | `answer` | Independent fact-checking for usage/LCB/commonness claims using `bespoke-minicheck:7b`; rejects unsupported usage reports before downstream use. |
+| `usage-classification-fact-checker` | `answer` | Independent fact-checking for usage/LCB/commonness claims using `bespoke-minicheck:7b`; rejects unsupported or recency-inconsistent usage reports before downstream use. |
 | `research-fact-checker` | `answer` | Independent fact-checking for researcher outputs using `bespoke-minicheck:7b`; flags or rejects unsupported research claims. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
@@ -1139,6 +1156,7 @@ Options:
   --output-format <fmt>  Print result as json, yaml, markdown, html, text, or pdf
   --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result
+  --graph                Write PNG agent-network graphs for all DAG layouts
   --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
@@ -1152,6 +1170,11 @@ Options:
   --compare-agents [csv]
                          Run ablation comparisons for selected agents
   --semantic-judge       Add deterministic semantic comparison scores
+  --judge-panel-models <csv>
+                         Run an LLM judge panel with the listed models
+  --judge-panel-steer    Allow judge-panel feedback to steer reruns
+  --judge-panel-max-rounds <n>
+                         Max judge-panel steering reruns
   --github-issue <url>   GitHub issue URL for prompt/reporting
   --personality <text>   Personality or tone injected into AI prompts
 ```

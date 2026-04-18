@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createReportVisualArtifacts } from '../../src/output/visual-artifacts.js';
+import { createAgentGraphPngArtifacts, createReportVisualArtifacts } from '../../src/output/visual-artifacts.js';
 
 const usageOutput = `# Usage Classification Tree
 
@@ -185,6 +185,46 @@ describe('visual report artifacts', () => {
     expect(graphSvg).toContain('Role / Stage');
     expect(graphSvg).toContain('implementation-coder');
     expect(graphSvg).toContain('step-13');
+  });
+
+  it('writes agent graph image artifacts for every supported layout', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-graph-png-layouts-'));
+    const result = {
+      version: 2,
+      success: true,
+      outputDir,
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'researcher', status: 'completed', duration: 1 },
+          { id: 'step-2', agent: 'writer', status: 'completed', duration: 1 },
+        ],
+        edges: [{ from: 'step-1', to: 'step-2', type: 'planned' }],
+      },
+      steps: [
+        { id: 'step-1', agent: 'researcher', task: 'Research', status: 'completed', output: 'Research' },
+        { id: 'step-2', agent: 'writer', task: 'Write', status: 'completed', output: 'Final' },
+      ],
+    };
+
+    const manifest = await createAgentGraphPngArtifacts(result, { outputDir, renderPng: false });
+
+    expect(manifest.artifacts.map((artifact) => artifact.id)).toEqual([
+      'agent-network-auto',
+      'agent-network-stage',
+      'agent-network-metro',
+      'agent-network-matrix',
+      'agent-network-cluster',
+    ]);
+    expect(manifest.warnings).toEqual([
+      'PNG rendering disabled; wrote SVG graph artifacts instead.',
+    ]);
+    for (const artifact of manifest.artifacts) {
+      expect(artifact.kind).toBe('flowchart');
+      expect(artifact.format).toBe('svg');
+      const svg = await fs.readFile(artifact.path, 'utf8');
+      expect(svg).toContain('<svg');
+      expect(svg).toContain('Agent');
+    }
   });
 
 });

@@ -17,6 +17,7 @@ export function buildHeadlessResultV2(
     routerRationale?: HeadlessResultV2['routerRationale'];
     agentComparisons?: HeadlessAgentComparison[];
     semanticJudge?: HeadlessResultV2['semanticJudge'];
+    judgePanel?: HeadlessResultV2['judgePanel'];
   } = {},
 ): HeadlessResultV2 {
   const dag = buildDAGResult(steps, plan);
@@ -49,6 +50,7 @@ export function buildHeadlessResultV2(
     ...(artifacts.routerRationale ? { routerRationale: artifacts.routerRationale } : {}),
     ...(artifacts.agentComparisons ? { agentComparisons: artifacts.agentComparisons } : {}),
     ...(artifacts.semanticJudge ? { semanticJudge: artifacts.semanticJudge } : {}),
+    ...(artifacts.judgePanel ? { judgePanel: artifacts.judgePanel } : {}),
     consensusDiagnostics: [
       ...(artifacts.consensusDiagnostics ?? []),
       ...steps

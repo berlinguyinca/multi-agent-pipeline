@@ -9,7 +9,7 @@ import { parseDuration } from './utils/duration.js';
 import { validatePrompt } from './utils/prompt-validation.js';
 import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-args.js';
 import { formatMapOutput, parseDagLayoutOption, parseMapOutputFormat, type FormatMapOutputOptions, type MapOutputFormat } from './output/result-format.js';
-import { openOutputArtifact, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
+import { openOutputArtifact, writeGraphPngArtifacts, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
 import type { OllamaConfig, PipelineConfig } from './types/config.js';
 
 export async function runCli(args: string[]): Promise<void> {
@@ -43,6 +43,7 @@ Options:
   --output-format <fmt>  Print final result as json, yaml, markdown, html, text, or pdf (default: json)
   --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
+  --graph                Write PNG agent-network graphs for all DAG layouts
   --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, or cluster
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
@@ -58,6 +59,11 @@ Options:
   --compare-agent-list <csv>
                          Explicit comparison candidates when optional compare value is ambiguous
   --semantic-judge       Add deterministic semantic comparison scores to agent comparisons
+  --judge-panel-models <csv>
+                         Run an LLM judge panel with the listed models after the DAG
+  --judge-panel-steer    Allow judge panel feedback to trigger one steered rerun
+  --judge-panel-max-rounds <n>
+                         Max judge-panel steering reruns before stopping (default: 1)
   --ollama-host <url>    Override Ollama host for this run
   --ollama-context-length <n>
                          Context length used when MAP starts ollama serve (default: 100000)
@@ -105,6 +111,7 @@ Commands:
   const reviewPrUrl = extractFlag(args, '--review-pr');
   const outputFormat = resolveOutputFormat(args);
   const compact = hasFlag(args, '--compact');
+  const graph = hasFlag(args, '--graph');
   const dagLayout = resolveDagLayout(args);
   const openOutput = hasFlag(args, '--open-output');
   if (hasReviewPr && !reviewPrUrl) {
@@ -116,7 +123,7 @@ Commands:
     const configPath = extractFlag(args, '--config');
     const personality = extractFlag(args, '--personality');
     const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
-    await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -139,6 +146,12 @@ Commands:
     const disabledAgents = parseDisabledAgents(args);
     const compareAgents = parseCompareAgents(args);
     const semanticJudge = hasFlag(args, '--semantic-judge');
+    const judgePanelModels = parseCsvFlag(args, '--judge-panel-models');
+    const judgePanelSteer = hasFlag(args, '--judge-panel-steer');
+    const judgePanelMaxSteeringRounds = parsePositiveIntegerFlag(
+      extractFlag(args, '--judge-panel-max-rounds'),
+      '--judge-panel-max-rounds',
+    );
     const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
@@ -175,11 +188,14 @@ Commands:
         rerunPrompt: prompt,
         compareAgents,
         semanticJudge,
+        judgePanelModels,
+        judgePanelSteer,
+        judgePanelMaxSteeringRounds,
         ollama,
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
-      await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
+      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
       process.exit(result.success ? 0 : 1);
     }
 
@@ -209,7 +225,7 @@ Commands:
       pollIntervalMs:
         pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
     });
-    await writeFormattedResult(result, outputFormat, { compact, dagLayout }, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -298,6 +314,11 @@ function parseDisabledAgents(args: string[]): string[] | undefined {
   const agents = values.flatMap(parseCsvList);
   if (agents.length === 0) return undefined;
   return [...new Set(agents)];
+}
+
+function parseCsvFlag(args: string[], flag: string): string[] | undefined {
+  const value = extractFlag(args, flag);
+  return value === undefined ? undefined : parseCsvList(value);
 }
 
 function parseCsvList(value: string): string[] {
@@ -500,16 +521,19 @@ function buildV2SpecFilePrompt(
 async function writeFormattedResult(
   result: unknown,
   format: MapOutputFormat,
-  formatOptions: FormatMapOutputOptions = {},
+  formatOptions: FormatMapOutputOptions & { graph?: boolean } = {},
   openOutput = false,
 ): Promise<void> {
   const compact = formatOptions.compact ?? false;
   const outputDir = typeof result === 'object' && result !== null && !Array.isArray(result)
     ? ((result as Record<string, unknown>)['outputDir'] as string | undefined)
     : undefined;
+  const resultWithGraph = formatOptions.graph === true
+    ? await attachGraphArtifacts(result, outputDir)
+    : result;
 
   if (format === 'pdf') {
-    const artifact = await writePdfArtifact(result, {
+    const artifact = await writePdfArtifact(resultWithGraph, {
       compact,
       outputDir,
       dagLayout: formatOptions.dagLayout,
@@ -526,11 +550,29 @@ async function writeFormattedResult(
   }
 
   if (format === 'html' && openOutput) {
-    const artifact = await writeHtmlArtifact(result, { compact, outputDir, dagLayout: formatOptions.dagLayout });
+    const artifact = await writeHtmlArtifact(resultWithGraph, { compact, outputDir, dagLayout: formatOptions.dagLayout });
     await openOutputArtifact(artifact.htmlPath);
     process.stdout.write(`HTML report written to ${artifact.htmlPath}\n`);
     return;
   }
 
-  process.stdout.write(formatMapOutput(result, format, formatOptions));
+  process.stdout.write(formatMapOutput(resultWithGraph, format, formatOptions));
+}
+
+async function attachGraphArtifacts(result: unknown, outputDir: string | undefined): Promise<unknown> {
+  const graph = await writeGraphPngArtifacts(result, { outputDir });
+  if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
+    return {
+      ...result,
+      graphArtifacts: graph.artifacts,
+      graphArtifactManifestPath: graph.manifestPath,
+      ...(graph.warnings.length > 0 ? { graphWarnings: graph.warnings } : {}),
+    };
+  }
+  return {
+    result,
+    graphArtifacts: graph.artifacts,
+    graphArtifactManifestPath: graph.manifestPath,
+    ...(graph.warnings.length > 0 ? { graphWarnings: graph.warnings } : {}),
+  };
 }

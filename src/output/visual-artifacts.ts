@@ -1,8 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { buildDAGLayout, formatConsensusHeadline, formatNodeRuntime, resolveDAGRenderLayout } from '../dag/graph-renderer.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { DAG_RENDER_LAYOUTS, buildDAGLayout, formatConsensusHeadline, formatNodeRuntime, resolveDAGRenderLayout } from '../dag/graph-renderer.js';
 import type { DAGRenderLayout } from '../dag/graph-renderer.js';
 import type { ConsensusParticipant, DAGNodeConsensus, DAGResult } from '../types/dag.js';
+
+const execFileAsync = promisify(execFile);
 
 export type ReportArtifactKind = 'flowchart' | 'plot' | 'diagram' | 'image' | 'other';
 
@@ -25,6 +29,10 @@ export interface ReportArtifactManifest {
   version: 1;
   manifestPath: string;
   artifacts: ReportArtifact[];
+}
+
+export interface GraphPngArtifactManifest extends ReportArtifactManifest {
+  warnings: string[];
 }
 
 export async function createReportVisualArtifacts(
@@ -88,6 +96,150 @@ export async function createReportVisualArtifacts(
   const manifest: ReportArtifactManifest = { version: 1, manifestPath, artifacts };
   await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   return manifest;
+}
+
+export async function createAgentGraphPngArtifacts(
+  result: unknown,
+  options: { outputDir: string; renderPng?: boolean } ,
+): Promise<GraphPngArtifactManifest> {
+  const outputDir = path.resolve(options.outputDir);
+  const artifactsDir = path.join(outputDir, 'artifacts');
+  await fs.mkdir(artifactsDir, { recursive: true });
+
+  const data = isRecord(result) ? result : { result };
+  const warnings: string[] = [];
+  const artifacts: ReportArtifact[] = [];
+  const shouldRenderPng = options.renderPng !== false;
+  const browser = shouldRenderPng ? await findHeadlessBrowser() : null;
+
+  if (!shouldRenderPng) {
+    warnings.push('PNG rendering disabled; wrote SVG graph artifacts instead.');
+  } else if (!browser) {
+    warnings.push('No Chrome/Chromium-compatible browser was found; wrote SVG graph artifacts instead.');
+  }
+
+  for (const layout of DAG_RENDER_LAYOUTS) {
+    const graph = buildAgentNetworkSvg(data, layout);
+    if (!graph) continue;
+    const id = `agent-network-${layout}`;
+    const svgPath = path.join(artifactsDir, `${id}.svg`);
+    const svg = sanitizeSvg(graph.svg);
+    await fs.writeFile(svgPath, svg, 'utf8');
+
+    if (browser && shouldRenderPng) {
+      const pngPath = path.join(artifactsDir, `${id}.png`);
+      try {
+        await renderSvgToPng({ browser, svgPath, pngPath, svg });
+        artifacts.push({
+          id,
+          kind: 'flowchart',
+          path: pngPath,
+          src: path.posix.join('artifacts', `${id}.png`),
+          mimeType: 'image/png',
+          format: 'png',
+          title: `Agent Network (${layout})`,
+          description: `Executed MAP agent flowchart rendered with the ${layout} layout.`,
+          deterministic: true,
+          sourceStepIds: graph.sourceStepIds,
+        });
+        continue;
+      } catch (error) {
+        warnings.push(`PNG rendering failed for ${layout}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    artifacts.push({
+      id,
+      kind: 'flowchart',
+      path: svgPath,
+      src: path.posix.join('artifacts', `${id}.svg`),
+      mimeType: 'image/svg+xml',
+      format: 'svg',
+      title: `Agent Network (${layout})`,
+      description: `Executed MAP agent flowchart rendered with the ${layout} layout.`,
+      deterministic: true,
+      sourceStepIds: graph.sourceStepIds,
+    });
+  }
+
+  const manifestPath = path.join(artifactsDir, 'agent-graph-manifest.json');
+  const manifest: GraphPngArtifactManifest = { version: 1, manifestPath, artifacts, warnings };
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  return manifest;
+}
+
+async function renderSvgToPng(options: {
+  browser: string;
+  svgPath: string;
+  pngPath: string;
+  svg: string;
+}): Promise<void> {
+  const size = parseSvgSize(options.svg);
+  const htmlPath = options.svgPath.replace(/\.svg$/i, '.html');
+  const html = [
+    '<!doctype html><html><head><meta charset="utf-8">',
+    '<style>html,body{margin:0;background:#f8fbff;}img{display:block;width:100vw;height:100vh;object-fit:contain;}</style>',
+    '</head><body>',
+    `<img src="${path.basename(options.svgPath).replace(/"/g, '&quot;')}" alt="Agent graph">`,
+    '</body></html>',
+  ].join('');
+  await fs.writeFile(htmlPath, html, 'utf8');
+  await execFileAsync(options.browser, [
+    '--headless=new',
+    '--disable-gpu',
+    '--no-sandbox',
+    `--window-size=${size.width},${size.height}`,
+    `--screenshot=${options.pngPath}`,
+    fileUrl(htmlPath),
+  ], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+}
+
+function parseSvgSize(svg: string): { width: number; height: number } {
+  const width = Number(svg.match(/\bwidth="(\d+)"/)?.[1] ?? 1200);
+  const height = Number(svg.match(/\bheight="(\d+)"/)?.[1] ?? 800);
+  return {
+    width: Math.max(320, Math.min(3000, width)),
+    height: Math.max(240, Math.min(2400, height)),
+  };
+}
+
+async function findHeadlessBrowser(): Promise<string | null> {
+  const candidates = [
+    process.env['MAP_GRAPH_BROWSER'],
+    process.env['MAP_PDF_BROWSER'],
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    'google-chrome',
+    'google-chrome-stable',
+    'chromium',
+    'chromium-browser',
+    'microsoft-edge',
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+
+  for (const candidate of candidates) {
+    if (candidate.includes(path.sep)) {
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        continue;
+      }
+    }
+    try {
+      const command = process.platform === 'win32' ? 'where' : 'which';
+      const { stdout } = await execFileAsync(command, [candidate], { timeout: 3_000 });
+      const resolved = stdout.trim().split(/\r?\n/)[0];
+      if (resolved) return resolved;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function fileUrl(filePath: string): string {
+  return `file://${filePath.split(path.sep).map(encodeURIComponent).join('/')}`;
 }
 
 async function writeSvgArtifact(options: {

@@ -22,6 +22,8 @@ const flagsWithValues = new Set([
   '--disable-agent',
   '--disable-agents',
   '--compare-agent-list',
+  '--judge-panel-models',
+  '--judge-panel-max-rounds',
   '--ollama-host',
   '--ollama-context-length',
   '--ollama-num-parallel',
@@ -41,9 +43,11 @@ const booleanFlags = new Set([
   '--verbose',
   '-V',
   '--compact',
+  '--graph',
   '--open-output',
   '--compare-agents',
   '--semantic-judge',
+  '--judge-panel-steer',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {
