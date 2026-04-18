@@ -13,7 +13,51 @@ export interface AgentCreationPreferences {
   outputType?: string;
 }
 
-export function buildCreationPrompt(description: string, preferences: AgentCreationPreferences = {}): string {
+export interface AgentCreationModelRecommendations {
+  preferred?: string;
+  installedOllamaModels: string[];
+  huggingFaceCandidates: string[];
+  notes: string[];
+}
+
+export function recommendAgentCreationModels(
+  description: string,
+  installedOllamaModels: string[] = [],
+): AgentCreationModelRecommendations {
+  const lower = description.toLowerCase();
+  const chemistry = /(chem|molecule|drug|metabol|taxonomy|classyfire|chemont|smiles|iupac|cocaine|aspirin)/.test(lower);
+  const chemicalOllama = installedOllamaModels.find((model) => /(chem|molec|drug)/i.test(model));
+  if (chemistry) {
+    return {
+      preferred: chemicalOllama ?? installedOllamaModels.find((model) => /gemma|qwen|llama/i.test(model)),
+      installedOllamaModels,
+      huggingFaceCandidates: [
+        'AI4Chem/ChemLLM-7B-Chat-1.5-DPO',
+        'AI4Chem/ChemLLM-7B-Chat-1.5-SFT',
+        'AI4Chem/CHEMLLM-2b-1_5',
+        'DeepChem/ChemBERTa-77M-MLM',
+        'ibm/MoLFormer-XL-both-10pct',
+      ],
+      notes: [
+        'Use chemistry-specialized models in conjunction with the main model for chemistry, molecular science, SMILES/IUPAC, taxonomy, and metabolomics tasks.',
+        'Prefer chat/instruction chemistry LLMs for reasoning agents; prefer ChemBERTa/MoLFormer-style encoders only for embedding/property-prediction integrations, not free-form chat.',
+        'Keep evidence gates and fact-checkers enabled because domain-specialized models can still hallucinate.',
+      ],
+    };
+  }
+  return {
+    preferred: installedOllamaModels[0],
+    installedOllamaModels,
+    huggingFaceCandidates: [],
+    notes: ['Prefer a strong general model unless a domain-specialized model is installed or explicitly requested.'],
+  };
+}
+
+export function buildCreationPrompt(
+  description: string,
+  preferences: AgentCreationPreferences = {},
+  modelRecommendations: AgentCreationModelRecommendations = recommendAgentCreationModels(description),
+): string {
   return `You are helping create a new agent definition for a multi-agent pipeline system.
 
 The user wants an agent that does: ${description}
@@ -26,9 +70,15 @@ User preferences:
 - pipeline stages: ${preferences.pipeline || '(choose a concise stage list)'}
 - output type: ${preferences.outputType || '(answer/data/files)'}
 
+Model discovery guidance:
+- preferred local model: ${modelRecommendations.preferred || '(none detected)'}
+- installed Ollama models: ${modelRecommendations.installedOllamaModels.length > 0 ? modelRecommendations.installedOllamaModels.join(', ') : '(unknown/not detected)'}
+- Hugging Face/domain candidates: ${modelRecommendations.huggingFaceCandidates.length > 0 ? modelRecommendations.huggingFaceCandidates.join(', ') : '(none)'}
+- notes: ${modelRecommendations.notes.join(' ')}
+
 Generate two files:
 
-1. An agent.yaml configuration file with fields: name, description, adapter (claude/codex/ollama/hermes), model (optional), prompt: prompt.md, pipeline (list of stage names), handles (comma-separated capabilities), output type (answer/data/files), tools (array, use [] if none).
+1. An agent.yaml configuration file with fields: name, description, adapter (claude/codex/ollama/hermes/metadata), model (optional), prompt: prompt.md, pipeline (list of stage names), handles (comma-separated capabilities), output type (answer/data/files), tools (array, use [] if none).
 
 2. A prompt.md file with a rich system prompt in markdown. The prompt must include this conduct section exactly:
 
@@ -63,9 +113,10 @@ export async function generateAndWriteAgentFiles(options: {
   adapter: string;
   model?: string;
   preferences?: AgentCreationPreferences;
+  modelRecommendations?: AgentCreationModelRecommendations;
 }): Promise<GeneratedAgentFiles & { directory: string }> {
   const creationAdapter = createAdapter({ type: options.adapter as any, model: options.model });
-  const prompt = buildCreationPrompt(options.description, options.preferences);
+  const prompt = buildCreationPrompt(options.description, options.preferences, options.modelRecommendations);
 
   let output = '';
   for await (const chunk of creationAdapter.run(prompt)) {

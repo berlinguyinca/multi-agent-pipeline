@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateAgentFiles, buildCreationPrompt } from '../../src/cli/agent-create-dialog.js';
+import { generateAgentFiles, buildCreationPrompt, recommendAgentCreationModels } from '../../src/cli/agent-create-dialog.js';
 
 describe('buildCreationPrompt', () => {
   it('includes the agent description', () => {
@@ -32,6 +32,21 @@ describe('buildCreationPrompt', () => {
     expect(prompt).toContain('professional engineering tone');
     expect(prompt).toContain('Generate code and text output in a human-readable form.');
     expect(prompt).toContain('Exceptions are allowed only for explicitly requested binary or media artifacts');
+  });
+
+  it('adds model discovery guidance for chemistry agents', () => {
+    const recommendations = recommendAgentCreationModels('Create a chemistry taxonomy and metabolomics agent', [
+      'gemma4:26b',
+      'deepseek-coder:latest',
+      'ALIENTELLIGENCE/chemicalengineer',
+    ]);
+    const prompt = buildCreationPrompt('Create a chemistry taxonomy and metabolomics agent', {}, recommendations);
+
+    expect(recommendations.preferred).toBe('ALIENTELLIGENCE/chemicalengineer');
+    expect(prompt).toContain('Model discovery guidance');
+    expect(prompt).toContain('ALIENTELLIGENCE/chemicalengineer');
+    expect(prompt).toContain('AI4Chem/ChemLLM');
+    expect(prompt).toContain('Use chemistry-specialized models in conjunction with the main model');
   });
 });
 

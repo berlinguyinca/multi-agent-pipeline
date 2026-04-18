@@ -57,11 +57,14 @@ export async function routeTask(
   const adapters = Array.isArray(routerAdapter) ? routerAdapter : [routerAdapter];
 
   if (shouldUseRouterConsensus(adapters, config)) {
-    return routeTaskWithConsensus(prompt, agents, adapters.slice(0, 3), config, signal, onChunk);
+    return routeTaskWithConsensus(userTask, prompt, agents, adapters.slice(0, 3), config, signal, onChunk);
   }
 
   const output = await runRouterAdapter(prompt, adapters[0]!, config, signal, onChunk);
-  return finalizeRouterOutput(output, agents);
+  const decision = finalizeRouterOutput(output, agents);
+  return decision.kind === 'no-match'
+    ? buildDomainFallbackDecision(userTask, agents, decision) ?? decision
+    : decision;
 }
 
 function shouldUseRouterConsensus(adapters: AgentAdapter[], config: RouterConfig): boolean {
@@ -69,6 +72,7 @@ function shouldUseRouterConsensus(adapters: AgentAdapter[], config: RouterConfig
 }
 
 async function routeTaskWithConsensus(
+  userTask: string,
   prompt: string,
   agents: Map<string, AgentDefinition>,
   adapters: AgentAdapter[],
@@ -108,7 +112,8 @@ async function routeTaskWithConsensus(
   );
 
   if (planCandidates.length === 0) {
-    return valid.sort((a, b) => b.score - a.score)[0]!.decision;
+    const selectedNoMatch = valid.sort((a, b) => b.score - a.score)[0]!.decision;
+    return buildDomainFallbackDecision(userTask, agents, selectedNoMatch) ?? selectedNoMatch;
   }
 
   const consensusPlan = buildMajorityPlan(planCandidates.map((candidate) => candidate.decision.plan));
@@ -126,6 +131,50 @@ async function routeTaskWithConsensus(
   return {
     ...selected.decision,
     consensus: buildRouterConsensusDiagnostics(candidates, selected.decision.plan, 'best-valid-fallback'),
+  };
+}
+
+function buildDomainFallbackDecision(
+  userTask: string,
+  agents: Map<string, AgentDefinition>,
+  original: RouterDecision,
+): RouterPlanDecision | null {
+  const task = userTask.toLowerCase();
+  const wantsChemicalTaxonomy = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
+    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
+  const wantsUsage = /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
+    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
+  if (!wantsChemicalTaxonomy && !wantsUsage) return null;
+
+  const plan: DAGPlan['plan'] = [];
+  if (wantsChemicalTaxonomy && agents.has('classyfire-taxonomy-classifier')) {
+    plan.push({
+      id: 'step-1',
+      agent: 'classyfire-taxonomy-classifier',
+      task: 'Generate a concise ClassyFire/ChemOnt-style chemical taxonomy table for the requested entity without using the live ClassyFire API.',
+      dependsOn: [],
+    });
+  }
+  if (wantsUsage && agents.has('usage-classification-tree')) {
+    plan.push({
+      id: `step-${plan.length + 1}`,
+      agent: 'usage-classification-tree',
+      task: 'Generate concise evidence-backed usage, exposure, and commonness tables for the requested medical and metabolomics context.',
+      dependsOn: [],
+    });
+  }
+  if (plan.length === 0) return null;
+
+  return {
+    kind: 'plan',
+    plan: { plan },
+    rationale: {
+      selectedAgents: plan.map((step) => ({
+        agent: step.agent,
+        reason: 'Deterministic domain fallback selected specialized chemical taxonomy/usage agents after the router returned no executable plan.',
+      })),
+      rejectedAgents: original.rationale?.rejectedAgents ?? [],
+    },
   };
 }
 

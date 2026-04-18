@@ -9,6 +9,8 @@ import { generateAndWriteAgentFiles } from './agent-create-dialog.js';
 import { createAdapter } from '../adapters/adapter-factory.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
+import { listInstalledOllamaModels } from '../adapters/ollama-models.js';
+import { recommendAgentCreationModels } from './agent-create-dialog.js';
 
 export async function handleAgentCommand(args: string[]): Promise<void> {
   const action = args[0];
@@ -64,22 +66,27 @@ async function handleCreate(adapterOverride?: string, modelOverride?: string): P
     const outputAnswer = await rl.question('What output type? answer, data, files, or blank for generator choice.\n> ');
     const selectedAdapter = adapterAnswer.trim() || adapter;
     const selectedModel = modelAnswer.trim() || model;
+    const installedModels = selectedAdapter === 'ollama'
+      ? await listInstalledOllamaModels(config.ollama.host).catch(() => [])
+      : [];
+    const modelRecommendations = recommendAgentCreationModels(description, installedModels);
 
-    console.log(`\nGenerating agent definition using ${selectedAdapter}/${selectedModel ?? 'default'}...`);
+    console.log(`\nGenerating agent definition using ${selectedAdapter}/${selectedModel ?? modelRecommendations.preferred ?? 'default'}...`);
 
     const files = await generateAndWriteAgentFiles({
       cwd: process.cwd(),
       description,
       adapter: selectedAdapter,
-      model: selectedModel,
+      model: selectedModel ?? modelRecommendations.preferred,
       preferences: {
         name: suggestedName.trim() || undefined,
         adapter: selectedAdapter,
-        model: selectedModel,
+        model: selectedModel ?? modelRecommendations.preferred,
         tools: toolsAnswer.trim() || undefined,
         pipeline: stagesAnswer.trim() || undefined,
         outputType: outputAnswer.trim() || undefined,
       },
+      modelRecommendations,
     });
 
     console.log(`\nAgent "${files.name}" created at agents/${files.name}/`);
