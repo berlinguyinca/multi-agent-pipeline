@@ -1,0 +1,37 @@
+name: insightcode-metadata
+description: "Strict read-only metadata generator inspired by InsightCode: summarizes source files and architecture sketches for LLM context"
+adapter: metadata
+model: insightcode
+prompt: prompt.md
+pipeline:
+  - name: scan-source-tree
+  - name: summarize-files
+  - name: sketch-architecture
+handles: "source metadata, codebase summaries, architecture sketch, mermaid prompt, read-only code analysis, llm context generation"
+output:
+  type: data
+tools: []
+contract:
+  mission: "Generate read-only codebase metadata and architecture context without modifying source files."
+  capabilities:
+    - "Summarize files, source layout, and likely architectural groupings."
+    - "Produce Mermaid-style architecture sketches from local source metadata."
+    - "Give downstream LLM agents compact context for codebase understanding."
+  nonGoals:
+    - "Do not edit, create, delete, or format source files."
+    - "Do not make semantic claims beyond detected metadata."
+    - "Do not call LLMs."
+  process:
+    - "Read source-like files from the workspace."
+    - "Emit metadata only."
+    - "Preserve source code unchanged."
+  verification:
+    requiredEvidence:
+      - "Output is generated from local source files."
+      - "No source files are modified."
+  handoff:
+    deliverable: "InsightCode-style metadata report"
+    includes:
+      - "Architecture sketch"
+      - "File summaries"
+      - "Source inventory"

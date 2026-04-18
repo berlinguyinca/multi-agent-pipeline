@@ -1,0 +1,36 @@
+name: codefetch-metadata
+description: "Strict read-only metadata generator inspired by CodeFetch: bundles selected source files into Markdown context for LLMs"
+adapter: metadata
+model: codefetch
+prompt: prompt.md
+pipeline:
+  - name: scan-source-tree
+  - name: collect-markdown-context
+handles: "codefetch metadata, source-to-markdown context, file tree, code snippets, llm context generation"
+output:
+  type: data
+tools: []
+contract:
+  mission: "Generate read-only Markdown source context without modifying input files."
+  capabilities:
+    - "List source files and compact previews."
+    - "Bundle code snippets into Markdown context."
+    - "Help downstream LLM agents inspect relevant code quickly."
+  nonGoals:
+    - "Do not edit, create, delete, or format source files."
+    - "Do not summarize beyond source-visible metadata."
+    - "Do not call LLMs."
+  process:
+    - "Read source-like files from the workspace."
+    - "Emit markdown metadata only."
+    - "Preserve source code unchanged."
+  verification:
+    requiredEvidence:
+      - "Output is generated from local source files."
+      - "No source files are modified."
+  handoff:
+    deliverable: "CodeFetch-style Markdown context"
+    includes:
+      - "File tree"
+      - "Code snippets"
+      - "Source inventory"

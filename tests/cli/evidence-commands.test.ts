@@ -82,4 +82,34 @@ describe('evidence commands', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('Evidence Audit'));
     expect(log).toHaveBeenCalledWith(expect.stringContaining('Files with ledgers: 1'));
   });
+
+  it('explains a claim failure with concrete fix options', async () => {
+    const dir = await makeTempDir();
+    await fs.writeFile(path.join(dir, 'report.md'), [
+      '## Claim Evidence Ledger',
+      '```json',
+      JSON.stringify({
+        claims: [{
+          id: 'claim-3',
+          claim: 'Historical practice is common today.',
+          claimType: 'commonness-score',
+          confidence: 'medium',
+          timeframe: 'historical',
+          recencyStatus: 'historical',
+          commonnessScore: 90,
+          evidence: [{ sourceType: 'document', title: 'Old text', publishedAt: '1700', summary: 'old', supports: 'historical use' }],
+        }],
+      }),
+      '```',
+    ].join('\n'));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await handleEvidenceCommand(['explain', 'claim-3', dir]);
+
+    const output = String(log.mock.calls.at(-1)?.[0] ?? '');
+    expect(output).toContain('Claim claim-3');
+    expect(output).toContain('Historical or obsolete practices cannot receive a current commonness score above 20');
+    expect(output).toContain('Fix options');
+    expect(output).toContain('Add current/recent evidence');
+  });
 });

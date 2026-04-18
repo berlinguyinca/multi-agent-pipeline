@@ -349,6 +349,7 @@ describe('result formatting', () => {
     }, 'markdown');
 
     expect(output).toContain('## Evidence Verification');
+    expect(output).toContain('- Evidence coverage: 0 supported / 1 total claims');
     expect(output).toContain('| Step | Agent | Status | Claim | Severity | Finding | Sources |');
     expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. | Old source (published 1820) |');
   });

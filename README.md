@@ -1035,6 +1035,9 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `usage-classification-fact-checker` | `answer` | Independent fact-checking for usage/LCB/commonness claims using `bespoke-minicheck:7b`; rejects unsupported or recency-inconsistent usage reports before downstream use. |
 | `research-fact-checker` | `answer` | Independent fact-checking for researcher outputs using `bespoke-minicheck:7b`; flags or rejects unsupported research claims. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
+| `insightcode-metadata` | `data` | Deterministic read-only metadata generator inspired by InsightCode; emits source summaries and architecture sketches for downstream LLM context. |
+| `codefetch-metadata` | `data` | Deterministic read-only metadata generator inspired by CodeFetch; emits Markdown file tree and compact source context without editing files. |
+| `codesight-metadata` | `data` | Deterministic read-only metadata generator inspired by CodeSight; maps files, symbols, imports, and exports for LLM codebase understanding. |
 | `bug-debugger` | `answer` | Reproduction, root cause, regression-safe fix plans. |
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |

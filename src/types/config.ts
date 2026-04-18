@@ -37,10 +37,13 @@ export interface QualityConfig {
 
 export interface EvidenceConfig {
   enabled: boolean;
+  mode: 'strict' | 'warn' | 'off' | 'high-stakes';
   requiredAgents: string[];
   currentClaimMaxSourceAgeDays: number;
+  freshnessProfiles: Record<string, number>;
   requireRetrievedAtForWebClaims: boolean;
   blockUnsupportedCurrentClaims: boolean;
+  remediationMaxRetries: number;
 }
 
 export interface RouterConfig {

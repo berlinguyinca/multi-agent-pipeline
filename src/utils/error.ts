@@ -58,5 +58,7 @@ function installHint(type: AdapterType): string {
       return 'Install: https://ollama.com/download';
     case 'hermes':
       return 'Install Hermes CLI and ensure the hermes binary is on PATH';
+    case 'metadata':
+      return 'Metadata adapter is built in and requires no external install';
   }
 }

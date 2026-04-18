@@ -12,6 +12,7 @@ This repository is **multi-agent-pipeline (MAP)**. It orchestrates local and CLI
 - `src/orchestrator/orchestrator.ts` executes DAG steps, injects tool catalogs, handles retries/recovery, security gates, handoff validation, grammar review, adviser replans, and output consensus.
 - `src/headless/runner.ts` and `src/tui/tui-app.ts` wire config into routing and DAG execution.
 - Smart-routing execution may separate `outputDir` (MAP reports/artifacts) from `workspaceDir` (agent cwd for existing source/data). Agents should inspect and integrate with `workspaceDir`; do not assume report artifacts are the target application.
+- Source metadata generator agents (`insightcode-metadata`, `codefetch-metadata`, `codesight-metadata`) are deterministic, non-LLM, read-only agents. They must generate codebase metadata only and must not modify source files.
 
 ## Visual artifact contract notes
 

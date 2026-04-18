@@ -738,9 +738,14 @@ function renderHtmlConsensusDiagnostics(data: Record<string, unknown>): string[]
 function appendEvidenceVerification(lines: string[], data: Record<string, unknown>): void {
   const rows = collectEvidenceVerificationRows(data);
   if (rows.length === 0) return;
+  const coverage = collectEvidenceCoverage(data);
   lines.push(
     '',
     '## Evidence Verification',
+    '',
+    `- Evidence coverage: ${coverage.supported} supported / ${coverage.total} total claims`,
+    `- Needs review: ${coverage.needsReview}`,
+    `- Rejected: ${coverage.rejected}`,
     '',
     '| Step | Agent | Status | Claim | Severity | Finding | Sources |',
     '| --- | --- | --- | --- | --- | --- | --- |',
@@ -753,8 +758,10 @@ function appendEvidenceVerification(lines: string[], data: Record<string, unknow
 function renderHtmlEvidenceVerification(data: Record<string, unknown>): string[] {
   const rows = collectEvidenceVerificationRows(data);
   if (rows.length === 0) return [];
+  const coverage = collectEvidenceCoverage(data);
   return [
     '<h2>Evidence Verification</h2>',
+    `<p><strong>Evidence coverage:</strong> ${coverage.supported} supported / ${coverage.total} total claims · Needs review: ${coverage.needsReview} · Rejected: ${coverage.rejected}</p>`,
     '<table>',
     '<thead><tr><th>Step</th><th>Agent</th><th>Status</th><th>Claim</th><th>Severity</th><th>Finding</th><th>Sources</th></tr></thead>',
     '<tbody>',
@@ -762,6 +769,35 @@ function renderHtmlEvidenceVerification(data: Record<string, unknown>): string[]
     '</tbody>',
     '</table>',
   ];
+}
+
+function collectEvidenceCoverage(data: Record<string, unknown>): {
+  total: number;
+  supported: number;
+  needsReview: number;
+  rejected: number;
+} {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  let total = 0;
+  let rejected = 0;
+  let needsReview = 0;
+  for (const step of steps) {
+    const gate = isRecord(step['evidenceGate']) ? step['evidenceGate'] : undefined;
+    if (!gate || gate['checked'] !== true) continue;
+    const claims = Array.isArray(gate['claims']) ? gate['claims'].filter(isRecord) : [];
+    const findings = Array.isArray(gate['findings']) ? gate['findings'].filter(isRecord) : [];
+    total += claims.length;
+    const rejectedClaimIds = new Set(findings.filter((finding) => finding['severity'] === 'high').map((finding) => String(finding['claimId'] ?? '')));
+    const reviewClaimIds = new Set(findings.filter((finding) => finding['severity'] !== 'high').map((finding) => String(finding['claimId'] ?? '')));
+    rejected += [...rejectedClaimIds].filter(Boolean).length;
+    needsReview += [...reviewClaimIds].filter((id) => id && !rejectedClaimIds.has(id)).length;
+  }
+  return {
+    total,
+    rejected,
+    needsReview,
+    supported: Math.max(0, total - rejected - needsReview),
+  };
 }
 
 function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
