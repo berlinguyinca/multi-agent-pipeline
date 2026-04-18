@@ -60,5 +60,7 @@ function installHint(type: AdapterType): string {
       return 'Install Hermes CLI and ensure the hermes binary is on PATH';
     case 'metadata':
       return 'Metadata adapter is built in and requires no external install';
+    case 'huggingface':
+      return 'Install Ollama; Hugging Face GGUF models are pulled through Ollama using hf.co model refs';
   }
 }

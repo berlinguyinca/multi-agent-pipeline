@@ -23,8 +23,9 @@ export async function syncReferencedOllamaModels(
   ollama?: string | OllamaConfig,
 ): Promise<void> {
   const host = typeof ollama === 'string' ? ollama : ollama?.host;
-  await ensureOllamaReadyForConfigs(
-    [...agents]
+  const agentList = [...agents];
+  await ensureOllamaReadyForConfigs([
+    ...agentList
       .filter((agent) => agent.adapter === 'ollama' && agent.model)
       .map((agent) => ({
         type: 'ollama' as const,
@@ -38,5 +39,19 @@ export async function syncReferencedOllamaModels(
             }
           : {}),
       })),
-  );
+    ...agentList
+      .filter((agent) => agent.adapter === 'huggingface' && agent.model)
+      .map((agent) => ({
+        type: 'ollama' as const,
+        model: agent.model!.startsWith('hf.co/') ? agent.model : `hf.co/${agent.model}`,
+        host,
+        ...(typeof ollama === 'object'
+          ? {
+              contextLength: ollama.contextLength,
+              numParallel: ollama.numParallel,
+              maxLoadedModels: ollama.maxLoadedModels,
+            }
+          : {}),
+      })),
+  ]);
 }

@@ -135,6 +135,14 @@ describe('routeTask', () => {
     expect(prompt).toContain('must not modify source files');
   });
 
+  it('tells the router to route model installation through model-installer', () => {
+    const prompt = buildRouterPrompt(agents, 'Install a Hugging Face chemistry model into Ollama');
+
+    expect(prompt).toContain('model-installer');
+    expect(prompt).toContain('download, pull, import, build, install, or verify');
+    expect(prompt).toContain('Hugging Face or Ollama model');
+  });
+
 
   it('normalizes common router agent aliases to registered agent names', async () => {
     const json = '{"kind":"plan","plan":[{"id":"step-1","agent":"agent-adviser","task":"Advise workflow","dependsOn":[]}]}';

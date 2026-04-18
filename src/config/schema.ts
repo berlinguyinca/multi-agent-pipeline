@@ -17,7 +17,7 @@ import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
 import { DEFAULT_AGENT_CONSENSUS_CONFIG, DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
 
-const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata'];
+const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata', 'huggingface'];
 const VALID_AGENT_CONSENSUS_OUTPUT_TYPES = ['answer', 'data', 'presentation'] as const;
 
 function isValidAdapter(value: unknown): value is AdapterType {

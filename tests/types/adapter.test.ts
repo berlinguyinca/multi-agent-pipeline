@@ -8,8 +8,8 @@ import type {
 
 describe('AdapterType', () => {
   it('supports LLM and metadata adapter types', () => {
-    const types: AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata'];
-    expect(types).toHaveLength(5);
+    const types: AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata', 'huggingface'];
+    expect(types).toHaveLength(6);
   });
 });
 
@@ -45,6 +45,7 @@ describe('DetectionResult', () => {
       codex: { installed: false },
       ollama: { installed: true, models: ['hermes:latest', 'codellama:7b'] },
       metadata: { installed: true },
+      huggingface: { installed: true },
     };
     expect(result.claude.installed).toBe(true);
     expect(result.codex.installed).toBe(false);
