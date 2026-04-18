@@ -4,6 +4,7 @@ import { ClaudeAdapter } from '../../src/adapters/claude-adapter.js';
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
 import { OllamaAdapter } from '../../src/adapters/ollama-adapter.js';
 import { MetadataAdapter } from '../../src/adapters/metadata-adapter.js';
+import { HuggingFaceAdapter } from '../../src/adapters/huggingface-adapter.js';
 
 describe('createAdapter', () => {
   it('creates ClaudeAdapter for claude type', () => {
@@ -30,6 +31,13 @@ describe('createAdapter', () => {
     expect(adapter).toBeInstanceOf(MetadataAdapter);
     expect(adapter.type).toBe('metadata');
     expect(adapter.model).toBe('codefetch');
+  });
+
+  it('creates HuggingFaceAdapter for huggingface type', () => {
+    const adapter = createAdapter({ type: 'huggingface', model: 'AI4Chem/ChemLLM-7B-GGUF' });
+    expect(adapter).toBeInstanceOf(HuggingFaceAdapter);
+    expect(adapter.type).toBe('huggingface');
+    expect(adapter.model).toBe('hf.co/AI4Chem/ChemLLM-7B-GGUF');
   });
 
   it('passes model to OllamaAdapter', () => {

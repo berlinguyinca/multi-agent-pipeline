@@ -44,6 +44,7 @@ ${cleanTask}
 13. Do not explicitly add grammar-spelling-specialist steps for ordinary text polishing; the orchestrator automatically schedules that specialist after human-facing text outputs.
 14. Include a concise rationale object explaining selected agents and notable rejected agents so users can understand and tune the network.
 15. For existing-codebase implementation, refactor, review, or architecture tasks, prefer one read-only metadata generator step (insightcode-metadata, codefetch-metadata, or codesight-metadata when available) before LLM editing/review steps when it materially improves codebase understanding. Metadata agents are deterministic and must not modify source files.
+16. When a task asks to download, pull, import, build, install, or verify a Hugging Face or Ollama model, route through model-installer when available before any downstream agent that needs the model.
 
 ## Output Format
 

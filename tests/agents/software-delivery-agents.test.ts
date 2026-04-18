@@ -291,6 +291,19 @@ describe('software delivery agent bundle', () => {
     expect(codesight.model).toBe('codesight');
   });
 
+  it('loads model-installer as a gemma4-backed agent for Ollama/Hugging Face setup', async () => {
+    const installer = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'model-installer'));
+
+    expect(installer.adapter).toBe('ollama');
+    expect(installer.model).toBe('gemma4:26b');
+    expect(installer.prompt).toContain('Hugging Face');
+    expect(installer.prompt).toContain('ollama pull hf.co');
+    expect(installer.tools).toContainEqual(expect.objectContaining({
+      type: 'builtin',
+      name: 'shell',
+    }));
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 

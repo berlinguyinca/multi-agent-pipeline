@@ -2,6 +2,7 @@ import type { AdapterConfig, AgentAdapter } from '../types/adapter.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
 import { HermesAdapter } from './hermes-adapter.js';
+import { HuggingFaceAdapter } from './huggingface-adapter.js';
 import { MetadataAdapter } from './metadata-adapter.js';
 import { OllamaAdapter } from './ollama-adapter.js';
 
@@ -21,6 +22,12 @@ export function createAdapter(config: AdapterConfig): AgentAdapter {
       return new HermesAdapter(config.model);
     case 'metadata':
       return new MetadataAdapter(config.model);
+    case 'huggingface':
+      return new HuggingFaceAdapter(config.model, config.host, {
+        contextLength: config.contextLength,
+        numParallel: config.numParallel,
+        maxLoadedModels: config.maxLoadedModels,
+      });
     default: {
       const _exhaustive: never = config.type;
       throw new Error(`Unknown adapter type: ${_exhaustive}`);

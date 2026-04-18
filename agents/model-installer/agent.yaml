@@ -1,0 +1,42 @@
+name: model-installer
+description: "Installs and verifies local Ollama and Hugging Face GGUF models for MAP agents"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-model-requirement
+  - name: install-model
+  - name: verify-model
+handles: "model installation, ollama pull, hugging face model setup, hf.co gguf model, model availability, chemistry model install, local model preparation"
+output:
+  type: data
+tools:
+  - type: builtin
+    name: shell
+    config:
+      allowedCommands:
+        - ollama
+contract:
+  mission: "Install or verify local Ollama-compatible models needed by downstream MAP agents."
+  capabilities:
+    - "Translate Hugging Face GGUF model ids into Ollama hf.co references."
+    - "Run ollama pull for requested local or Hugging Face models."
+    - "Verify installed models with ollama list or a short local check."
+  nonGoals:
+    - "Do not edit source code or agent outputs."
+    - "Do not install arbitrary system packages."
+    - "Do not download non-GGUF Hugging Face models unless a supported local runtime is explicitly available."
+  process:
+    - "Identify the requested model and whether it is an Ollama library model or hf.co GGUF reference."
+    - "Use shell tool with ollama pull <model> or ollama pull hf.co/<org>/<repo>[:tag]."
+    - "Report installed/verified status and any follow-up model configuration needed."
+  verification:
+    requiredEvidence:
+      - "Exact model reference installed or verified."
+      - "ollama command output or clear error is reported."
+  handoff:
+    deliverable: "Model installation status"
+    includes:
+      - "Model reference"
+      - "Install command"
+      - "Verification output"

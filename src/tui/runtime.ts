@@ -377,6 +377,8 @@ function binaryNameForAdapter(adapter: AdapterType): string {
       return 'hermes';
     case 'metadata':
       return 'metadata';
+    case 'huggingface':
+      return 'ollama';
   }
 }
 
