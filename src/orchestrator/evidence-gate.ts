@@ -44,6 +44,18 @@ export function runEvidenceGate(options: {
   };
 }
 
+export function auditEvidenceText(markdown: string, config?: EvidenceConfig): EvidenceGateResult | null {
+  const claims = extractClaimEvidenceLedger(markdown);
+  if (claims === null) return null;
+  const findings = claims.flatMap((claim) => validateClaimEvidence(claim, config));
+  return {
+    checked: true,
+    passed: !findings.some((finding) => finding.severity === 'high'),
+    claims,
+    findings,
+  };
+}
+
 function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | undefined): EvidenceGateFinding[] {
   const findings: EvidenceGateFinding[] = [];
   if (!claim.id.trim()) {

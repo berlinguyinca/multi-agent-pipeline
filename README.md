@@ -528,6 +528,15 @@ evidence:
 
 The gate requires machine-readable Claim Evidence Ledgers from configured fact-critical agents, rejects current claims that lack direct current/recent support, and surfaces evidence findings in the **Evidence Verification** report section.
 
+Use `map evidence audit` to scan existing Markdown/JSON artifacts for Claim Evidence Ledgers without rerunning a pipeline:
+
+```bash
+map evidence audit ./output
+map evidence audit ./output --json
+```
+
+The audit reports files with ledgers, total claims, deterministic evidence-gate findings, and stale/source-freshness details when available.
+
 
 ### Compact Output
 
@@ -1161,6 +1170,7 @@ Usage:
   map agent create       Generate a new agent definition
   map agent test <name>  Run one agent with a smoke-test prompt
   map agent edit <name>  Edit one agent prompt
+  map evidence audit     Audit Claim Evidence Ledgers in existing artifacts
 
 Options:
   --help, -h             Show help

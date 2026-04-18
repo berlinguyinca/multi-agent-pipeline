@@ -742,11 +742,11 @@ function appendEvidenceVerification(lines: string[], data: Record<string, unknow
     '',
     '## Evidence Verification',
     '',
-    '| Step | Agent | Status | Claim | Severity | Finding |',
-    '| --- | --- | --- | --- | --- | --- |',
+    '| Step | Agent | Status | Claim | Severity | Finding | Sources |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
   );
   for (const row of rows) {
-    lines.push(`| ${cell(row.step)} | ${cell(row.agent)} | ${cell(row.status)} | ${cell(row.claimId)} | ${cell(row.severity)} | ${cell(row.message)} |`);
+    lines.push(`| ${cell(row.step)} | ${cell(row.agent)} | ${cell(row.status)} | ${cell(row.claimId)} | ${cell(row.severity)} | ${cell(row.message)} | ${cell(row.sources)} |`);
   }
 }
 
@@ -756,9 +756,9 @@ function renderHtmlEvidenceVerification(data: Record<string, unknown>): string[]
   return [
     '<h2>Evidence Verification</h2>',
     '<table>',
-    '<thead><tr><th>Step</th><th>Agent</th><th>Status</th><th>Claim</th><th>Severity</th><th>Finding</th></tr></thead>',
+    '<thead><tr><th>Step</th><th>Agent</th><th>Status</th><th>Claim</th><th>Severity</th><th>Finding</th><th>Sources</th></tr></thead>',
     '<tbody>',
-    ...rows.map((row) => `<tr><td>${escapeHtml(row.step)}</td><td>${escapeHtml(row.agent)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(row.claimId)}</td><td>${escapeHtml(row.severity)}</td><td>${escapeHtml(row.message)}</td></tr>`),
+    ...rows.map((row) => `<tr><td>${escapeHtml(row.step)}</td><td>${escapeHtml(row.agent)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(row.claimId)}</td><td>${escapeHtml(row.severity)}</td><td>${escapeHtml(row.message)}</td><td>${escapeHtml(row.sources)}</td></tr>`),
     '</tbody>',
     '</table>',
   ];
@@ -771,12 +771,19 @@ function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
   claimId: string;
   severity: string;
   message: string;
+  sources: string;
 }> {
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
   return steps.flatMap((step) => {
     const gate = isRecord(step['evidenceGate']) ? step['evidenceGate'] : undefined;
     if (!gate || gate['checked'] !== true) return [];
     const findings = Array.isArray(gate['findings']) ? gate['findings'].filter(isRecord) : [];
+    const claims = Array.isArray(gate['claims']) ? gate['claims'].filter(isRecord) : [];
+    const sourcesForClaim = (claimId: string): string => {
+      const claim = claims.find((candidate) => String(candidate['id'] ?? '') === claimId);
+      const evidence = Array.isArray(claim?.['evidence']) ? claim['evidence'].filter(isRecord) : [];
+      return evidence.map(formatEvidenceSourceSummary).filter(Boolean).join('; ');
+    };
     if (findings.length === 0) {
       return [{
         step: String(step['id'] ?? ''),
@@ -785,6 +792,7 @@ function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
         claimId: '',
         severity: '',
         message: gate['passed'] === true ? 'All evidence-gate checks passed.' : 'Evidence gate failed.',
+        sources: '',
       }];
     }
     return findings.map((finding) => ({
@@ -794,8 +802,21 @@ function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
       claimId: String(finding['claimId'] ?? ''),
       severity: String(finding['severity'] ?? ''),
       message: String(finding['message'] ?? ''),
+      sources: sourcesForClaim(String(finding['claimId'] ?? '')),
     }));
   });
+}
+
+function formatEvidenceSourceSummary(source: Record<string, unknown>): string {
+  const title = String(source['title'] ?? source['sourceType'] ?? 'source');
+  const publishedAt = typeof source['publishedAt'] === 'string' && source['publishedAt'].trim()
+    ? `published ${source['publishedAt']}`
+    : '';
+  const retrievedAt = typeof source['retrievedAt'] === 'string' && source['retrievedAt'].trim()
+    ? `retrieved ${source['retrievedAt']}`
+    : '';
+  const dates = [publishedAt, retrievedAt].filter(Boolean).join(', ');
+  return dates ? `${title} (${dates})` : title;
 }
 
 function appendJudgePanel(lines: string[], data: Record<string, unknown>): void {

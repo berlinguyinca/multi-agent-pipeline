@@ -13,6 +13,7 @@ const readFileMock = vi.fn(async () => '# Loaded Spec\n\nBuild the thing from th
 const runHeadlessMock = vi.fn(async () => ({ version: 1, success: true }));
 const runHeadlessV2Mock = vi.fn(async () => ({ version: 2, success: true }));
 const runPRReviewMock = vi.fn(async () => ({ success: true, verdict: 'comment' }));
+const handleEvidenceCommandMock = vi.fn(async () => {});
 const writePdfArtifactMock = vi.fn(async () => ({
   pdfPath: '/tmp/map-result.pdf',
   htmlPath: '/tmp/map-result.html',
@@ -42,6 +43,10 @@ vi.mock('../src/headless/runner.js', () => ({
 
 vi.mock('../src/headless/pr-review.js', () => ({
   runPRReview: runPRReviewMock,
+}));
+
+vi.mock('../src/cli/evidence-commands.js', () => ({
+  handleEvidenceCommand: handleEvidenceCommandMock,
 }));
 
 vi.mock('../src/output/pdf-artifact.js', () => ({
@@ -132,6 +137,15 @@ describe('runCli', () => {
       }),
     );
     expect(runHeadlessMock).not.toHaveBeenCalled();
+  });
+
+  it('runs evidence audit subcommand', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(runCli(['evidence', 'audit', 'output'])).rejects.toThrow('process.exit:0');
+
+    expect(handleEvidenceCommandMock).toHaveBeenCalledWith(['audit', 'output']);
+    expect(runHeadlessV2Mock).not.toHaveBeenCalled();
   });
 
   it('pretty-prints default headless smart routing JSON to stdout', async () => {

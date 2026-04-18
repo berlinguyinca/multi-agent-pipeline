@@ -2,7 +2,7 @@ export function extractSubcommand(args: string[]): { command: string; subArgs: s
   if (args.length === 0) return null;
   const first = args[0];
   if (first.startsWith('-')) return null;
-  const knownCommands = ['agent'];
+  const knownCommands = ['agent', 'evidence'];
   if (!knownCommands.includes(first)) return null;
   return { command: first, subArgs: args.slice(1) };
 }

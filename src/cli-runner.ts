@@ -88,6 +88,7 @@ Commands:
   map agent create            Create a new agent (LLM-assisted)
   map agent test <name>       Run an agent smoke test with an optional sample prompt
   map agent edit <name>       Open an agent prompt in $EDITOR
+  map evidence audit [path]   Audit Claim Evidence Ledgers in existing artifacts
 `);
     process.exit(0);
   }
@@ -106,6 +107,11 @@ Commands:
   if (subcommand?.command === 'agent') {
     const { handleAgentCommand } = await import('./cli/agent-commands.js');
     await handleAgentCommand(subcommand.subArgs);
+    process.exit(0);
+  }
+  if (subcommand?.command === 'evidence') {
+    const { handleEvidenceCommand } = await import('./cli/evidence-commands.js');
+    await handleEvidenceCommand(subcommand.subArgs);
     process.exit(0);
   }
 
