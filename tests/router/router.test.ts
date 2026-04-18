@@ -504,6 +504,39 @@ describe('routeTask', () => {
     ]);
   });
 
+  it('does not abort consensus when every candidate returns rationale-only JSON', async () => {
+    const rationaleOnly = JSON.stringify({
+      agent: 'researcher',
+      reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
+    });
+
+    const result = await routeTask('classification and taxonomy report for cocaine with usage tables', agents, [
+      mockAdapter(rationaleOnly, 'gemma4:26b'),
+      mockAdapter(rationaleOnly, 'gemma4:26b'),
+      mockAdapter(rationaleOnly, 'gemma4:26b'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4:26b', 'gemma4:26b', 'gemma4:26b'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result).toEqual({
+      kind: 'no-match',
+      reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
+      rationale: {
+        selectedAgents: [],
+        rejectedAgents: [{
+          agent: 'researcher',
+          reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output.',
+        }],
+      },
+    });
+  });
+
   it('runs router consensus candidates sequentially to avoid concurrent Ollama requests', async () => {
     const agreed = JSON.stringify({
       kind: 'plan',

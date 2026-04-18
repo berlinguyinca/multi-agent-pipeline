@@ -534,6 +534,44 @@ describe('runCli', () => {
     );
   });
 
+  it('supports the real-world classification/taxonomy PDF graph command shape', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const prompt = 'please provide a classification and taxonomy report for cocaine as well as usages for it on the medical and metabolomics field. Keep this short and assume this will presented to a customer inside a handful of XLS cells. Ensure that correctness is judged fairly and only report the output tables and the graph plot. Nothing else';
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--v2',
+        '--router-timeout',
+        '5m',
+        '--output-format',
+        'pdf',
+        '--open-output',
+        '--verbose',
+        '--graph',
+        prompt,
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      prompt,
+      routerTimeoutMs: 5 * 60 * 1000,
+      verbose: true,
+    }));
+    expect(writeGraphPngArtifactsMock).toHaveBeenCalled();
+    expect(writePdfArtifactMock).toHaveBeenCalledWith(
+      expect.objectContaining({ graphArtifacts: expect.any(Array) }),
+      expect.objectContaining({ outputDir: '/tmp/out', dagLayout: 'auto' }),
+    );
+  });
+
   it('passes disabled agent overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
