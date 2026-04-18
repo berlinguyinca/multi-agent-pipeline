@@ -335,7 +335,13 @@ describe('result formatting', () => {
           evidenceGate: {
             checked: true,
             passed: false,
-            claims: [{ id: 'claim-1', claim: 'Historical use is common today', claimType: 'commonness-score', confidence: 'medium', evidence: [] }],
+            claims: [{
+              id: 'claim-1',
+              claim: 'Historical use is common today',
+              claimType: 'commonness-score',
+              confidence: 'medium',
+              evidence: [{ sourceType: 'document', title: 'Old source', publishedAt: '1820', supports: 'historical use', summary: 'old practice' }],
+            }],
             findings: [{ severity: 'high', claimId: 'claim-1', message: 'High commonness scores require current/recent prevalence evidence.' }],
           },
         },
@@ -343,7 +349,8 @@ describe('result formatting', () => {
     }, 'markdown');
 
     expect(output).toContain('## Evidence Verification');
-    expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. |');
+    expect(output).toContain('| Step | Agent | Status | Claim | Severity | Finding | Sources |');
+    expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. | Old source (published 1820) |');
   });
 
   it('selects the final result from terminal DAG sinks instead of incidental later branch output', () => {

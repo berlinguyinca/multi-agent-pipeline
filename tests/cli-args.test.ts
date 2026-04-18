@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { extractFlag, extractPrompt } from '../src/cli-args.js';
+import { extractFlag, extractPrompt, extractSubcommand } from '../src/cli-args.js';
 
 describe('cli argument parsing', () => {
+  it('extracts the evidence subcommand', () => {
+    expect(extractSubcommand(['evidence', 'audit', 'output'])).toEqual({
+      command: 'evidence',
+      subArgs: ['audit', 'output'],
+    });
+  });
+
   it('keeps the prompt after boolean --headless', () => {
     const prompt = extractPrompt([
       '--headless',
