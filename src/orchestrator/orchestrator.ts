@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
-import type { AdapterDefaultsMap, AgentConsensusConfig } from '../types/config.js';
+import type { AdapterDefaultsMap, AgentConsensusConfig, EvidenceConfig } from '../types/config.js';
 import type { DAGPlan, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
@@ -54,6 +54,7 @@ export interface DAGRetryOptions {
     reviewedSpecContent?: string;
   };
   agentConsensus?: AgentConsensusConfig;
+  evidence?: EvidenceConfig;
   localModelConcurrency?: number;
 }
 
@@ -359,7 +360,7 @@ export async function executeDAG(
               reporter?.securityGatePassed(step.id, Date.now() - securityStartedAt);
             }
 
-            const evidenceGate = runEvidenceGate({ step, result });
+            const evidenceGate = runEvidenceGate({ step, result, config: retry?.evidence });
             result.evidenceGate = evidenceGate;
             result.evidenceClaims = evidenceGate.claims;
             if (evidenceGate.checked && !evidenceGate.passed) {
@@ -1145,7 +1146,7 @@ function buildStepContext(
       .map((depId) => {
         const result = results.get(depId);
         if (!result || !result.output) return null;
-        return `[${depId}: ${result.agent}]\n${result.output}`;
+        return `[${depId}: ${result.agent}]\n${buildDownstreamSafeOutput(result)}`;
       })
       .filter(Boolean);
 
@@ -1155,4 +1156,26 @@ function buildStepContext(
   }
 
   return context;
+}
+
+function buildDownstreamSafeOutput(result: StepResult): string {
+  let output = result.output ?? '';
+  const findings = result.evidenceGate?.findings ?? [];
+  const rejectedClaimIds = new Set(
+    findings
+      .filter((finding) => finding.severity === 'high' && finding.claimId)
+      .map((finding) => finding.claimId!),
+  );
+  if (rejectedClaimIds.size > 0) {
+    for (const claim of result.evidenceGate?.claims ?? []) {
+      if (!rejectedClaimIds.has(claim.id)) continue;
+      output = output.replaceAll(claim.claim, `[REJECTED CLAIM REMOVED: ${claim.id}]`);
+    }
+  }
+  if (findings.length > 0) {
+    output += `\n\n--- Evidence Gate Findings ---\n${findings.map((finding) =>
+      `- ${finding.severity}${finding.claimId ? ` ${finding.claimId}` : ''}: ${finding.message}`,
+    ).join('\n')}`;
+  }
+  return output;
 }

@@ -258,6 +258,22 @@ describe('software delivery agent bundle', () => {
     expect(usageFact.prompt).toContain('reject high commonness scores');
   });
 
+  it('requires fact-critical agents to emit claim evidence ledgers', async () => {
+    const researcher = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'researcher'));
+    const classyfire = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'classyfire-taxonomy-classifier'));
+    const security = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'security-advisor'));
+    const readiness = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'release-readiness-reviewer'));
+
+    for (const agent of [researcher, classyfire, security, readiness]) {
+      expect(agent.prompt, `${agent.name} missing ledger`).toContain('Claim Evidence Ledger');
+      expect(agent.prompt, `${agent.name} missing claims JSON`).toContain('"claims"');
+      expect(agent.prompt, `${agent.name} missing evidence field`).toContain('"evidence"');
+    }
+    expect(classyfire.prompt).toContain('"claimType": "chemical-taxonomy"');
+    expect(readiness.prompt).toContain('"claimType": "test-result"');
+    expect(security.prompt).toContain('tool-output');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 

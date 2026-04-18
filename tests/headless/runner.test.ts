@@ -1426,6 +1426,7 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
         prompt: 'Explain the feature',
         outputDir,
         judgePanelModels: ['judge-a', 'judge-b', 'judge-c'],
+        judgePanelRoles: ['evidence-skeptic', 'recency-auditor', 'contradiction-finder'],
         judgePanelSteer: true,
         judgePanelMaxSteeringRounds: 2,
       },
@@ -1481,10 +1482,13 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     expect(result.judgePanel?.rounds?.[0]?.verdict).toBe('revise');
     expect(result.judgePanel?.rounds?.[1]?.verdict).toBe('accept');
     expect(result.judgePanel?.votes.map((vote) => vote.model)).toEqual(['judge-a', 'judge-b', 'judge-c']);
+    expect(result.judgePanel?.votes.map((vote) => vote.role)).toEqual(['evidence-skeptic', 'recency-auditor', 'contradiction-finder']);
     expect(result.steps.at(-1)?.output).toContain('Improved answer');
     expect(agentOutputs).toContain('Weak answer');
     expect(agentOutputs).toContain('Improved answer with concrete verification evidence and rerun guidance');
     expect(judgePrompts).toHaveLength(6);
+    expect(judgePrompts[0]).toContain('Your adversarial judge role is: evidence-skeptic.');
+    expect(judgePrompts[1]).toContain('Your adversarial judge role is: recency-auditor.');
     expect(adapterConfigs.filter((config) => config.model === 'judge-a')).toHaveLength(2);
 
     await fs.rm(outputDir, { recursive: true, force: true });

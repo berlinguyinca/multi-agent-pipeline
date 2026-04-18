@@ -1275,6 +1275,7 @@ export async function runHeadlessV2(
       retryDelayMs: config.router.retryDelayMs,
       adapterDefaults: config.adapterDefaults,
       agentConsensus: config.agentConsensus,
+      evidence: config.evidence,
       localModelConcurrency: ollamaConcurrency.maxParallel,
       workingDir: workspaceDir,
       knowledgeCwd: workspaceDir,
@@ -1514,11 +1515,14 @@ interface JudgeSpec {
   adapter: AdapterType;
   model: string;
   label: string;
+  role?: string;
 }
 
 function resolveJudgePanelSpecs(options: HeadlessOptions, config: PipelineConfig): JudgeSpec[] {
   if (options.judgePanelModels && options.judgePanelModels.length > 0) {
-    return uniqueJudgeSpecs(options.judgePanelModels.map((entry) => parseJudgeSpec(entry, config.router.adapter)));
+    return uniqueJudgeSpecs(options.judgePanelModels.map((entry, index) =>
+      withJudgeRole(parseJudgeSpec(entry, config.router.adapter), options.judgePanelRoles, index),
+    ));
   }
   if (options.judgePanelSteer !== true) {
     return [];
@@ -1527,11 +1531,20 @@ function resolveJudgePanelSpecs(options: HeadlessOptions, config: PipelineConfig
   const models = consensusModels.length > 0
     ? consensusModels
     : [config.router.model, config.router.model, config.router.model];
-  return uniqueJudgeSpecs(models.slice(0, 3).map((model) => ({
+  return uniqueJudgeSpecs(models.slice(0, 3).map((model, index) => withJudgeRole({
     adapter: config.router.adapter,
     model,
     label: `${config.router.adapter}/${model}`,
-  })));
+  }, options.judgePanelRoles, index)));
+}
+
+function withJudgeRole(spec: JudgeSpec, roles: string[] | undefined, index: number): JudgeSpec {
+  const role = roles?.[index] ?? defaultJudgeRole(index);
+  return role ? { ...spec, role } : spec;
+}
+
+function defaultJudgeRole(index: number): string {
+  return ['evidence-skeptic', 'recency-auditor', 'contradiction-finder', 'user-value-judge'][index % 4]!;
 }
 
 function parseJudgeSpec(value: string, defaultAdapter: AdapterType): JudgeSpec {
@@ -1569,7 +1582,7 @@ async function runJudgePanel(options: {
   createAdapterFn: AdapterFactory;
 }): Promise<HeadlessJudgePanel> {
   const finalOutput = extractComparableFinalOutput(options.result);
-  const prompt = buildJudgePanelPrompt(options.prompt, options.result, finalOutput);
+  const promptForJudge = (judge: JudgeSpec) => buildJudgePanelPrompt(options.prompt, options.result, finalOutput, judge.role);
   const votes = await Promise.all(options.judges.map(async (judge, index) => {
     const adapter = options.createAdapterFn(
       judge.adapter === 'ollama'
@@ -1578,7 +1591,7 @@ async function runJudgePanel(options: {
     );
     try {
       let output = '';
-      for await (const chunk of adapter.run(prompt, {
+      for await (const chunk of adapter.run(promptForJudge(judge), {
         responseFormat: 'json',
         hideThinking: true,
         think: false,
@@ -1586,10 +1599,11 @@ async function runJudgePanel(options: {
       })) {
         output += chunk;
       }
-      return normalizeJudgeVote(output, index + 1, adapter.type, judge.model);
+      return normalizeJudgeVote(output, index + 1, adapter.type, judge.model, judge.role);
     } catch (error) {
       return {
         run: index + 1,
+        ...(judge.role ? { role: judge.role } : {}),
         provider: adapter.type,
         model: judge.model,
         verdict: 'revise' as const,
@@ -1603,7 +1617,7 @@ async function runJudgePanel(options: {
   return buildJudgePanelResult(votes);
 }
 
-function buildJudgePanelPrompt(prompt: string, result: HeadlessResultV2, finalOutput: string): string {
+function buildJudgePanelPrompt(prompt: string, result: HeadlessResultV2, finalOutput: string, role: string | undefined): string {
   const steps = result.steps.map((step) => ({
     id: step.id,
     agent: step.agent,
@@ -1613,6 +1627,8 @@ function buildJudgePanelPrompt(prompt: string, result: HeadlessResultV2, finalOu
   }));
   return [
     'You are a MAP outcome judge. Vote independently on whether the completed DAG outcome satisfies the user task.',
+    role ? `Your adversarial judge role is: ${role}.` : '',
+    role ? judgeRoleInstruction(role) : '',
     '',
     'Return ONLY JSON with this shape:',
     '{"verdict":"accept|revise|reject","confidence":0.0,"improvements":["specific improvement"],"rationale":"brief reason","shouldSteer":true}',
@@ -1633,6 +1649,7 @@ function normalizeJudgeVote(
   run: number,
   provider: string,
   model: string,
+  role: string | undefined,
 ): HeadlessJudgePanelVote {
   const parsed = parseFirstJsonObject(output);
   const verdict = parsed?.['verdict'] === 'accept' || parsed?.['verdict'] === 'reject' || parsed?.['verdict'] === 'revise'
@@ -1643,6 +1660,7 @@ function normalizeJudgeVote(
     : [];
   return {
     run,
+    ...(role ? { role } : {}),
     provider,
     model,
     verdict,
@@ -1651,6 +1669,21 @@ function normalizeJudgeVote(
     rationale: String(parsed?.['rationale'] ?? '').trim(),
     shouldSteer: parsed?.['shouldSteer'] === true,
   };
+}
+
+function judgeRoleInstruction(role: string): string {
+  switch (role) {
+    case 'evidence-skeptic':
+      return 'Focus on unsupported claims, weak evidence, fabricated citations, and whether claims have direct evidence.';
+    case 'recency-auditor':
+      return 'Focus on stale evidence, currentness, publication/retrieval dates, and whether current claims are actually current.';
+    case 'contradiction-finder':
+      return 'Focus on internal contradictions and conflicts between outputs, claims, and evidence.';
+    case 'user-value-judge':
+      return 'Focus on whether the final answer satisfies the user task clearly and actionably.';
+    default:
+      return `Apply the ${role} perspective rigorously and state what would improve the answer.`;
+  }
 }
 
 function parseFirstJsonObject(output: string): Record<string, unknown> | null {

@@ -139,6 +139,7 @@ describe('result formatting', () => {
         votes: [
           {
             run: 1,
+            role: 'recency-auditor',
             provider: 'claude',
             model: 'sonnet',
             verdict: 'accept',
@@ -156,7 +157,7 @@ describe('result formatting', () => {
     expect(output).toContain('- Steering applied: yes');
     expect(output).toContain('- Round 1: revise');
     expect(output).toContain('- Round 2: accept');
-    expect(output).toContain('| 1 | sonnet | accept | 90% | no | Satisfied |');
+    expect(output).toContain('| 1 | recency-auditor | sonnet | accept | 90% | no | Satisfied |');
   });
 
 

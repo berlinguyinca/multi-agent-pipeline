@@ -572,6 +572,8 @@ describe('runCli', () => {
         '--headless',
         '--judge-panel-models',
         'ollama/gemma4:26b,claude/sonnet,codex/gpt-5',
+        '--judge-panel-roles',
+        'evidence-skeptic,recency-auditor,contradiction-finder',
         '--judge-panel-steer',
         '--judge-panel-max-rounds',
         '2',
@@ -583,6 +585,7 @@ describe('runCli', () => {
       expect.objectContaining({
         prompt: 'Research the task and produce a concise implementation readiness plan',
         judgePanelModels: ['ollama/gemma4:26b', 'claude/sonnet', 'codex/gpt-5'],
+        judgePanelRoles: ['evidence-skeptic', 'recency-auditor', 'contradiction-finder'],
         judgePanelSteer: true,
         judgePanelMaxSteeringRounds: 2,
       }),

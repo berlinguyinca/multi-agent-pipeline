@@ -45,6 +45,22 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.quality.maxCodeQaIterations).toBe(3);
   });
 
+  it('enables evidence gates for fact-critical agents by default', () => {
+    expect(DEFAULT_CONFIG.evidence).toMatchObject({
+      enabled: true,
+      currentClaimMaxSourceAgeDays: 730,
+      requireRetrievedAtForWebClaims: true,
+      blockUnsupportedCurrentClaims: true,
+    });
+    expect(DEFAULT_CONFIG.evidence.requiredAgents).toEqual([
+      'usage-classification-tree',
+      'researcher',
+      'classyfire-taxonomy-classifier',
+      'security-advisor',
+      'release-readiness-reviewer',
+    ]);
+  });
+
   it('enables router consensus by default', () => {
     expect(DEFAULT_CONFIG.router.consensus).toEqual({
       enabled: true,

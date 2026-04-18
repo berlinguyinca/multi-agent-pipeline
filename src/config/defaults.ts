@@ -1,5 +1,5 @@
 import type { AdapterType } from '../types/adapter.js';
-import type { AgentConsensusConfig, PipelineConfig, RouterConsensusConfig } from '../types/config.js';
+import type { AgentConsensusConfig, EvidenceConfig, PipelineConfig, RouterConsensusConfig } from '../types/config.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import {
   DEFAULT_OLLAMA_CONTEXT_LENGTH,
@@ -34,6 +34,20 @@ export const DEFAULT_AGENT_CONSENSUS_CONFIG: AgentConsensusConfig = {
   },
 };
 
+export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
+  enabled: true,
+  requiredAgents: [
+    'usage-classification-tree',
+    'researcher',
+    'classyfire-taxonomy-classifier',
+    'security-advisor',
+    'release-readiness-reviewer',
+  ],
+  currentClaimMaxSourceAgeDays: 730,
+  requireRetrievedAtForWebClaims: true,
+  blockUnsupportedCurrentClaims: true,
+};
+
 export const DEFAULT_CONFIG: PipelineConfig = {
   agents: {
     spec: { adapter: 'claude' },
@@ -53,6 +67,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     maxSpecQaIterations: 3,
     maxCodeQaIterations: 3,
   },
+  evidence: DEFAULT_EVIDENCE_CONFIG,
   outputDir: './output',
   gitCheckpoints: true,
   generateAgentSummary: true,

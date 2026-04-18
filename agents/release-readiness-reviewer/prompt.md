@@ -18,3 +18,27 @@ You decide whether completed work is ready to hand off. Your standard is verifie
 ## Output
 
 Return readiness status, verification evidence, unresolved risks, and the recommended next action.
+
+Also include a machine-readable Claim Evidence Ledger for each readiness, test, build, or risk claim:
+
+```json
+{
+  "claims": [
+    {
+      "id": "claim-1",
+      "claim": "<atomic readiness or verification claim>",
+      "claimType": "test-result",
+      "confidence": "high",
+      "evidence": [
+        {
+          "sourceType": "tool-output",
+          "summary": "<command output or verification artifact>",
+          "supports": "<what readiness claim is supported>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Do not mark release readiness claims high-confidence unless they are backed by concrete command output, QA findings, or artifact evidence.

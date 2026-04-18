@@ -811,9 +811,9 @@ function appendJudgePanel(lines: string[], data: Record<string, unknown>): void 
   if (panel.rounds.length > 0) {
     lines.push('- Rounds:', ...panel.rounds.map((round) => `  - Round ${round.round}: ${round.verdict} (${round.voteCount} vote${round.voteCount === 1 ? '' : 's'})`));
   }
-  lines.push('', '| Run | Model | Verdict | Confidence | Steering | Rationale |', '| --- | --- | --- | --- | --- | --- |');
+  lines.push('', '| Run | Role | Model | Verdict | Confidence | Steering | Rationale |', '| --- | --- | --- | --- | --- | --- | --- |');
   for (const vote of panel.votes) {
-    lines.push(`| ${cell(vote.run)} | ${cell(vote.model ?? vote.provider ?? 'unknown')} | ${cell(vote.verdict)} | ${cell(formatPercent(vote.confidence))} | ${cell(vote.shouldSteer ? 'yes' : 'no')} | ${cell(vote.rationale)} |`);
+    lines.push(`| ${cell(vote.run)} | ${cell(vote.role ?? '')} | ${cell(vote.model ?? vote.provider ?? 'unknown')} | ${cell(vote.verdict)} | ${cell(formatPercent(vote.confidence))} | ${cell(vote.shouldSteer ? 'yes' : 'no')} | ${cell(vote.rationale)} |`);
   }
 }
 
@@ -834,6 +834,7 @@ function renderHtmlJudgePanel(data: Record<string, unknown>): string {
   if (!panel) return '';
   const rows = panel.votes.map((vote) => [
     vote.run,
+    vote.role ?? '',
     vote.model ?? vote.provider ?? 'unknown',
     vote.verdict,
     formatPercent(vote.confidence),
@@ -846,7 +847,7 @@ function renderHtmlJudgePanel(data: Record<string, unknown>): string {
     panel.rounds.length > 0 ? `<p><strong>Rounds:</strong> ${escapeHtml(panel.rounds.map((round) => `Round ${round.round}: ${round.verdict}`).join(' · '))}</p>` : '',
     panel.improvements.length > 0 ? `<ul>${panel.improvements.map((entry) => `<li>${escapeHtml(entry)}</li>`).join('')}</ul>` : '',
     '<table>',
-    '<thead><tr><th>Run</th><th>Model</th><th>Verdict</th><th>Confidence</th><th>Steering</th><th>Rationale</th></tr></thead>',
+    '<thead><tr><th>Run</th><th>Role</th><th>Model</th><th>Verdict</th><th>Confidence</th><th>Steering</th><th>Rationale</th></tr></thead>',
     '<tbody>',
     ...rows.map((row) => `<tr>${row.map((cellValue) => `<td>${escapeHtml(String(cellValue ?? ''))}</td>`).join('')}</tr>`),
     '</tbody>',
@@ -861,6 +862,7 @@ function normalizeJudgePanel(data: Record<string, unknown>): {
   improvements: string[];
   votes: Array<{
     run: number;
+    role?: string;
     provider?: string;
     model?: string;
     verdict: string;
@@ -874,6 +876,7 @@ function normalizeJudgePanel(data: Record<string, unknown>): {
   if (!panel) return null;
   const votes = Array.isArray(panel['votes']) ? panel['votes'].filter(isRecord).map((vote) => ({
     run: Number(vote['run'] ?? 0),
+    ...(typeof vote['role'] === 'string' ? { role: vote['role'] } : {}),
     ...(typeof vote['provider'] === 'string' ? { provider: vote['provider'] } : {}),
     ...(typeof vote['model'] === 'string' ? { model: vote['model'] } : {}),
     verdict: String(vote['verdict'] ?? ''),

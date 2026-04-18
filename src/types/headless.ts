@@ -22,6 +22,7 @@ export interface HeadlessOptions {
   compareAgents?: string[];
   semanticJudge?: boolean;
   judgePanelModels?: string[];
+  judgePanelRoles?: string[];
   judgePanelSteer?: boolean;
   judgePanelMaxSteeringRounds?: number;
   ollama?: Partial<OllamaConfig>;
@@ -69,6 +70,7 @@ export interface HeadlessSemanticJudge {
 
 export interface HeadlessJudgePanelVote {
   run: number;
+  role?: string;
   provider?: string;
   model?: string;
   verdict: 'accept' | 'revise' | 'reject';

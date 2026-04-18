@@ -274,6 +274,30 @@ headless:
     expect(config.headless.pollIntervalMs).toBe(15 * 1000);
   });
 
+  it('parses evidence gate config values', async () => {
+    const yamlContent = `
+evidence:
+  enabled: true
+  requiredAgents:
+    - usage-classification-tree
+    - researcher
+  currentClaimMaxSourceAgeDays: 365
+  requireRetrievedAtForWebClaims: false
+  blockUnsupportedCurrentClaims: true
+`;
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+
+    const config = await loadConfig(configPath);
+    expect(config.evidence).toEqual({
+      enabled: true,
+      requiredAgents: ['usage-classification-tree', 'researcher'],
+      currentClaimMaxSourceAgeDays: 365,
+      requireRetrievedAtForWebClaims: false,
+      blockUnsupportedCurrentClaims: true,
+    });
+  });
+
   it('throws on invalid adapter type', async () => {
     const yamlContent = `
 agents:

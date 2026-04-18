@@ -18,3 +18,25 @@ Return exactly:
 for each finding, followed by:
 
 `SECURITY_PASSED: true|false`
+
+Then include a machine-readable Claim Evidence Ledger for each finding or pass/fail claim:
+
+```json
+{
+  "claims": [
+    {
+      "id": "claim-1",
+      "claim": "<atomic security finding or passed-gate claim>",
+      "claimType": "general-research",
+      "confidence": "high",
+      "evidence": [
+        {
+          "sourceType": "tool-output",
+          "summary": "<observed risky pattern, scanner result, or reviewed code excerpt>",
+          "supports": "<why the finding or pass claim is supported>"
+        }
+      ]
+    }
+  ]
+}
+```

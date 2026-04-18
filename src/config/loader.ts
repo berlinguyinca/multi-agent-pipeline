@@ -71,6 +71,13 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
       maxCodeQaIterations:
         override.quality?.maxCodeQaIterations ?? base.quality.maxCodeQaIterations,
     },
+    evidence: {
+      ...base.evidence,
+      ...override.evidence,
+      requiredAgents: [
+        ...(override.evidence?.requiredAgents ?? base.evidence.requiredAgents),
+      ],
+    },
     outputDir: override.outputDir ?? base.outputDir,
     workspaceDir: override.workspaceDir ?? base.workspaceDir,
     gitCheckpoints: override.gitCheckpoints ?? base.gitCheckpoints,
@@ -142,6 +149,10 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       github: { ...DEFAULT_CONFIG.github },
       ollama: { ...DEFAULT_CONFIG.ollama },
       quality: { ...DEFAULT_CONFIG.quality },
+      evidence: {
+        ...DEFAULT_CONFIG.evidence,
+        requiredAgents: [...DEFAULT_CONFIG.evidence.requiredAgents],
+      },
       generateAgentSummary: DEFAULT_CONFIG.generateAgentSummary,
       headless: { ...DEFAULT_CONFIG.headless },
       router: { ...DEFAULT_CONFIG.router },
