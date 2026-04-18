@@ -22,6 +22,7 @@ import { maybeScheduleFactCheck } from './fact-check.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
 import { validateStepHandoff } from './handoff-validation.js';
 import { runFileConsensusInWorktrees } from './file-consensus.js';
+import { runEvidenceGate } from './evidence-gate.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -356,6 +357,22 @@ export async function executeDAG(
               result.securityPassed = true;
               result.securityFindings = securityResult.findings;
               reporter?.securityGatePassed(step.id, Date.now() - securityStartedAt);
+            }
+
+            const evidenceGate = runEvidenceGate({ step, result });
+            result.evidenceGate = evidenceGate;
+            result.evidenceClaims = evidenceGate.claims;
+            if (evidenceGate.checked && !evidenceGate.passed) {
+              result.status = 'failed';
+              result.error = evidenceGate.findings
+                .filter((finding) => finding.severity === 'high')
+                .map((finding) => finding.claimId ? `${finding.claimId}: ${finding.message}` : finding.message)
+                .join('; ') || 'Evidence gate failed';
+              results.set(step.id, result);
+              failed.add(step.id);
+              settled.add(step.id);
+              reporter?.dagStepFailed(step.id, step.agent, result.error);
+              break;
             }
 
             const handoffValidation = validateStepHandoff({

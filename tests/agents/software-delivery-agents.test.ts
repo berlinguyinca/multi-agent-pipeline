@@ -243,6 +243,9 @@ describe('software delivery agent bundle', () => {
     expect(usage.prompt).toContain('hundreds of years ago');
     expect(usage.prompt).toContain('Commonness timeframe');
     expect(usage.prompt).toContain('Recency/currentness evidence');
+    expect(usage.prompt).toContain('Claim Evidence Ledger');
+    expect(usage.prompt).toContain('"claimType": "commonness-score"');
+    expect(usage.prompt).toContain('"recencyStatus": "current"');
     expect(usage.contract?.capabilities).toContain(
       'Score and rank usage applications or exposure origins by current evidence-backed commonness, explicitly down-weighting historical, obsolete, discontinued, or regionally rare practices.',
     );
