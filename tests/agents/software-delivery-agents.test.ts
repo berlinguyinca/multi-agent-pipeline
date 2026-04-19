@@ -304,6 +304,18 @@ describe('software delivery agent bundle', () => {
     }));
   });
 
+  it('loads prompt-refiner as a gemma4-backed Socratic refinement agent', async () => {
+    const refiner = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'prompt-refiner'));
+
+    expect(refiner.adapter).toBe('ollama');
+    expect(refiner.model).toBe('gemma4:26b');
+    expect(refiner.output.type).toBe('data');
+    expect(refiner.prompt).toContain('Socratic');
+    expect(refiner.prompt).toContain('Teacher');
+    expect(refiner.prompt).toContain('Critic');
+    expect(refiner.prompt).toContain('Student');
+  });
+
   it('locks grammar-spelling-specialist to correction only without tone or message changes', async () => {
     const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'grammar-spelling-specialist'));
 

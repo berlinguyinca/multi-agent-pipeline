@@ -9,6 +9,13 @@ describe('cli argument parsing', () => {
     });
   });
 
+  it('extracts the refine subcommand', () => {
+    expect(extractSubcommand(['refine', 'rough prompt'])).toEqual({
+      command: 'refine',
+      subArgs: ['rough prompt'],
+    });
+  });
+
   it('keeps the prompt after boolean --headless', () => {
     const prompt = extractPrompt([
       '--headless',
