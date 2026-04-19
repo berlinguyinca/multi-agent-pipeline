@@ -566,6 +566,7 @@ describe('routeTask', () => {
       'classyfire-taxonomy-classifier',
       'usage-classification-tree',
     ]);
+    expect(result.rationale?.rejectedAgents).toEqual([]);
   });
 
   it('runs router consensus candidates sequentially to avoid concurrent Ollama requests', async () => {
