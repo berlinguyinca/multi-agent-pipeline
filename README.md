@@ -44,6 +44,15 @@ Run headless smart-routing mode from an existing spec file:
 map --headless --spec-file docs/spec.md
 ```
 
+Refine a rough prompt before running:
+
+```bash
+map refine "Build something useful for this repository"
+map refine --output .map/refined-prompts/task.md "Build something useful"
+map refine --run "Build something useful"
+map --headless --refine "Build something useful"
+```
+
 Run the optional classic fixed-stage pipeline:
 
 ```bash
@@ -509,6 +518,19 @@ Every human-readable result now includes:
 - **LLM Judge Panel** when `--judge-panel-models` is used — independent model votes (`accept`, `revise`, or `reject`), confidence, requested improvements, per-round rejudging after improvements, and whether `--judge-panel-steer` applied feedback-driven reruns.
 
 The same data is also exposed in JSON/YAML as `agentContributions`, `agentComparisons`, `routerRationale`, `semanticJudge`, `judgePanel`, and `rerun`, so downstream automation can detect weak agents without scraping prose. MAP also records rolling per-agent counters in `.map/agent-performance.json`. This lets users compare the full network against narrower runs without editing `pipeline.yaml`. The router receives a filtered available-agent list, so disabled agents cannot be selected for the initial DAG or adviser refreshes during that run. When a run starts from `--spec-file` and includes extra prompt text, that prompt tail is preserved in the generated rerun command.
+
+### Socratic prompt refinement
+
+Use `map refine` when the task is vague, high-stakes, or likely to benefit from clarification before running a DAG. Refine mode applies Socratic scoring across goal clarity, constraints, evidence requirements, output specificity, and risk coverage. It returns an optimized prompt plus assumptions and recommended MAP capabilities such as `model-installer`, `codesight-metadata`, `classyfire-taxonomy-classifier`, or `usage-classification-tree`.
+
+```bash
+map refine "Analyze this repo and make it better"
+map refine --output .map/refined-prompts/repo-analysis.md "Analyze this repo and make it better"
+map refine --run "Analyze this repo and make it better"
+map --headless --refine "Analyze this repo and make it better"
+```
+
+`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. Headless refine mode uses explicit assumptions instead of asking interactive questions.
 
 Evidence gates are configurable under `evidence`:
 
@@ -1035,6 +1057,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `usage-classification-fact-checker` | `answer` | Independent fact-checking for usage/LCB/commonness claims using `bespoke-minicheck:7b`; rejects unsupported or recency-inconsistent usage reports before downstream use. |
 | `research-fact-checker` | `answer` | Independent fact-checking for researcher outputs using `bespoke-minicheck:7b`; flags or rejects unsupported research claims. |
 | `classyfire-taxonomy-classifier` | `answer` | ClassyFire/ChemOnt chemical taxonomy trees without using the broken ClassyFire API. |
+| `prompt-refiner` | `data` | Socratic prompt refinement with Teacher/Critic/Student framing and readiness scores. |
 | `insightcode-metadata` | `data` | Deterministic read-only metadata generator inspired by InsightCode; emits source summaries and architecture sketches for downstream LLM context. |
 | `codefetch-metadata` | `data` | Deterministic read-only metadata generator inspired by CodeFetch; emits Markdown file tree and compact source context without editing files. |
 | `codesight-metadata` | `data` | Deterministic read-only metadata generator inspired by CodeSight; maps files, symbols, imports, and exports for LLM codebase understanding. |

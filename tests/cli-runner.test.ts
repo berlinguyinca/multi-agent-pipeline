@@ -148,6 +148,16 @@ describe('runCli', () => {
     expect(runHeadlessV2Mock).not.toHaveBeenCalled();
   });
 
+  it('runs refine subcommand through smart routing when --run is provided', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(runCli(['refine', '--run', 'Build something useful'])).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('Original request'),
+    }));
+  });
+
   it('pretty-prints default headless smart routing JSON to stdout', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

@@ -2,7 +2,7 @@ export function extractSubcommand(args: string[]): { command: string; subArgs: s
   if (args.length === 0) return null;
   const first = args[0];
   if (first.startsWith('-')) return null;
-  const knownCommands = ['agent', 'evidence'];
+  const knownCommands = ['agent', 'evidence', 'refine'];
   if (!knownCommands.includes(first)) return null;
   return { command: first, subArgs: args.slice(1) };
 }
@@ -35,6 +35,7 @@ const flagsWithValues = new Set([
   '--review-pr',
   '--output-format',
   '--dag-layout',
+  '--output',
 ]);
 
 const booleanFlags = new Set([
@@ -49,6 +50,8 @@ const booleanFlags = new Set([
   '--compare-agents',
   '--semantic-judge',
   '--judge-panel-steer',
+  '--refine',
+  '--run',
 ]);
 
 export function extractFlag(args: string[], flag: string): string | undefined {

@@ -89,6 +89,8 @@ Commands:
   map agent test <name>       Run an agent smoke test with an optional sample prompt
   map agent edit <name>       Open an agent prompt in $EDITOR
   map evidence audit [path]   Audit Claim Evidence Ledgers in existing artifacts
+  map refine "rough prompt"   Refine a prompt with Socratic scoring
+  map refine "rough prompt"   Refine a prompt with Socratic scoring
 `);
     process.exit(0);
   }
@@ -114,6 +116,21 @@ Commands:
     await handleEvidenceCommand(subcommand.subArgs);
     process.exit(0);
   }
+  if (subcommand?.command === 'refine') {
+    if (subcommand.subArgs.includes('--run')) {
+      const { refinePromptHeadless } = await import('./refine/refiner.js');
+      const { runHeadlessV2 } = await import('./headless/runner.js');
+      const roughPrompt = subcommand.subArgs.filter((arg) => arg !== '--run' && !arg.startsWith('--')).join(' ');
+      const refined = refinePromptHeadless({ prompt: roughPrompt, headless: true });
+      const result = await runHeadlessV2({ prompt: refined.refinedPrompt });
+      process.stdout.write(formatMapOutput(result, 'json'));
+    } else {
+      const { handleRefineCommand } = await import('./cli/refine-commands.js');
+      const result = await handleRefineCommand(subcommand.subArgs);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    }
+    process.exit(0);
+  }
 
   const hasReviewPr = args.includes('--review-pr');
   const reviewPrUrl = extractFlag(args, '--review-pr');
@@ -137,6 +154,7 @@ Commands:
 
   if (args.includes('--headless')) {
     const useV2 = !args.includes('--classic');
+    const refineOnly = hasFlag(args, '--refine');
     const verbose = hasFlag(args, '--verbose') || hasFlag(args, '-V');
     const prompt = extractPrompt(args);
     const specFileArg = extractFlag(args, '--spec-file');
@@ -164,6 +182,13 @@ Commands:
     const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
+
+    if (refineOnly) {
+      const { handleRefineCommand } = await import('./cli/refine-commands.js');
+      const result = await handleRefineCommand(['--headless', ...args.filter((arg) => arg !== '--headless' && arg !== '--refine')]);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exit(0);
+    }
 
     const validation = validatePrompt(prompt, githubIssueUrl, specFileArg, {
       allowPromptWithSpecFile: useV2,
