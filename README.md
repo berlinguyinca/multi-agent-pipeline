@@ -548,7 +548,7 @@ evidence:
   blockUnsupportedCurrentClaims: true
 ```
 
-The gate requires machine-readable Claim Evidence Ledgers from configured fact-critical agents, rejects current claims that lack direct current/recent support, and surfaces evidence findings in the **Evidence Verification** report section.
+The gate requires machine-readable Claim Evidence Ledgers from configured fact-critical agents, rejects high-risk current/commonness claims that lack direct current/recent support, and surfaces evidence findings in the **Evidence Verification** report section. If a deterministic evidence gate passes cleanly, MAP skips the redundant LLM fact-checker for that step; medium evidence warnings still trigger fact-check review before downstream consumers.
 
 Use `map evidence audit` to scan existing Markdown/JSON artifacts for Claim Evidence Ledgers without rerunning a pipeline:
 
@@ -1006,15 +1006,16 @@ If the spec is not clearly reviewed and QA-approved, `adviser` should route back
 
 ### Real LLM Agent Integration Tests
 
-Real LLM agent integration tests validate selected agents against a live Ollama model. They are kept as an explicit suite instead of `test:core` because they depend on local model availability and can legitimately take longer than deterministic unit tests.
+Real LLM agent integration tests validate selected agents against a live Ollama model. Most broad live-agent contract tests stay in explicit suites because they depend on local model availability and can legitimately take longer than deterministic unit tests. The customer-facing cocaine taxonomy/usage report regression is intentionally always-on so failures in the standard report path are visible instead of hidden behind an environment flag.
 
-Run just the LLM contract suite with:
+Run just the general LLM contract suite with:
 
 ```bash
 npm run test:llm-agents
+npm run test:e2e-cocaine-report
 ```
 
-By default this uses each agent's configured Ollama model. Override it with:
+`npm run test:e2e-cocaine-report` runs the standard cocaine classification/taxonomy/usage PDF+graph command path without an opt-in environment variable and uses a 15 minute timeout wrapper. By default the general LLM contract suite uses each agent's configured Ollama model. Override it with:
 
 ```bash
 MAP_LLM_TEST_MODEL=gemma4:26b npm run test:llm-agents
@@ -1296,16 +1297,17 @@ npm run build
 
 Verification baseline:
 
-- `npm test` / `npm run test:core`: stable deterministic suite, excluding `tests/tui/**`, `tests/spike/**`, and live LLM integration tests
+- `npm test` / `npm run test:core`: core suite, excluding `tests/tui/**`, `tests/spike/**`, and broad live LLM integration tests; includes the always-on cocaine report e2e regression so customer-report failures surface by default
 - `npm run test:tui`: TUI suite through `scripts/run-with-timeout.mjs` with a 60s process timeout and 10s Vitest test/hook timeouts
 - `npm run test:spike`: opt-in exploratory spike tests through the same timeout wrapper
 - `npm run test:llm-agents`: opt-in live Ollama agent contract tests through a 120s process timeout
+- `npm run test:e2e-cocaine-report`: always-on live standard cocaine classification/taxonomy/usage report regression through a 15 minute process timeout
 - `npm run test:all`: raw `vitest run` for local debugging when you explicitly want every suite in one process
 - `npm run test:ci`: `typecheck` + `test:core` + `test:tui`
 - `npm run typecheck`
 - `npm run build`
 
-The split exists because terminal UI tests use alternate-screen and event-loop behavior that can stall an otherwise healthy verification run. Core tests stay fast and deterministic; TUI/spike tests remain available but are isolated behind hard timeouts.
+The split exists because terminal UI tests use alternate-screen and event-loop behavior that can stall an otherwise healthy verification run. Core tests stay mostly deterministic, with the standard cocaine report e2e retained as an always-on real-world regression; TUI/spike/broad LLM tests remain available but are isolated behind hard timeouts.
 
 ## Roadmap
 

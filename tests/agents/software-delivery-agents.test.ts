@@ -173,6 +173,7 @@ describe('software delivery agent bundle', () => {
     expect(classyfire.prompt).toContain('Never call, depend on, or suggest using the ClassyFire API');
     expect(classyfire.prompt).toContain('ClassyFire / ChemOnt');
     expect(classyfire.prompt).toContain('chemical ontology classification, not biological taxonomy');
+    expect(classyfire.prompt).toContain('Never use `sourceType: "model-prior"` for high-confidence taxonomy claims');
     expect(usage.prompt).toContain('what the entity is used for, not what its chemical taxonomy is');
     expect(usage.prompt).toContain('Six levels is the maximum');
     expect(usage.prompt).toContain('Do not output ClassyFire/ChemOnt hierarchy here');
@@ -244,6 +245,10 @@ describe('software delivery agent bundle', () => {
     expect(usage.prompt).toContain('Commonness timeframe');
     expect(usage.prompt).toContain('Recency/currentness evidence');
     expect(usage.prompt).toContain('Claim Evidence Ledger');
+    expect(usage.prompt).toContain('Mandatory Tool-Use Protocol');
+    expect(usage.prompt).toContain('your first response must be a single JSON tool call to `web-search`');
+    expect(usage.prompt).toContain('use the available `web-search` tool');
+    expect(usage.prompt).toContain('Never use `sourceType: "model-prior"` for high-confidence claims');
     expect(usage.prompt).toContain('"claimType": "commonness-score"');
     expect(usage.prompt).toContain('"recencyStatus": "current"');
     expect(usage.contract?.capabilities).toContain(

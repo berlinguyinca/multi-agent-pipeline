@@ -6,10 +6,9 @@ import { runHeadlessV2 } from '../../src/headless/runner.js';
 import { writeGraphPngArtifacts, writePdfArtifact } from '../../src/output/pdf-artifact.js';
 import type { AgentAdapter, AdapterConfig } from '../../src/types/adapter.js';
 
-const RUN_LIVE = process.env['MAP_RUN_LIVE_COCAINE_REPORT_TEST'] === '1';
 const PROMPT = 'please provide a classification and taxonomy report for cocaine as well as usages for it on the medical and metabolomics field. Keep this short and assume this will presented to a customer inside a handful of XLS cells. Ensure that correctness is judged fairly and only report the output tables and the graph plot. Nothing else';
 
-describe.skipIf(!RUN_LIVE)('live cocaine classification report command', () => {
+describe('live cocaine classification report command', () => {
   it('generates PDF and graph artifacts through the standard command path', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-cocaine-e2e-'));
     const result = await runHeadlessV2({
@@ -31,7 +30,7 @@ describe.skipIf(!RUN_LIVE)('live cocaine classification report command', () => {
 
     const pdf = await writePdfArtifact(result, { outputDir, dagLayout: 'auto' });
     expect(pdf.htmlPath).toMatch(/map-result-.*\.html$/);
-  }, 300_000);
+  }, 900_000);
 });
 
 describe('cocaine classification report command regression', () => {
@@ -57,11 +56,11 @@ describe('cocaine classification report command regression', () => {
           yield 'Fact-check verdict: supported\n\nLedger supported.';
           return;
         }
-        if (prompt.includes('Classify cocaine taxonomy')) {
+        if (prompt.includes('Classify cocaine taxonomy') || prompt.includes('ClassyFire/ChemOnt-style chemical taxonomy')) {
           yield '# ClassyFire / ChemOnt Taxonomic Classification\n\n| Rank | Classification |\n| --- | --- |\n| Kingdom | Organic compounds |\n\n## Claim Evidence Ledger\n```json\n{"claims":[{"id":"tax-1","claim":"Cocaine is an organic compound.","claimType":"chemical-taxonomy","confidence":"high","evidence":[{"sourceType":"document","summary":"taxonomy evidence","supports":"chemical-taxonomy"}]}]}\n```';
           return;
         }
-        if (prompt.includes('Classify cocaine usage')) {
+        if (prompt.includes('Classify cocaine usage') || prompt.includes('evidence-backed usage, exposure, and commonness tables')) {
           yield '# Usage Classification Tree\n\n## Usage Commonness Ranking\n\n| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Recency/currentness evidence | Evidence/caveat |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | Controlled medical topical anesthetic context | drug | 30 | less common | current | current restricted use | evidence |\n\n## Claim Evidence Ledger\n```json\n{"claims":[{"id":"use-1","claim":"Cocaine has restricted current medical topical anesthetic usage.","claimType":"commonness-score","confidence":"medium","timeframe":"current","recencyStatus":"current","commonnessScore":30,"evidence":[{"sourceType":"url","retrievedAt":"2026-04-19","summary":"current restricted medical usage","supports":"current restricted medical usage"}]}]}\n```';
           return;
         }

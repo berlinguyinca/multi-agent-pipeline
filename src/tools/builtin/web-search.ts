@@ -31,6 +31,7 @@ export function createWebSearchTool(config: WebSearchToolConfig = {}): Tool {
       const limit = Math.max(1, Math.min(config.maxResults ?? 5, 10));
 
       try {
+        const retrievedAt = new Date().toISOString().slice(0, 10);
         const url = new URL('https://html.duckduckgo.com/html/');
         url.searchParams.set('q', query);
         const response = await fetch(url, {
@@ -54,12 +55,11 @@ export function createWebSearchTool(config: WebSearchToolConfig = {}): Tool {
           success: true,
           output:
             results.length > 0
-              ? results
+              ? [`RetrievedAt: ${retrievedAt}`, ...results
                   .map(
                     (result, index) =>
                       `${index + 1}. ${result.title}\nURL: ${result.url}\nSnippet: ${result.snippet}`,
-                  )
-                  .join('\n\n')
+                  )].join('\n\n')
               : 'No search results found.',
         };
       } catch (err: unknown) {

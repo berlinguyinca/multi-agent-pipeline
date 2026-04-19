@@ -70,6 +70,9 @@ function shouldFactCheck(options: FactCheckOptions, factChecker: string): boolea
   if (!options.agents.has(factChecker)) return false;
   if (options.step.agent === factChecker) return false;
   if (options.result.outputType !== 'answer' && options.result.outputType !== 'data') return false;
+  if (options.result.evidenceGate?.checked && options.result.evidenceGate.passed && options.result.evidenceGate.findings.length === 0) {
+    return false;
+  }
   return Boolean(options.result.output?.trim());
 }
 

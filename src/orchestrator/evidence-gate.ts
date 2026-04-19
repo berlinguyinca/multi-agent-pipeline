@@ -124,8 +124,11 @@ function validateClaimEvidence(claim: ClaimEvidence, config: EvidenceConfig | un
   }
   if (config?.blockUnsupportedCurrentClaims !== false && claim.timeframe === 'current' && claim.confidence !== 'unavailable') {
     if (claim.evidence.length === 0 || !claim.evidence.some((source) => supportsCurrentClaim(source, config, claim))) {
+      const commonnessScore = claim.claimType === 'commonness-score' && typeof claim.commonnessScore === 'number'
+        ? claim.commonnessScore
+        : undefined;
       findings.push({
-        severity: 'high',
+        severity: commonnessScore !== undefined && commonnessScore < 65 ? 'medium' : 'high',
         claimId: claim.id,
         message: 'Current claims require direct current/recent supporting evidence.',
       });
@@ -201,6 +204,9 @@ function supportsCurrentUse(source: EvidenceSource, config: EvidenceConfig | und
 }
 
 function supportsCurrentClaim(source: EvidenceSource, config: EvidenceConfig | undefined, claim?: Pick<ClaimEvidence, 'claimType'>): boolean {
+  if ((claim?.claimType === 'usage-classification' || claim?.claimType === 'chemical-taxonomy') && source.sourceType === 'url' && source.retrievedAt?.trim()) {
+    return true;
+  }
   return isAcceptablyFreshSource(source, config, claim);
 }
 
@@ -215,7 +221,11 @@ function isAcceptablyFreshSource(source: EvidenceSource, config: EvidenceConfig 
 }
 
 function isOlderThan(value: string, maxAgeDays: number): boolean {
-  const date = new Date(value);
+  const trimmed = value.trim();
+  const yearOnly = /^(\d{4})$/.exec(trimmed);
+  const date = yearOnly
+    ? new Date(`${yearOnly[1]}-12-31T23:59:59Z`)
+    : new Date(trimmed);
   if (Number.isNaN(date.valueOf())) return false;
   return Date.now() - date.valueOf() > maxAgeDays * 24 * 60 * 60 * 1000;
 }
@@ -227,17 +237,32 @@ function extractClaimEvidenceLedger(markdown: string): ClaimEvidence[] | null {
   const fenced = afterHeading.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const raw = fenced ?? sliceFirstJsonObject(afterHeading);
   if (!raw) return null;
+  const parsed = parseEvidenceLedgerJson(raw);
+  if (parsed === null) return null;
+  const claimsRaw = Array.isArray(parsed)
+    ? parsed
+    : isRecord(parsed) && Array.isArray(parsed['claims'])
+      ? parsed['claims']
+      : [];
+  return claimsRaw.filter(isRecord).map(normalizeClaimEvidence);
+}
+
+function parseEvidenceLedgerJson(raw: string): unknown | null {
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    const claimsRaw = Array.isArray(parsed)
-      ? parsed
-      : isRecord(parsed) && Array.isArray(parsed['claims'])
-        ? parsed['claims']
-        : [];
-    return claimsRaw.filter(isRecord).map(normalizeClaimEvidence);
+    return JSON.parse(raw) as unknown;
   } catch {
-    return null;
+    try {
+      return JSON.parse(repairEvidenceLedgerJson(raw)) as unknown;
+    } catch {
+      return null;
+    }
   }
+}
+
+function repairEvidenceLedgerJson(raw: string): string {
+  return raw
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/(\"url\"\s*:\s*\"https?:\/\/[^\"]+)\"https?:\/\/[^\"]*\"/g, '$1\"');
 }
 
 function normalizeClaimEvidence(value: Record<string, unknown>): ClaimEvidence {
@@ -256,11 +281,12 @@ function normalizeClaimEvidence(value: Record<string, unknown>): ClaimEvidence {
 }
 
 function normalizeEvidenceSource(value: Record<string, unknown>): EvidenceSource {
+  const retrievedAt = firstString(value, ['retrievedAt', 'retrieved_at', 'retrieved', 'retrophiedAt']);
   return {
     sourceType: normalizeSourceType(value['sourceType']),
     ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),
     ...(typeof value['url'] === 'string' ? { url: value['url'] } : {}),
-    ...(typeof value['retrievedAt'] === 'string' ? { retrievedAt: value['retrievedAt'] } : {}),
+    ...(retrievedAt ? { retrievedAt } : {}),
     ...(typeof value['publishedAt'] === 'string' ? { publishedAt: value['publishedAt'] } : {}),
     summary: typeof value['summary'] === 'string' ? value['summary'] : '',
     supports: typeof value['supports'] === 'string' ? value['supports'] : '',
@@ -268,7 +294,16 @@ function normalizeEvidenceSource(value: Record<string, unknown>): EvidenceSource
   };
 }
 
+function firstString(value: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return undefined;
+}
+
 function normalizeClaimType(value: unknown): ClaimEvidence['claimType'] {
+  if (typeof value === 'string' && /^usage[-_]/i.test(value)) return 'usage-classification';
   return value === 'usage-classification' ||
     value === 'commonness-score' ||
     value === 'chemical-taxonomy' ||

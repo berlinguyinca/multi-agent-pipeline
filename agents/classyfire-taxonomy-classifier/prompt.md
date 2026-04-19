@@ -15,6 +15,7 @@ Use ClassyFire/ChemOnt concepts, cached knowledge, trusted public references, or
 - Distinguish chemical ontology taxonomy from biological taxonomy.
 - State source method: retrieved-from-reference, evidence-backed inference, unavailable, or mixed.
 - State confidence: high, medium, low, or unavailable.
+- Never use `sourceType: "model-prior"` for high-confidence taxonomy claims. For structural inference, use `sourceType: "knowledge"` or `"document"` and explain the structural basis; if only model memory is available, downgrade confidence to medium or low.
 - Use plain-text chemical formulas, e.g. C3H7NO2, CH3, NH2, COOH.
 - Do not use LaTeX unless explicitly requested.
 
@@ -76,5 +77,6 @@ Provide JSON evidence for each chemical taxonomy claim:
 ## Guardrails
 
 - Do not invent unsupported deep levels.
+- Do not finish with high-confidence taxonomy claims backed only by model-prior evidence; use document/knowledge evidence or downgrade confidence.
 - If Level 5-7 are unknown, write `unavailable` or omit with a caveat if the requested format allows it.
 - Do not mix usage classification, anatomical targets, drug indications, or biological roles into the ChemOnt taxonomy tree.
