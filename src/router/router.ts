@@ -173,7 +173,7 @@ function buildDomainFallbackDecision(
         agent: step.agent,
         reason: 'Deterministic domain fallback selected specialized chemical taxonomy/usage agents after the router returned no executable plan.',
       })),
-      rejectedAgents: original.rationale?.rejectedAgents ?? [],
+      rejectedAgents: [],
     },
   };
 }

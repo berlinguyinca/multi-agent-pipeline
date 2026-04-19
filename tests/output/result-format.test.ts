@@ -354,6 +354,26 @@ describe('result formatting', () => {
     expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. | Old source (published 1820) |');
   });
 
+  it('does not render rejected-agent rationale when fallback selected specialized agents', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      routerRationale: {
+        selectedAgents: [{
+          agent: 'usage-classification-tree',
+          reason: 'Deterministic domain fallback selected specialized chemical taxonomy/usage agents after the router returned no executable plan.',
+        }],
+        rejectedAgents: [],
+      },
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    }, 'markdown');
+
+    expect(output).toContain('## Router Rationale');
+    expect(output).not.toContain('Rejected or skipped agents');
+    expect(output).not.toContain('researcher: While capable of research');
+  });
+
   it('selects the final result from terminal DAG sinks instead of incidental later branch output', () => {
     const branched = {
       version: 2,
