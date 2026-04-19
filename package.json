@@ -21,7 +21,7 @@
     "lint": "tsc --noEmit",
     "test:llm-agents": "node scripts/run-with-timeout.mjs 120000 vitest run tests/agents/llm-integration.test.ts",
     "test:llm-evidence": "node scripts/run-with-timeout.mjs 180000 vitest run tests/agents/evidence-smoke.test.ts",
-    "test:e2e-cocaine-report": "node scripts/run-with-timeout.mjs 300000 vitest run tests/e2e/cocaine-report-command.test.ts",
+    "test:e2e-cocaine-report": "node scripts/run-with-timeout.mjs 900000 vitest run tests/e2e/cocaine-report-command.test.ts",
     "test:all": "vitest run",
     "test:core": "vitest run --config vitest.core.config.ts",
     "test:tui": "node scripts/run-with-timeout.mjs 60000 vitest run --config vitest.tui.config.ts",

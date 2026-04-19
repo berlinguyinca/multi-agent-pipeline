@@ -932,27 +932,35 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
 }
 
 function extractToolCall(output: string): { tool: string; params: Record<string, unknown> } | null {
-  const trimmed = output.trim();
+  const trimmed = normalizeTerminalText(output).trim();
   const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i)?.[1]?.trim() ?? trimmed;
   const candidates = sliceJsonObjects(fenced);
 
   for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as { tool?: unknown; params?: unknown };
-      if (typeof parsed.tool !== 'string') continue;
-      return {
-        tool: parsed.tool,
-        params:
-          parsed.params && typeof parsed.params === 'object'
-            ? (parsed.params as Record<string, unknown>)
-            : {},
-      };
-    } catch {
-      continue;
-    }
+    const parsed = parseToolCallCandidate(candidate);
+    if (!parsed || typeof parsed.tool !== 'string') continue;
+    return {
+      tool: parsed.tool,
+      params:
+        parsed.params && typeof parsed.params === 'object'
+          ? (parsed.params as Record<string, unknown>)
+          : {},
+    };
   }
 
   return null;
+}
+
+function parseToolCallCandidate(candidate: string): { tool?: unknown; params?: unknown } | null {
+  try {
+    return JSON.parse(candidate) as { tool?: unknown; params?: unknown };
+  } catch {
+    try {
+      return JSON.parse(candidate.replace(/[\r\n]+/g, ' ')) as { tool?: unknown; params?: unknown };
+    } catch {
+      return null;
+    }
+  }
 }
 
 function sliceJsonObjects(text: string): string[] {

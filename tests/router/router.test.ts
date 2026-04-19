@@ -512,6 +512,101 @@ describe('routeTask', () => {
     ]);
   });
 
+  it('uses a deterministic specialist route for customer-facing chemical table and graph reports', async () => {
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const adapter = mockAdapter(JSON.stringify({
+      kind: 'plan',
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'generic report', dependsOn: [] }],
+    }));
+
+    const result = await routeTask('classification and taxonomy report for cocaine with medical usages; only report output tables and graph plot for customer XLS cells', localAgents, adapter, routerConfig);
+
+    expect(adapter.state.prompt).toBeUndefined();
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected deterministic plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+    expect(result.plan.plan[1]?.task).toContain('Call web-search before the final answer');
+  });
+
+  it('prunes generic researcher synthesis from chemical taxonomy and usage specialist reports', async () => {
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+
+    const result = await routeTask('classification and taxonomy report for cocaine with medical and metabolomics usage tables', localAgents, mockAdapter(JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Generate cocaine taxonomy', dependsOn: [] },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Generate cocaine usage tables', dependsOn: [] },
+        { id: 'step-3', agent: 'researcher', task: 'Synthesize the taxonomy and usage data into a final customer report', dependsOn: ['step-1', 'step-2'] },
+      ],
+      rationale: {
+        selectedAgents: [
+          { agent: 'classyfire-taxonomy-classifier', reason: 'taxonomy specialist' },
+          { agent: 'usage-classification-tree', reason: 'usage specialist' },
+          { agent: 'researcher', reason: 'generic synthesis' },
+        ],
+        rejectedAgents: [],
+      },
+    })), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+    expect(result.rationale?.selectedAgents.map((entry) => entry.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+  });
+
   it('does not abort consensus when every candidate returns rationale-only JSON', async () => {
     const rationaleOnly = JSON.stringify({
       agent: 'researcher',

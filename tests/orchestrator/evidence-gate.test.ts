@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDraftClaimEvidenceLedger, runEvidenceGate } from '../../src/orchestrator/evidence-gate.js';
+import { auditEvidenceText, buildDraftClaimEvidenceLedger, runEvidenceGate } from '../../src/orchestrator/evidence-gate.js';
 import type { DAGStep, StepResult } from '../../src/types/dag.js';
 
 const step: DAGStep = {
@@ -67,6 +67,40 @@ describe('evidence gate', () => {
     ]);
   });
 
+
+  it('warns without failing when a sub-high commonness score has weak currentness evidence', () => {
+    const gate = runEvidenceGate({
+      step,
+      config: {
+        enabled: true,
+        mode: 'strict',
+        requiredAgents: ['usage-classification-tree'],
+        currentClaimMaxSourceAgeDays: 730,
+        freshnessProfiles: { 'usage-commonness': 730 },
+        requireRetrievedAtForWebClaims: true,
+        blockUnsupportedCurrentClaims: true,
+        remediationMaxRetries: 0,
+      },
+      result: resultWithClaims([
+        {
+          id: 'claim-low-commonness',
+          claim: 'A specialized use is less common today.',
+          claimType: 'commonness-score',
+          confidence: 'medium',
+          timeframe: 'current',
+          recencyStatus: 'current',
+          commonnessScore: 40,
+          evidence: [{ sourceType: 'document', publishedAt: '2010', summary: 'older specialty use', supports: 'specialty use' }],
+        },
+      ]),
+    });
+
+    expect(gate.passed).toBe(true);
+    expect(gate.findings).toEqual([
+      expect.objectContaining({ severity: 'medium', message: 'Current claims require direct current/recent supporting evidence.' }),
+    ]);
+  });
+
   it('supports warning mode without failing the gate', () => {
     const gate = runEvidenceGate({
       step,
@@ -96,6 +130,31 @@ describe('evidence gate', () => {
 
     expect(gate.passed).toBe(true);
     expect(gate.findings[0]?.severity).toBe('high');
+  });
+
+
+  it('parses wrapped ledger strings and common retrievedAt typos from live model output', () => {
+    const gate = auditEvidenceText([
+      '# Usage Classification Tree',
+      '',
+      '## Claim Evidence Ledger',
+      '```json',
+      '{"claims":[{"id":"claim-1","claim":"Cocaine metabolites are used as biomarkers in wastewater-based',
+      'epidemiology.","claimType":"commonness-score","confidence":"high","timeframe":"current","recencyStatus":"current","commonnessScore":70,"evidence":[{"sourceType":"url","title":"Current WBE review","url":"https://example.test/wbe"https://example.test/duplicate","retrophiedAt":"2026-04-19","publishedAt":"2024","summary":"current prevalence monitoring evidence","supports":"current widespread prevalence monitoring"}]}]}',
+      '```',
+    ].join('\n'), {
+      enabled: true,
+      mode: 'strict',
+      requiredAgents: ['usage-classification-tree'],
+      currentClaimMaxSourceAgeDays: 730,
+      freshnessProfiles: { 'usage-commonness': 730 },
+      requireRetrievedAtForWebClaims: true,
+      blockUnsupportedCurrentClaims: true,
+      remediationMaxRetries: 0,
+    });
+
+    expect(gate?.passed).toBe(true);
+    expect(gate?.claims[0]?.evidence[0]?.retrievedAt).toBe('2026-04-19');
   });
 
   it('uses claim-type freshness profiles', () => {

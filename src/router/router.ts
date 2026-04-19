@@ -53,6 +53,14 @@ export async function routeTask(
   signal?: AbortSignal,
   onChunk?: (chunk: string) => void,
 ): Promise<RouterDecision> {
+  const deterministicChemicalPlan = buildDomainFallbackDecision(userTask, agents, {
+    kind: 'no-match',
+    reason: 'Deterministic chemical taxonomy/usage route selected.',
+  });
+  if (deterministicChemicalPlan && shouldUseDeterministicChemicalRoute(userTask)) {
+    return deterministicChemicalPlan;
+  }
+
   const prompt = buildRouterPrompt(agents, userTask, config.maxSteps);
   const adapters = Array.isArray(routerAdapter) ? routerAdapter : [routerAdapter];
 
@@ -61,7 +69,7 @@ export async function routeTask(
   }
 
   const output = await runRouterAdapter(prompt, adapters[0]!, config, signal, onChunk);
-  const decision = finalizeRouterOutput(output, agents);
+  const decision = finalizeRouterOutput(output, agents, userTask);
   return decision.kind === 'no-match'
     ? buildDomainFallbackDecision(userTask, agents, decision) ?? decision
     : decision;
@@ -86,7 +94,7 @@ async function routeTaskWithConsensus(
     try {
       onChunk?.(`\n[router:${modelName}]\n`);
       const output = await runRouterAdapter(prompt, adapter, config, signal, onChunk);
-      const decision = finalizeRouterOutput(output, agents);
+      const decision = finalizeRouterOutput(output, agents, userTask);
       return { model: modelName, decision, score: scoreRouterDecision(decision) };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -140,6 +148,7 @@ function buildDomainFallbackDecision(
   original: RouterDecision,
 ): RouterPlanDecision | null {
   const task = userTask.toLowerCase();
+  const requestContext = compactStepRequestContext(userTask);
   const wantsChemicalTaxonomy = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
     /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
   const wantsUsage = /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
@@ -151,16 +160,17 @@ function buildDomainFallbackDecision(
     plan.push({
       id: 'step-1',
       agent: 'classyfire-taxonomy-classifier',
-      task: 'Generate a concise ClassyFire/ChemOnt-style chemical taxonomy table for the requested entity without using the live ClassyFire API.',
+      task: `Generate a concise ClassyFire/ChemOnt-style chemical taxonomy table for the entity in this user request: ${requestContext}. Do not use the live ClassyFire API. Include a Claim Evidence Ledger with document, knowledge, or URL evidence for every taxonomy claim; do not use model-prior evidence for high-confidence taxonomy claims.`,
       dependsOn: [],
     });
   }
   if (wantsUsage && agents.has('usage-classification-tree')) {
+    const taxonomyStepId = plan.find((step) => step.agent === 'classyfire-taxonomy-classifier')?.id;
     plan.push({
       id: `step-${plan.length + 1}`,
       agent: 'usage-classification-tree',
-      task: 'Generate concise evidence-backed usage, exposure, and commonness tables for the requested medical and metabolomics context.',
-      dependsOn: [],
+      task: `Generate concise evidence-backed usage, exposure, and commonness tables for the entity and context in this user request: ${requestContext}. Restrict the ranking to the requested medical and metabolomics context; do not rank broad illicit/recreational prevalence unless the user explicitly asks for it. Call web-search before the final answer using a query that covers current medical topical/local anesthetic use, toxicology/metabolomics biomarkers, and current prevalence evidence; include retrievedAt metadata for URL evidence, and do not assign commonnessScore >=65 unless retrieved current/recent prevalence or widespread-use evidence directly supports it. When in doubt, keep scores at 60 or below or mark unavailable.`,
+      dependsOn: taxonomyStepId ? [taxonomyStepId] : [],
     });
   }
   if (plan.length === 0) return null;
@@ -176,6 +186,20 @@ function buildDomainFallbackDecision(
       rejectedAgents: [],
     },
   };
+}
+
+function compactStepRequestContext(userTask: string): string {
+  const compact = userTask.replace(/\s+/g, ' ').trim();
+  const clipped = compact.length > 360 ? `${compact.slice(0, 357)}...` : compact;
+  return JSON.stringify(clipped);
+}
+
+function shouldUseDeterministicChemicalRoute(userTask: string): boolean {
+  const task = userTask.toLowerCase();
+  return /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
+    /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
+    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task) &&
+    /\b(only report|output tables|graph plot|xls cells|customer)\b/.test(task);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -273,7 +297,7 @@ async function runRouterAdapter(
   return output;
 }
 
-function finalizeRouterOutput(output: string, agents: Map<string, AgentDefinition>): RouterDecision {
+function finalizeRouterOutput(output: string, agents: Map<string, AgentDefinition>, userTask = ''): RouterDecision {
   const decision = parseRouterDecision(output);
 
   if (!decision) {
@@ -281,7 +305,7 @@ function finalizeRouterOutput(output: string, agents: Map<string, AgentDefinitio
     throw new Error(`Router returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
 
-  const cleanedDecision = cleanRouterDecision(decision, agents);
+  const cleanedDecision = cleanRouterDecision(decision, agents, userTask);
 
   if (cleanedDecision.kind === 'no-match') {
     return cleanedDecision;
@@ -626,18 +650,32 @@ function normalizeRationaleEntries(value: unknown): RouterRationale['selectedAge
 function cleanRouterDecision(
   decision: RouterDecision,
   agents: Map<string, AgentDefinition>,
+  userTask = '',
 ): RouterDecision {
   if (decision.kind === 'no-match') {
     return decision;
   }
 
-  const cleanedSteps = decision.plan.plan.map((step) => ({
+  let cleanedSteps = decision.plan.plan.map((step) => ({
     ...step,
     id: step.id.trim(),
     agent: normalizeRouterAgentName(step.agent.trim(), agents),
     task: cleanRouterTaskText(step.task),
     dependsOn: step.dependsOn.map((dep) => dep.trim()).filter(Boolean),
   }));
+
+  if (shouldPreferChemicalSpecialistPlan(userTask, cleanedSteps)) {
+    const droppedIds = new Set(cleanedSteps
+      .filter((step) => step.agent === 'researcher')
+      .map((step) => step.id));
+    cleanedSteps = cleanedSteps
+      .filter((step) => !droppedIds.has(step.id))
+      .map((step) => ({
+        ...step,
+        dependsOn: step.dependsOn.filter((dep) => !droppedIds.has(dep)),
+      }));
+  }
+
   const ids = new Set(cleanedSteps.map((step) => step.id));
   const existingDependencyTargets = new Set(cleanedSteps.flatMap((step) => step.dependsOn));
   const finalFormatterIndex = cleanedSteps.findIndex((step) => isFormatterStep(step.agent, step.task));
@@ -661,19 +699,36 @@ function cleanRouterDecision(
         dependsOn: step.dependsOn.filter((dep) => ids.has(dep)),
       })),
     },
-    ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents) } : {}),
+    ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set(cleanedSteps.map((step) => step.agent))) } : {}),
   };
+}
+
+function shouldPreferChemicalSpecialistPlan(
+  userTask: string,
+  steps: Array<{ agent: string; task: string }>,
+): boolean {
+  const task = userTask.toLowerCase();
+  const asksChemicalReport = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
+    /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
+    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
+  if (!asksChemicalReport) return false;
+
+  const agentsInPlan = new Set(steps.map((step) => step.agent));
+  return agentsInPlan.has('classyfire-taxonomy-classifier') &&
+    agentsInPlan.has('usage-classification-tree') &&
+    agentsInPlan.has('researcher');
 }
 
 function cleanRouterRationale(
   rationale: RouterRationale,
   agents: Map<string, AgentDefinition>,
+  planAgents?: Set<string>,
 ): RouterRationale {
   return {
     selectedAgents: rationale.selectedAgents.map((entry) => ({
       ...entry,
       agent: normalizeRouterAgentName(entry.agent, agents),
-    })),
+    })).filter((entry) => !planAgents || planAgents.has(entry.agent)),
     rejectedAgents: rationale.rejectedAgents.map((entry) => ({
       ...entry,
       agent: normalizeRouterAgentName(entry.agent, agents),
