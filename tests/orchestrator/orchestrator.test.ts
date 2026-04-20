@@ -2389,6 +2389,7 @@ describe('executeDAG', () => {
       },
     );
 
+    if (!result.success) console.error(JSON.stringify(result.steps, null, 2));
     expect(result.success).toBe(true);
     expect(calls).toEqual([
       'spec-qa-reviewer',
@@ -2657,12 +2658,12 @@ describe('executeDAG', () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-diff-decompose-'));
     const plan: DAGPlan = {
       plan: [
-        { id: 'step-1', agent: 'implementation-coder', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-1', agent: 'software-delivery', task: 'Implement broad feature', dependsOn: [] },
         { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
       ],
     };
     const agents = new Map([
-      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['software-delivery', makeAgent('software-delivery', 'files')],
       ['adviser', makeAgent('adviser', 'answer')],
       ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
     ]);

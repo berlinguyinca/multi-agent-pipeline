@@ -875,7 +875,7 @@ function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): 
 }
 
 function requiresDecompositionForNoDiff(agent: string): boolean {
-  return new Set(['implementation-coder', 'software-delivery', 'tdd-engineer']).has(agent);
+  return new Set(['software-delivery', 'tdd-engineer']).has(agent);
 }
 
 function buildNoDiffDecompositionTask(step: DAGStep, result: StepResult): string {

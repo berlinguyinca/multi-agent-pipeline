@@ -1,7 +1,7 @@
 name: tdd-engineer
 description: "Derives test-first plans and writes failing tests from acceptance criteria"
 adapter: ollama
-model: gemma4:26b
+model: qwen3.6:latest
 prompt: prompt.md
 pipeline:
   - name: derive-test-plan

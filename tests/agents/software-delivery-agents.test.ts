@@ -52,6 +52,8 @@ describe('software delivery agent bundle', () => {
       expect(agent.adapter).toBe('ollama');
       if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
         expect(agent.model).toBe('bespoke-minicheck:7b');
+      } else if (name === 'tdd-engineer') {
+        expect(agent.model).toBe('qwen3.6:latest');
       } else {
         expect(agent.model).toBe('gemma4:26b');
       }
@@ -293,6 +295,18 @@ describe('software delivery agent bundle', () => {
     expect(security.prompt).toContain('tool-output');
   });
 
+
+
+  it('uses the stronger Qwen coding model and action-first prompt for TDD test authoring', async () => {
+    const tdd = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'tdd-engineer'));
+
+    expect(tdd.adapter).toBe('ollama');
+    expect(tdd.model).toBe('qwen3.6:latest');
+    expect(tdd.prompt).toContain('Action-First Tool Protocol');
+    expect(tdd.prompt).toContain('first response must be a JSON shell tool call');
+    expect(tdd.prompt).toContain('write at least one focused failing test file');
+    expect(tdd.prompt).toContain('Do not return an empty response');
+  });
 
   it('requires implementation file-output agents to edit workspace files and report verification', async () => {
     const tdd = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'tdd-engineer'));
