@@ -501,7 +501,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--judge-panel-max-rounds <n>` | run option | 1 | Maximum judge-panel steering reruns; judges re-vote after each improvement until they accept or this budget is exhausted |
 | `--disable-cross-review` | run option | off | Disable high-impact autonomous cross-model review for this run |
 | `--cross-review-max-rounds <n>` | `crossReview.maxRounds` | `2` | Maximum judge-steered remediation rounds before best-effort reporting |
-| `--cross-review-judge-models <csv>` | `crossReview.judge.models` | config value | Override hybrid cross-review judges, e.g. `ollama/gemma4:26b,ollama/qwen3.6` |
+| `--cross-review-judge-models <csv>` | `crossReview.judge.models` | config value | Override hybrid cross-review judges; currently only the first two entries are used (`1` = peer review, `2` = judge; one entry = judge; extras ignored/reserved) |
 | `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
@@ -910,11 +910,11 @@ Every consensus path reports diagnostics in the result graph/report. Reports inc
 
 ### Autonomous cross-model review
 
-MAP enables cross-model review for high-impact software-delivery gates by default. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs verification, and records the decision trail in output. The default gates are routing/planning, spec QA, architecture/API-contract, file-changing agents, security-sensitive outputs, release-readiness, and verification-failure recovery.
+MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs verification, and records the decision trail in output. The `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future or expanded routing, but they are not described here as always-on gates.
 
 The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
 
-Use `--disable-cross-review` for a single run, `--cross-review-max-rounds <n>` to tune remediation depth, and `--cross-review-judge-models <csv>` to choose hybrid judges such as `ollama/gemma4:26b,ollama/qwen3.6`.
+Use `--disable-cross-review` for a single run, `--cross-review-max-rounds <n>` to tune remediation depth, and `--cross-review-judge-models <csv>` to choose hybrid judges such as `ollama/gemma4:26b,ollama/qwen3.6`. Currently only the first two entries are used: the first drives peer review, the second drives the judge, a single entry drives the judge, and additional entries are ignored or reserved.
 
 ```yaml
 crossReview:
@@ -928,12 +928,12 @@ crossReview:
   gates:
     planning: true
     routing: true
-    architecture: true
-    apiContract: true
+    architecture: false # reserved for future/expanded routing
+    apiContract: false # reserved for future/expanded routing
     fileOutputs: true
     security: true
     releaseReadiness: true
-    verificationFailure: true
+    verificationFailure: false # reserved for future/expanded routing
 ```
 
 ## Agent Registry
