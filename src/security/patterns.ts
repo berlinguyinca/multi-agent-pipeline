@@ -174,12 +174,28 @@ const systemDirWrite = regexPattern(
   /(?:writeFile|writeFileSync|appendFile|appendFileSync)\s*\(\s*['"`]\/(?:etc|usr|sys|boot|sbin)\//,
 );
 
-const promptInjectionMarker = regexPattern(
-  'prompt-injection-marker',
-  'critical',
-  'Prompt injection marker detected in generated code',
-  /(?:IGNORE\s+(?:ALL\s+)?PREVIOUS|SYSTEM\s*:|ACT\s+AS\s+|DISREGARD\s+(?:ALL\s+)?(?:PREVIOUS|ABOVE))/i,
-);
+const promptInjectionMarker: SecurityPattern = {
+  rule: 'prompt-injection-marker',
+  severity: 'critical',
+  description: 'Prompt injection marker detected in generated code',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const lines = content.split('\n');
+    const marker = /(?:IGNORE\s+(?:ALL\s+)?PREVIOUS|SYSTEM\s*:|DISREGARD\s+(?:ALL\s+)?(?:PREVIOUS|ABOVE)|\bACT\s+AS\s+(?:admin|root|system|developer|user|assistant)\b)/i;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (!marker.test(line)) continue;
+      findings.push({
+        rule: 'prompt-injection-marker',
+        severity: 'critical',
+        message: 'Prompt injection marker detected in generated code',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
 
 const toolScopeBypass = regexPattern(
   'tool-scope-bypass',

@@ -149,6 +149,12 @@ describe('MAP-specific patterns', () => {
     expect(findings.some(f => f.rule === 'prompt-injection-marker')).toBe(true);
   });
 
+
+  it('does not flag benign agent role prose as prompt injection', () => {
+    const findings = matchPatterns('I am ready to act as the **Adviser Agent**. I will evaluate incoming specifications for QA approval.');
+    expect(findings.some(f => f.rule === 'prompt-injection-marker')).toBe(false);
+  });
+
   it('detects tool scope bypass with sudo', () => {
     const findings = matchPatterns('exec("sudo rm -rf /tmp/data");');
     expect(findings.some(f => f.rule === 'tool-scope-bypass')).toBe(true);
