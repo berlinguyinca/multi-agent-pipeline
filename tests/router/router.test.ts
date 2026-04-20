@@ -553,6 +553,54 @@ describe('routeTask', () => {
     expect(result.plan.plan[1]?.task).toContain('Call web-search before the final answer');
   });
 
+
+  it('does not use chemical fallback for PubChem software development requests', async () => {
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const adapter = mockAdapter(JSON.stringify({
+      kind: 'no-match',
+      reason: 'router could not plan',
+      rationale: {
+        selectedAgents: [],
+        rejectedAgents: [{ agent: 'researcher', reason: 'specialized taxonomy and usage agents are better for chemical tasks' }],
+      },
+    }));
+
+    const result = await routeTask(
+      'Develop local software to download PubChem compound and substance files without rate throttling and convert files to markdown for data pipelines',
+      localAgents,
+      adapter,
+      routerConfig,
+    );
+
+    expect(result.kind).toBe('no-match');
+    if (result.kind === 'plan') {
+      expect(result.plan.plan.map((step) => step.agent)).not.toContain('classyfire-taxonomy-classifier');
+      expect(result.plan.plan.map((step) => step.agent)).not.toContain('usage-classification-tree');
+    }
+  });
+
   it('prunes generic researcher synthesis from chemical taxonomy and usage specialist reports', async () => {
     const localAgents = new Map(agents);
     localAgents.set('classyfire-taxonomy-classifier', {

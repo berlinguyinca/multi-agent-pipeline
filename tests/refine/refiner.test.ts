@@ -37,4 +37,18 @@ describe('Socratic prompt refiner', () => {
       expect.objectContaining({ agent: 'codesight-metadata' }),
     ]));
   });
+
+  it('does not recommend chemical classification agents for PubChem software sync requests', () => {
+    const result = refinePromptHeadless({
+      prompt: 'Develop local software to synchronize PubChem compound and substance files and convert them to Markdown',
+      headless: true,
+    });
+
+    expect(result.recommendedCapabilities.map((capability) => capability.agent)).toContain('codesight-metadata');
+    expect(result.recommendedCapabilities.map((capability) => capability.agent)).not.toContain('classyfire-taxonomy-classifier');
+    expect(result.recommendedCapabilities.map((capability) => capability.agent)).not.toContain('usage-classification-tree');
+    expect(result.refinedPrompt).not.toContain('classyfire-taxonomy-classifier');
+    expect(result.refinedPrompt).not.toContain('usage-classification-tree');
+  });
+
 });

@@ -119,17 +119,24 @@ function buildOptimizedPrompt(
 function recommendCapabilities(prompt: string): RefineCapabilityRecommendation[] {
   const text = prompt.toLowerCase();
   const capabilities: RefineCapabilityRecommendation[] = [];
+  const softwareRequest = isSoftwareDevelopmentRequest(text);
   if (/(install|download|pull|import|build|verify).*(model|ollama|hugging face|hf\.co)|hugging face|hf\.co/.test(text)) {
     capabilities.push({ agent: 'model-installer', reason: 'The prompt requires local model setup or verification.' });
   }
-  if (/(repo|codebase|existing code|refactor|implement|review|source)/.test(text)) {
+  if (softwareRequest || /(repo|codebase|existing code|refactor|implement|review|source)/.test(text)) {
     capabilities.push({ agent: 'codesight-metadata', reason: 'The prompt benefits from read-only source metadata before LLM editing or review.' });
   }
-  if (/(classification|taxonomy|chemical|drug|metabolomics|compound)/.test(text)) {
+  if (!softwareRequest && /(classification|taxonomy|chemical|drug|metabolomics|compound)/.test(text)) {
     capabilities.push({ agent: 'classyfire-taxonomy-classifier', reason: 'The prompt asks for chemical taxonomy/classification context.' });
     capabilities.push({ agent: 'usage-classification-tree', reason: 'The prompt asks for usage, exposure, or metabolomics context.' });
   }
   return dedupeByAgent(capabilities);
+}
+
+function isSoftwareDevelopmentRequest(text: string): boolean {
+  const asksForSoftware = /\b(software|app|application|cli|tool|service|program|script|pipeline|develop|implement|build|create)\b/.test(text);
+  const asksForEngineeringWorkflow = /\b(download|sync|synchroni[sz]e|convert|folder|file|database|markdown|local|rate thrott|data processing)\b/.test(text);
+  return asksForSoftware && asksForEngineeringWorkflow;
 }
 
 function buildAssumptions(questions: string[]): string[] {

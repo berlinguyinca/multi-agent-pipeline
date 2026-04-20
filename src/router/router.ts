@@ -149,6 +149,7 @@ function buildDomainFallbackDecision(
   original: RouterDecision,
 ): RouterPlanDecision | null {
   const task = userTask.toLowerCase();
+  if (isSoftwareDevelopmentRequest(task)) return null;
   const requestContext = compactStepRequestContext(userTask);
   const specialistRationaleHint = hasChemicalSpecialistSkipRationale(original);
   const wantsChemicalTaxonomy = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
@@ -203,10 +204,18 @@ function compactStepRequestContext(userTask: string): string {
 
 function shouldUseDeterministicChemicalRoute(userTask: string): boolean {
   const task = userTask.toLowerCase();
+  if (isSoftwareDevelopmentRequest(task)) return false;
   return /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
     /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
     /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task) &&
     /\b(only report|output tables|graph plot|xls cells|customer)\b/.test(task);
+}
+
+
+function isSoftwareDevelopmentRequest(task: string): boolean {
+  const asksForSoftware = /\b(software|app|application|cli|tool|service|program|script|pipeline|develop|implement|build|create)\b/.test(task);
+  const asksForEngineeringWorkflow = /\b(download|sync|synchroni[sz]e|convert|folder|file|database|markdown|local|rate thrott|data processing)\b/.test(task);
+  return asksForSoftware && asksForEngineeringWorkflow;
 }
 
 async function mapWithConcurrency<T, R>(
