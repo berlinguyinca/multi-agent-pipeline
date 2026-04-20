@@ -829,7 +829,7 @@ function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
   insertAfter(options.plan, options.step.id, [reviewStep, judgeStep]);
   options.allIds.add(reviewStep.id);
   options.allIds.add(judgeStep.id);
-  rewireDownstream(options.plan, options.step.id, judgeStep.id, new Set([
+  appendDownstreamDependency(options.plan, options.step.id, judgeStep.id, new Set([
     options.step.id,
     reviewStep.id,
     judgeStep.id,
@@ -986,12 +986,19 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
   ledger.budgetExhausted = false;
   insertAfter(options.plan, options.step.id, [revisionStep]);
   options.allIds.add(revisionStep.id);
-  rewireDownstream(options.plan, options.step.id, revisionStep.id, new Set([
-    rootStepId,
-    ledger.reviewStepId ?? '',
-    options.step.id,
-    revisionStep.id,
-  ]), options.settled);
+  const reviewedContentStepId = contentDependencyForJudgeStep(options.step, ledger.reviewStepId) ?? rootStepId;
+  rewireDownstreamToRevision(options.plan, {
+    previousContentId: reviewedContentStepId,
+    previousJudgeId: options.step.id,
+    revisionId: revisionStep.id,
+    excludeIds: new Set([
+      rootStepId,
+      ledger.reviewStepId ?? '',
+      options.step.id,
+      revisionStep.id,
+    ]),
+    settled: options.settled,
+  });
   options.results.set(rootStepId, sourceResult);
   options.results.set(revisionStep.id, {
     id: revisionStep.id,
@@ -1014,18 +1021,50 @@ function insertAfter(plan: DAGPlan, sourceId: string, steps: DAGStep[]): void {
   plan.plan.splice(sourceIndex + 1, 0, ...steps);
 }
 
-function rewireDownstream(
+function appendDownstreamDependency(
   plan: DAGPlan,
   fromId: string,
-  toId: string,
+  dependencyId: string,
   excludeIds: Set<string>,
   settled: Set<string>,
 ): void {
   for (const candidate of plan.plan) {
     if (excludeIds.has(candidate.id) || settled.has(candidate.id)) continue;
     if (!candidate.dependsOn.includes(fromId)) continue;
-    candidate.dependsOn = [...new Set(candidate.dependsOn.map((dep) => (dep === fromId ? toId : dep)))];
+    candidate.dependsOn = [...new Set([...candidate.dependsOn, dependencyId])];
   }
+}
+
+function rewireDownstreamToRevision(
+  plan: DAGPlan,
+  options: {
+    previousContentId: string;
+    previousJudgeId: string;
+    revisionId: string;
+    excludeIds: Set<string>;
+    settled: Set<string>;
+  },
+): void {
+  for (const candidate of plan.plan) {
+    if (options.excludeIds.has(candidate.id) || options.settled.has(candidate.id)) continue;
+    if (
+      !candidate.dependsOn.includes(options.previousContentId) &&
+      !candidate.dependsOn.includes(options.previousJudgeId)
+    ) {
+      continue;
+    }
+    const retainedDependencies = candidate.dependsOn.filter(
+      (dep) => dep !== options.previousContentId && dep !== options.previousJudgeId,
+    );
+    candidate.dependsOn = [...new Set([...retainedDependencies, options.revisionId])];
+  }
+}
+
+function contentDependencyForJudgeStep(
+  judgeStep: DAGStep,
+  reviewStepId: string | undefined,
+): string | null {
+  return judgeStep.dependsOn.find((dep) => dep !== reviewStepId) ?? null;
 }
 
 function crossReviewParticipant(

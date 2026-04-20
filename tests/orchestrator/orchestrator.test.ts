@@ -38,6 +38,19 @@ function createQueueAdapter(outputs: string[]) {
   }));
 }
 
+function createCapturingQueueAdapter(outputs: string[], prompts: string[]) {
+  return vi.fn((): AgentAdapter => ({
+    type: 'ollama',
+    model: 'test-model',
+    detect: vi.fn(),
+    cancel: vi.fn(),
+    async *run(prompt: string) {
+      prompts.push(prompt);
+      yield outputs.shift() ?? '';
+    },
+  }));
+}
+
 function makeAgent(name: string, outputType: 'answer' | 'data' | 'files' = 'answer'): AgentDefinition {
   return {
     name,
@@ -2446,7 +2459,8 @@ describe('executeDAG', () => {
       ['code-qa-analyst', codeQaAnalyst],
       ['release-readiness-reviewer', releaseReadinessReviewer],
     ]);
-    const createAdapter = createQueueAdapter([
+    const prompts: string[] = [];
+    const createAdapter = createCapturingQueueAdapter([
       'source output',
       'review output: needs revision',
       '{"decision":"revise","rationale":"file output needs a regression test","remediation":["add regression test"],"residualRisks":["coverage gap"]}',
@@ -2454,7 +2468,7 @@ describe('executeDAG', () => {
       'revision review output: regression added',
       '{"decision":"accept","rationale":"revision accepted","remediation":[],"residualRisks":[]}',
       'readiness output',
-    ]);
+    ], prompts);
 
     const crossReviewConfig = {
       ...DEFAULT_CROSS_REVIEW_CONFIG,
@@ -2516,8 +2530,72 @@ describe('executeDAG', () => {
       residualRisks: [],
       budgetExhausted: false,
     });
-    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toContain('step-1-judge-2');
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1-revision-1',
+      'step-1-judge-2',
+    ]);
+    const downstreamPrompt = prompts.find((prompt) => prompt.includes('Your task: Assess readiness'));
+    expect(downstreamPrompt).toContain('[step-1-revision-1: implementation-coder]\nrevision output');
+    expect(downstreamPrompt).toContain('[step-1-judge-2: release-readiness-reviewer]');
+    expect(downstreamPrompt).toContain('"decision":"accept"');
+    expect(downstreamPrompt).toContain('"rationale":"revision accepted"');
+    expect(downstreamPrompt).not.toContain('[step-1: implementation-coder]\nsource output');
     expect(createAdapter).toHaveBeenCalledTimes(7);
+  });
+
+  it('passes both accepted source output and terminal judge decision to downstream steps', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-1'] },
+      ],
+    };
+    const implementationCoder = makeAgent('implementation-coder', 'files');
+    const codeQaAnalyst = makeAgent('code-qa-analyst', 'answer');
+    const releaseReadinessReviewer = makeAgent('release-readiness-reviewer', 'answer');
+    const agents = new Map([
+      ['implementation-coder', implementationCoder],
+      ['code-qa-analyst', codeQaAnalyst],
+      ['release-readiness-reviewer', releaseReadinessReviewer],
+    ]);
+    const prompts: string[] = [];
+    const createAdapter = createCapturingQueueAdapter([
+      'source output',
+      'review output: source accepted',
+      '{"decision":"accept","rationale":"source accepted","remediation":[],"residualRisks":[]}',
+      'readiness output',
+    ], prompts);
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        crossReview: {
+          ...DEFAULT_CROSS_REVIEW_CONFIG,
+          gates: { ...DEFAULT_CROSS_REVIEW_CONFIG.gates, releaseReadiness: false },
+        },
+        localModelConcurrency: 1,
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1',
+      'step-1-judge-1',
+    ]);
+    const downstreamPrompt = prompts.find((prompt) => prompt.includes('Your task: Assess readiness'));
+    expect(downstreamPrompt).toContain('[step-1: implementation-coder]\nsource output');
+    expect(downstreamPrompt).toContain('[step-1-judge-1: release-readiness-reviewer]');
+    expect(downstreamPrompt).toContain('"decision":"accept"');
+    expect(downstreamPrompt).toContain('"rationale":"source accepted"');
+    expect(createAdapter).toHaveBeenCalledTimes(4);
   });
 
   it('marks the root cross-review ledger budget-exhausted when another revision would exceed max rounds', async () => {
@@ -2570,7 +2648,10 @@ describe('executeDAG', () => {
       requestedRemediation: ['add missing coverage'],
       budgetExhausted: true,
     });
-    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toContain('step-1-judge-1');
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1',
+      'step-1-judge-1',
+    ]);
     expect(createAdapter).toHaveBeenCalledTimes(4);
   });
 
