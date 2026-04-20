@@ -245,6 +245,7 @@ describe('software delivery agent bundle', () => {
     const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
 
     expect(usage.prompt).toContain('Every LCB Exposure Summary row marked `yes` must have a corresponding Usage Commonness Ranking row');
+    expect(usage.prompt).toContain('each individual positive usage scenario');
   });
 
   it('requires usage commonness scores to account for current prevalence and recency', async () => {

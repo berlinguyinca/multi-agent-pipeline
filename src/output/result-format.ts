@@ -1635,8 +1635,11 @@ interface LcbExposureRow {
 }
 
 function addMissingLcbRowsToCommonnessRanking(markdown: string): string {
-  const lcbRows = extractPositiveLcbExposureRows(markdown);
-  if (lcbRows.length === 0) return markdown;
+  const reportedScenarios = dedupeLcbExposureRows([
+    ...extractPositiveLcbExposureRows(markdown),
+    ...extractUsageTreeScenarioRows(markdown),
+  ]);
+  if (reportedScenarios.length === 0) return markdown;
 
   const lines = markdown.split('\n');
   const headingIndex = lines.findIndex((line) => /^##\s+Usage Commonness Ranking\s*$/i.test(line.trim()));
@@ -1653,15 +1656,15 @@ function addMissingLcbRowsToCommonnessRanking(markdown: string): string {
   }
 
   const bodyRows = lines.slice(tableStart + 2, tableEnd).map(parseMarkdownTableCells).filter((row) => row.length > 0);
-  const categoryIndex = header.findIndex((cell) => /category/i.test(cell));
-  if (categoryIndex < 0) return markdown;
+  const usageIndex = header.findIndex((cell) => /usage|application|exposure origin/i.test(cell));
+  if (usageIndex < 0) return markdown;
 
-  const representedCategories = new Set(
-    bodyRows
-      .map((row) => normalizeLcbCategory(row[categoryIndex] ?? ''))
-      .filter(Boolean),
+  const representedScenarios = bodyRows
+    .map((row) => row[usageIndex] ?? '')
+    .filter(Boolean);
+  const missingRows = reportedScenarios.filter((row) =>
+    !isUsageScenarioRepresented(row.examples || row.category, representedScenarios),
   );
-  const missingRows = lcbRows.filter((row) => !representedCategories.has(normalizeLcbCategory(row.category)));
   if (missingRows.length === 0) return markdown;
 
   const rankIndex = header.findIndex((cell) => /^rank$/i.test(cell));
@@ -1704,13 +1707,85 @@ function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
     if (applicable !== 'yes') continue;
     const category = (cells[categoryIndex] ?? '').trim();
     if (!category) continue;
+    const examples = splitUsageScenarios(examplesIndex >= 0 ? (cells[examplesIndex] ?? '').trim() : '');
+    const scenarios = examples.length > 0 ? examples : [category];
+    for (const scenario of scenarios) {
+      rows.push({
+        category,
+        examples: scenario,
+        caveat: caveatIndex >= 0 ? (cells[caveatIndex] ?? '').trim() : '',
+      });
+    }
+  }
+  return rows;
+}
+
+function extractUsageTreeScenarioRows(markdown: string): LcbExposureRow[] {
+  const lines = markdown.split('\n');
+  const headingIndex = lines.findIndex((line) => /^##\s+Usage Tree\s*$/i.test(line.trim()));
+  if (headingIndex < 0) return [];
+  const tableStart = findNextTableLine(lines, headingIndex + 1);
+  if (tableStart < 0 || tableStart + 1 >= lines.length) return [];
+  const header = parseMarkdownTableCells(lines[tableStart]!);
+  if (header.length === 0 || !isMarkdownSeparatorRow(lines[tableStart + 1]!)) return [];
+
+  const levelIndex = header.findIndex((cell) => /level/i.test(cell));
+  const classificationIndex = header.findIndex((cell) => /usage|classification/i.test(cell));
+  if (levelIndex < 0 || classificationIndex < 0) return [];
+
+  const rows: LcbExposureRow[] = [];
+  for (let index = tableStart + 2; index < lines.length; index += 1) {
+    const cells = parseMarkdownTableCells(lines[index]!);
+    if (cells.length === 0) break;
+    const level = usageTreeDepth(cells[levelIndex] ?? '');
+    if (level === undefined || level < 3) continue;
+    const scenario = (cells[classificationIndex] ?? '').trim();
+    if (!meaningfulLcbValue(scenario)) continue;
     rows.push({
-      category,
-      examples: examplesIndex >= 0 ? (cells[examplesIndex] ?? '').trim() : '',
-      caveat: caveatIndex >= 0 ? (cells[caveatIndex] ?? '').trim() : '',
+      category: inferUsageScenarioCategory(scenario),
+      examples: scenario,
+      caveat: 'reported in Usage Tree',
     });
   }
   return rows;
+}
+
+function splitUsageScenarios(value: string): string[] {
+  if (!meaningfulLcbValue(value)) return [];
+  return value
+    .split(/\s*;\s*/)
+    .map((entry) => entry.trim())
+    .filter(meaningfulLcbValue);
+}
+
+function usageTreeDepth(value: string): number | undefined {
+  const match = /\bLevel\s+(\d+)/i.exec(value);
+  if (!match) return undefined;
+  const depth = Number.parseInt(match[1]!, 10);
+  return Number.isFinite(depth) ? depth : undefined;
+}
+
+function inferUsageScenarioCategory(scenario: string): string {
+  const normalized = normalizeScenarioText(scenario);
+  if (/\b(toxicology|forensic|screening|biomarker|metabolite|monitoring|benzoylecgonine)\b/.test(normalized)) {
+    return 'other exposure origins';
+  }
+  if (/\b(anesthesia|anaesthesia|surgery|diagnostic|clinical pharmacology|vasoconstrict)\b/.test(normalized)) {
+    return 'drug / drug metabolite';
+  }
+  return 'usage tree';
+}
+
+function dedupeLcbExposureRows(rows: LcbExposureRow[]): LcbExposureRow[] {
+  const seen = new Set<string>();
+  const result: LcbExposureRow[] = [];
+  for (const row of rows) {
+    const key = `${normalizeLcbCategory(row.category)}:${normalizeScenarioText(row.examples || row.category)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(row);
+  }
+  return result;
 }
 
 function buildMissingCommonnessCells(options: {
@@ -1726,7 +1801,7 @@ function buildMissingCommonnessCells(options: {
   const origin = meaningfulLcbValue(options.lcb.examples) ? options.lcb.examples : options.lcb.category;
   const caveat = [
     meaningfulLcbValue(options.lcb.caveat) ? options.lcb.caveat : '',
-    'represented in LCB Exposure Summary; commonness scoring evidence unavailable',
+    'reported usage scenario; commonness scoring evidence unavailable',
   ].filter(Boolean).join('; ');
 
   set(/^rank$/i, String(options.rank));
@@ -1735,8 +1810,8 @@ function buildMissingCommonnessCells(options: {
   set(/commonness score/i, 'unavailable');
   set(/commonness label/i, 'unavailable');
   set(/timeframe/i, 'unavailable');
-  set(/recency|currentness/i, 'represented in LCB Exposure Summary; commonness scoring evidence unavailable');
-  set(/evidence|caveat/i, caveat);
+  set(/recency|currentness/i, 'reported usage scenario; commonness scoring evidence unavailable');
+  set(/^evidence\s*\/?\s*caveat$/i, caveat);
   return cells;
 }
 
@@ -1764,6 +1839,25 @@ function normalizeLcbCategory(value: string): string {
   if (/\bother\b|\bexposure\b|\bforensic\b|\bworkplace\b/.test(normalized)) return 'other-exposure';
   if (/\bcellular\b|\bendogenous\b/.test(normalized)) return 'endogenous';
   return normalized;
+}
+
+function isUsageScenarioRepresented(scenario: string, representedScenarios: string[]): boolean {
+  const normalizedScenario = normalizeScenarioText(scenario);
+  if (!normalizedScenario) return true;
+  return representedScenarios.some((candidate) => {
+    const normalizedCandidate = normalizeScenarioText(candidate);
+    return normalizedCandidate.includes(normalizedScenario) ||
+      normalizedScenario.includes(normalizedCandidate);
+  });
+}
+
+function normalizeScenarioText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\bent\b/g, 'otorhinolaryngological')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\bunavailable\b/g, '')
+    .trim();
 }
 
 function findNextTableLine(lines: string[], start: number): number {
