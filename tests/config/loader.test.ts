@@ -248,6 +248,50 @@ outputDir: ./my-output
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
   });
 
+  it('merges nested crossReview config without dropping default gates', async () => {
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, `
+crossReview:
+  enabled: false
+  maxRounds: 4
+  judge:
+    models:
+      - ollama/gemma4:26b
+      - ollama/qwen3.6
+  gates:
+    security: false
+`, 'utf-8');
+
+    const config = await loadConfig(configPath);
+
+    expect(config.crossReview.enabled).toBe(false);
+    expect(config.crossReview.maxRounds).toBe(4);
+    expect(config.crossReview.gates.security).toBe(false);
+    expect(config.crossReview.gates.fileOutputs).toBe(true);
+    expect(config.crossReview.judge.preferSeparatePanel).toBe(true);
+    expect(config.crossReview.judge.models).toEqual(['ollama/gemma4:26b', 'ollama/qwen3.6']);
+  });
+
+  it('rejects invalid crossReview round counts', async () => {
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, `
+crossReview:
+  maxRounds: 9
+`, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('crossReview.maxRounds must be at most crossReview.maxRoundsUpperBound');
+  });
+
+  it('rejects unsupported crossReview autonomy modes', async () => {
+    const configPath = path.join(tmpDir, 'pipeline.yaml');
+    await fs.writeFile(configPath, `
+crossReview:
+  autonomy: blocking
+`, 'utf-8');
+
+    await expect(loadConfig(configPath)).rejects.toThrow('crossReview.autonomy must be "nonblocking"');
+  });
+
   it('throws on invalid agent summary config', async () => {
     const yamlContent = `
 generateAgentSummary: yes-please

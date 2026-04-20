@@ -3,8 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
-import type { AdapterDefaultsMap, AgentConsensusConfig, EvidenceConfig } from '../types/config.js';
-import type { DAGPlan, StepResult, StepStatus } from '../types/dag.js';
+import type { AdapterDefaultsMap, AgentConsensusConfig, CrossReviewConfig, EvidenceConfig } from '../types/config.js';
+import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
@@ -24,6 +24,16 @@ import { validateStepHandoff } from './handoff-validation.js';
 import { runFileConsensusInWorktrees } from './file-consensus.js';
 import { runEvidenceGate } from './evidence-gate.js';
 import { writeEvidenceSourceSnapshots } from './evidence-snapshots.js';
+import {
+  buildCrossReviewJudgeStep,
+  buildCrossReviewReviewStep,
+  buildCrossReviewRevisionStep,
+  parseCrossReviewJudgeDecision,
+  resolveCrossReviewModelOverrides,
+  selectCrossReviewJudgeSelection,
+  selectCrossReviewReviewerAgent,
+  shouldCrossReviewStep,
+} from './cross-review.js';
 
 export interface DAGExecutionResult {
   success: boolean;
@@ -56,6 +66,7 @@ export interface DAGRetryOptions {
   };
   agentConsensus?: AgentConsensusConfig;
   evidence?: EvidenceConfig;
+  crossReview?: CrossReviewConfig;
   localModelConcurrency?: number;
 }
 
@@ -65,6 +76,8 @@ const DEFAULT_STEP_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STEP_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
 const ADAPTIVE_TIMEOUTS_PATH = path.join('.map', 'adaptive-timeouts.json');
+const CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK =
+  'Cross-review judge independence degraded because no distinct judge agent was available.';
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof Error)) return true;
@@ -104,6 +117,7 @@ export async function executeDAG(
   const stepTimeoutMs = retry?.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
   const adapterDefaults = retry?.adapterDefaults;
   const agentConsensus = retry?.agentConsensus;
+  const crossReview = retry?.crossReview;
   const localModelConcurrency = Math.max(1, Math.floor(retry?.localModelConcurrency ?? 1));
   const workingDir = retry?.workingDir ?? process.cwd();
   const knowledgeCwd = retry?.knowledgeCwd ?? process.cwd();
@@ -116,6 +130,7 @@ export async function executeDAG(
   const allIds = new Set(mutablePlan.plan.map((s) => s.id));
   const activeAdapters = new Set<AgentAdapter>();
   const recoveryRounds = new Map<string, number>();
+  const crossReviewRounds = new Map<string, number>();
   const replans: AdviserReplanEvent[] = [];
   const adaptiveTimeouts = await loadAdaptiveTimeouts(workingDir);
 
@@ -176,6 +191,8 @@ export async function executeDAG(
 
         running.add(step.id);
         const agent = agents.get(step.agent)!;
+        const stepAdapter = step.adapter ?? agent.adapter;
+        const stepModel = step.model ?? agent.model;
         const startedAt = Date.now();
         reporter?.dagStepStart(step.id, step.agent, step.task);
 
@@ -215,7 +232,7 @@ export async function executeDAG(
               : rawContext;
 
             const configs: AdapterConfig[] = [
-              { type: agent.adapter, model: agent.model },
+              { type: stepAdapter, model: stepModel },
               ...(agent.fallbacks ?? []).map((fb) => ({
                 type: fb.adapter,
                 model: fb.model,
@@ -247,9 +264,9 @@ export async function executeDAG(
             armStepTimer();
 
             // Resolve thinking: agent-level > adapter-default > undefined
-            const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
-            const resolvedTemperature = adapterDefaults?.[agent.adapter]?.temperature;
-            const resolvedSeed = adapterDefaults?.[agent.adapter]?.seed;
+            const resolvedThink = agent.think ?? adapterDefaults?.[stepAdapter]?.think;
+            const resolvedTemperature = adapterDefaults?.[stepAdapter]?.temperature;
+            const resolvedSeed = adapterDefaults?.[stepAdapter]?.seed;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
               const context = injectToolCatalog(fullContext, tools, agent.prompt);
@@ -280,8 +297,8 @@ export async function executeDAG(
                   workingDir,
                   stepId: step.id,
                   config: fileConsensusConfig,
-                  provider: agent.adapter,
-                  model: agent.model,
+                  provider: stepAdapter,
+                  model: stepModel,
                   runCandidate: (candidateWorkingDir, candidateIndex) =>
                     runOnce(candidateWorkingDir, candidateIndex),
                 });
@@ -314,8 +331,8 @@ export async function executeDAG(
             const result: StepResult = {
               id: step.id,
               agent: step.agent,
-              provider: agent.adapter,
-              model: agent.model,
+              provider: stepAdapter,
+              model: stepModel,
               task: step.task,
               dependsOn: [...step.dependsOn],
               status: 'completed',
@@ -485,6 +502,30 @@ export async function executeDAG(
                 });
               }
             }
+            maybeScheduleCrossReviewRevision({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+              crossReview,
+              reporter,
+            });
+            maybeScheduleCrossReviewGate({
+              step,
+              result,
+              agent,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+              crossReview,
+              crossReviewRounds,
+              reporter,
+            });
             maybeScheduleFactCheck({
               step,
               result,
@@ -711,6 +752,366 @@ async function persistLearningCandidate(
   }
 }
 
+interface CrossReviewGateOptions {
+  step: DAGStep;
+  result: StepResult;
+  agent: AgentDefinition;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  crossReview?: CrossReviewConfig;
+  crossReviewRounds: Map<string, number>;
+  reporter?: VerboseReporter;
+}
+
+function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
+  const config = options.crossReview;
+  if (!config || options.result.crossReview) return;
+
+  const rootStepId = options.step.parentStepId ?? options.step.id;
+  const round = (options.crossReviewRounds.get(rootStepId) ?? 0) + 1;
+  const decision = shouldCrossReviewStep({
+    config,
+    step: options.step,
+    result: options.result,
+    agent: options.agent,
+    round,
+  });
+  if (!decision.shouldReview) {
+    return;
+  }
+
+  const reviewerAgent = selectCrossReviewReviewerAgent(options.step.agent, options.agents);
+  if (!reviewerAgent) {
+    options.reporter?.agentDecision?.({
+      by: `${options.step.id} [${options.step.agent}]`,
+      agent: 'cross-reviewer',
+      decision: 'not-needed',
+      reason: 'No enabled peer-review helper agent is available for cross-review.',
+    });
+    return;
+  }
+  const judgeSelection = selectCrossReviewJudgeSelection(
+    options.step.agent,
+    reviewerAgent,
+    options.agents,
+    { preferSeparatePanel: config.judge.preferSeparatePanel },
+  );
+  const judgeAgent = judgeSelection.judgeAgent;
+  const modelOverrides = resolveCrossReviewModelOverrides({
+    config,
+    reviewerAgent,
+    judgeAgent,
+    agents: options.agents,
+  });
+  const reviewStep = buildCrossReviewReviewStep({
+    step: options.step,
+    result: options.result,
+    reviewerAgent,
+    round,
+    gate: decision.gate ?? 'unknown',
+    override: modelOverrides.review,
+  });
+  const judgeStep = buildCrossReviewJudgeStep({
+    step: options.step,
+    result: options.result,
+    reviewStepId: reviewStep.id,
+    judgeAgent,
+    round,
+    gate: decision.gate ?? 'unknown',
+    override: modelOverrides.judge,
+  });
+
+  if (options.allIds.has(reviewStep.id) || options.allIds.has(judgeStep.id)) return;
+
+  options.crossReviewRounds.set(rootStepId, round);
+  insertAfter(options.plan, options.step.id, [reviewStep, judgeStep]);
+  options.allIds.add(reviewStep.id);
+  options.allIds.add(judgeStep.id);
+  appendDownstreamDependency(options.plan, options.step.id, judgeStep.id, new Set([
+    options.step.id,
+    reviewStep.id,
+    judgeStep.id,
+  ]), options.settled);
+
+  const rootResult = options.results.get(rootStepId) ?? options.result;
+  const existingLedger = rootResult.crossReview;
+  const residualRisks = judgeSelection.degradedIndependence
+    ? mergeUnique(existingLedger?.residualRisks ?? [], [CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK])
+    : existingLedger?.residualRisks ?? [];
+  const nextLedger: CrossReviewLedger = {
+    rootStepId,
+    round,
+    gate: decision.gate ?? 'unknown',
+    status: 'pending',
+    participants: [
+      crossReviewParticipant('proposer', options.step.agent, options.agents, {
+        adapter: options.step.adapter,
+        model: options.step.model,
+      }),
+      crossReviewParticipant('reviewer', reviewerAgent, options.agents, modelOverrides.review),
+      crossReviewParticipant('judge', judgeAgent, options.agents, modelOverrides.judge),
+    ],
+    reviewStepId: reviewStep.id,
+    judgeStepId: judgeStep.id,
+    revisionStepId: existingLedger?.revisionStepId,
+    residualRisks,
+    budgetExhausted: false,
+  };
+  rootResult.crossReview = nextLedger;
+  if (rootStepId === options.step.id) {
+    options.result.crossReview = nextLedger;
+  }
+  options.results.set(rootStepId, rootResult);
+  options.results.set(options.step.id, options.result);
+  options.results.set(reviewStep.id, {
+    id: reviewStep.id,
+    agent: reviewStep.agent,
+    provider: reviewStep.adapter ?? options.agents.get(reviewStep.agent)?.adapter,
+    model: reviewStep.model ?? options.agents.get(reviewStep.agent)?.model,
+    task: reviewStep.task,
+    dependsOn: [...reviewStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootStepId,
+    edgeType: 'review',
+    spawnedByAgent: options.step.agent,
+  });
+  options.results.set(judgeStep.id, {
+    id: judgeStep.id,
+    agent: judgeStep.agent,
+    provider: judgeStep.adapter ?? options.agents.get(judgeStep.agent)?.adapter,
+    model: judgeStep.model ?? options.agents.get(judgeStep.agent)?.model,
+    task: judgeStep.task,
+    dependsOn: [...judgeStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootStepId,
+    edgeType: 'judge',
+    spawnedByAgent: options.step.agent,
+  });
+  options.reporter?.agentDecision?.({
+    by: `${options.step.id} [${options.step.agent}]`,
+    agent: reviewerAgent,
+    decision: 'added',
+    stepId: reviewStep.id,
+    reason: decision.reason,
+  });
+  options.reporter?.agentDecision?.({
+    by: `${options.step.id} [${options.step.agent}]`,
+    agent: judgeAgent,
+    decision: 'added',
+    stepId: judgeStep.id,
+    reason: `cross-review judge scheduled for ${decision.gate ?? 'unknown'} gate`,
+  });
+}
+
+interface CrossReviewRevisionOptions {
+  step: DAGStep;
+  result: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  crossReview?: CrossReviewConfig;
+  reporter?: VerboseReporter;
+}
+
+function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): void {
+  if (!options.crossReview || !/-judge-\d+$/.test(options.step.id) || !options.step.parentStepId) {
+    return;
+  }
+
+  const rootStepId = options.step.parentStepId;
+  const sourceResult = options.results.get(rootStepId);
+  const ledger = sourceResult?.crossReview;
+  if (!sourceResult || !ledger || ledger.judgeStepId !== options.step.id) return;
+
+  const decision = parseCrossReviewJudgeDecision(options.result.output ?? '');
+  const preservedResidualRisks = ledger.residualRisks.filter(
+    (risk) => risk === CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK,
+  );
+  ledger.judgeDecision = decision.decision;
+  ledger.judgeRationale = decision.rationale;
+  ledger.requestedRemediation = decision.remediation;
+  ledger.residualRisks = mergeUnique(preservedResidualRisks, decision.residualRisks);
+  ledger.critiqueSummary = summarizeCrossReviewCritique(
+    ledger.reviewStepId ? options.results.get(ledger.reviewStepId)?.output : undefined,
+  );
+  const reportDecision = (reportedDecision: string, reason = decision.rationale): void => {
+    options.reporter?.crossReviewDecision?.({
+      stepId: rootStepId,
+      gate: ledger.gate,
+      decision: reportedDecision,
+      round: ledger.round,
+      reason: reason || 'No judge rationale provided.',
+    });
+  };
+
+  if (decision.decision === 'accept') {
+    ledger.status = 'accepted';
+    ledger.budgetExhausted = false;
+    reportDecision(decision.decision);
+    options.results.set(rootStepId, sourceResult);
+    return;
+  }
+  if (decision.decision === 'degraded') {
+    ledger.status = 'degraded';
+    ledger.budgetExhausted = false;
+    reportDecision(decision.decision);
+    options.results.set(rootStepId, sourceResult);
+    return;
+  }
+
+  if (ledger.round >= options.crossReview.maxRounds) {
+    ledger.status = 'budget-exhausted';
+    ledger.budgetExhausted = true;
+    reportDecision(
+      'budget-exhausted',
+      `${decision.rationale || 'Judge requested more review.'} Max cross-review rounds (${options.crossReview.maxRounds}) reached.`,
+    );
+    options.results.set(rootStepId, sourceResult);
+    return;
+  }
+
+  const sourceStep = options.plan.plan.find((candidate) => candidate.id === rootStepId);
+  if (!sourceStep) {
+    ledger.status = 'degraded';
+    ledger.budgetExhausted = false;
+    ledger.residualRisks = [
+      ...ledger.residualRisks,
+      'Could not find the original source step to schedule a cross-review revision.',
+    ];
+    reportDecision('degraded', 'Could not find the original source step to schedule a cross-review revision.');
+    options.results.set(rootStepId, sourceResult);
+    return;
+  }
+
+  const revisionStep = buildCrossReviewRevisionStep({
+    step: sourceStep,
+    judgeStepId: options.step.id,
+    round: ledger.round,
+    remediation: decision.remediation,
+  });
+  if (options.allIds.has(revisionStep.id)) {
+    reportDecision(decision.decision);
+    options.results.set(rootStepId, sourceResult);
+    return;
+  }
+
+  ledger.status = 'revision-requested';
+  ledger.revisionStepId = revisionStep.id;
+  ledger.budgetExhausted = false;
+  reportDecision(decision.decision);
+  insertAfter(options.plan, options.step.id, [revisionStep]);
+  options.allIds.add(revisionStep.id);
+  const reviewedContentStepId = contentDependencyForJudgeStep(options.step, ledger.reviewStepId) ?? rootStepId;
+  rewireDownstreamToRevision(options.plan, {
+    previousContentId: reviewedContentStepId,
+    previousJudgeId: options.step.id,
+    revisionId: revisionStep.id,
+    excludeIds: new Set([
+      rootStepId,
+      ledger.reviewStepId ?? '',
+      options.step.id,
+      revisionStep.id,
+    ]),
+    settled: options.settled,
+  });
+  options.results.set(rootStepId, sourceResult);
+  options.results.set(revisionStep.id, {
+    id: revisionStep.id,
+    agent: revisionStep.agent,
+    task: revisionStep.task,
+    dependsOn: [...revisionStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootStepId,
+    edgeType: 'feedback',
+    spawnedByAgent: sourceStep.agent,
+  });
+}
+
+function insertAfter(plan: DAGPlan, sourceId: string, steps: DAGStep[]): void {
+  const sourceIndex = plan.plan.findIndex((candidate) => candidate.id === sourceId);
+  if (sourceIndex === -1) {
+    plan.plan.push(...steps);
+    return;
+  }
+  plan.plan.splice(sourceIndex + 1, 0, ...steps);
+}
+
+function appendDownstreamDependency(
+  plan: DAGPlan,
+  fromId: string,
+  dependencyId: string,
+  excludeIds: Set<string>,
+  settled: Set<string>,
+): void {
+  for (const candidate of plan.plan) {
+    if (excludeIds.has(candidate.id) || settled.has(candidate.id)) continue;
+    if (!candidate.dependsOn.includes(fromId)) continue;
+    candidate.dependsOn = [...new Set([...candidate.dependsOn, dependencyId])];
+  }
+}
+
+function rewireDownstreamToRevision(
+  plan: DAGPlan,
+  options: {
+    previousContentId: string;
+    previousJudgeId: string;
+    revisionId: string;
+    excludeIds: Set<string>;
+    settled: Set<string>;
+  },
+): void {
+  for (const candidate of plan.plan) {
+    if (options.excludeIds.has(candidate.id) || options.settled.has(candidate.id)) continue;
+    if (
+      !candidate.dependsOn.includes(options.previousContentId) &&
+      !candidate.dependsOn.includes(options.previousJudgeId)
+    ) {
+      continue;
+    }
+    const retainedDependencies = candidate.dependsOn.filter(
+      (dep) => dep !== options.previousContentId && dep !== options.previousJudgeId,
+    );
+    candidate.dependsOn = [...new Set([...retainedDependencies, options.revisionId])];
+  }
+}
+
+function contentDependencyForJudgeStep(
+  judgeStep: DAGStep,
+  reviewStepId: string | undefined,
+): string | null {
+  return judgeStep.dependsOn.find((dep) => dep !== reviewStepId) ?? null;
+}
+
+function crossReviewParticipant(
+  role: CrossReviewParticipant['role'],
+  agentName: string,
+  agents: Map<string, AgentDefinition>,
+  override: { adapter?: CrossReviewParticipant['provider']; model?: string } = {},
+): CrossReviewParticipant {
+  const agent = agents.get(agentName);
+  return {
+    role,
+    agent: agentName,
+    provider: override.adapter ?? agent?.adapter,
+    model: override.model ?? agent?.model,
+  };
+}
+
+function summarizeCrossReviewCritique(output: string | undefined): string | undefined {
+  const normalized = output?.trim().replace(/\s+/g, ' ');
+  if (!normalized) return undefined;
+  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
+}
+
+function mergeUnique(left: string[], right: string[]): string[] {
+  return [...new Set([...left, ...right])];
+}
+
 function scheduleReadySteps(
   ready: DAGPlan['plan'],
   agents: Map<string, AgentDefinition>,
@@ -721,7 +1122,7 @@ function scheduleReadySteps(
 
   for (const step of ready) {
     const agent = agents.get(step.agent);
-    if (agent?.adapter === 'ollama') {
+    if ((step.adapter ?? agent?.adapter) === 'ollama') {
       localGpuReady.push(step);
     } else {
       remoteReady.push(step);

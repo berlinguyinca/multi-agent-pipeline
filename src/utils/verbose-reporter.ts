@@ -35,6 +35,7 @@ function formatBytes(bytes: number): string {
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 export interface VerboseWriter {
+  supportsColor?: boolean;
   write(text: string): void;
   clearLine(): void;
 }
@@ -66,6 +67,15 @@ export class VerboseReporter {
 
   private elapsed(): string {
     return formatElapsed(Date.now() - this.startedAt);
+  }
+
+  private color(text: string, color: 'cyan'): string {
+    const supportsColor = this.writer.supportsColor ?? process.stderr.isTTY;
+    if (!supportsColor) return text;
+    const codes: Record<typeof color, string> = {
+      cyan: '\x1b[36m',
+    };
+    return `${codes[color]}${text}\x1b[0m`;
   }
 
   private log(icon: string, message: string): void {
@@ -196,6 +206,20 @@ export class VerboseReporter {
         : `${event.decision} ${event.agent}`;
     const step = event.stepId ? ` as ${event.stepId}` : '';
     this.log('◊', `Agent decision — ${event.by} ${action}${step}. Why: ${event.reason}`);
+  }
+
+  crossReviewDecision(event: {
+    stepId: string;
+    gate: string;
+    decision: string;
+    round: number;
+    reason: string;
+  }): void {
+    const label = this.color('Cross-review', 'cyan');
+    this.log(
+      '◈',
+      `${label} — ${event.stepId} gate=${event.gate} round=${event.round} decision=${event.decision}. Why: ${event.reason}`,
+    );
   }
 
   routerRecoveryStart(event: {
@@ -347,6 +371,7 @@ export class SilentReporter extends VerboseReporter {
   override dagRoutingStart(): void {}
   override dagRoutingComplete(): void {}
   override agentDecision(): void {}
+  override crossReviewDecision(): void {}
   override routerRecoveryStart(): void {}
   override modelPreparationStart(): void {}
   override modelPreparationComplete(): void {}

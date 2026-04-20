@@ -98,6 +98,46 @@ describe('buildHeadlessResultV2', () => {
     });
   });
 
+  it('summarizes cross-review ledgers from step results', () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement', dependsOn: [] }],
+    };
+    const steps: StepResult[] = [
+      {
+        id: 'step-1',
+        agent: 'implementation-coder',
+        task: 'Implement',
+        status: 'completed',
+        output: 'Implemented feature',
+        crossReview: {
+          rootStepId: 'step-1',
+          round: 1,
+          gate: 'fileOutputs',
+          status: 'revised',
+          participants: [
+            { role: 'proposer', agent: 'implementation-coder' },
+            { role: 'reviewer', agent: 'code-qa-analyst' },
+            { role: 'judge', agent: 'release-readiness-reviewer' },
+          ],
+          judgeDecision: 'revise',
+          judgeRationale: 'missing regression test',
+          requestedRemediation: ['Add a regression test'],
+          residualRisks: [],
+          budgetExhausted: false,
+        },
+      },
+    ];
+
+    const result = buildHeadlessResultV2(plan, steps, 1000);
+
+    expect(result.crossReview).toMatchObject({
+      enabled: true,
+      totalReviewed: 1,
+      revised: 1,
+      budgetExhausted: 0,
+    });
+  });
+
   it('adds structured self-optimization candidates for failed agents', () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'writer', task: 'Write final', dependsOn: [] }],

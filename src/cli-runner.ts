@@ -66,6 +66,12 @@ Options:
   --judge-panel-steer    Allow judge panel feedback to trigger one steered rerun
   --judge-panel-max-rounds <n>
                          Max judge-panel steering reruns before stopping (default: 1)
+  --disable-cross-review
+                         Disable autonomous cross-model review for this run
+  --cross-review-max-rounds <n>
+                         Max cross-review remediation rounds before best-effort reporting (default: 2)
+  --cross-review-judge-models <csv>
+                         Override hybrid cross-review judges, e.g. ollama/gemma4:26b,ollama/qwen3.6
   --ollama-host <url>    Override Ollama host for this run
   --ollama-context-length <n>
                          Context length used when MAP starts ollama serve (default: 100000)
@@ -121,9 +127,20 @@ Commands:
     if (subcommand.subArgs.includes('--run')) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
       const { runHeadlessV2 } = await import('./headless/runner.js');
-      const roughPrompt = subcommand.subArgs.filter((arg) => arg !== '--run' && !arg.startsWith('--')).join(' ');
+      const roughPrompt = extractPrompt(subcommand.subArgs);
+      const crossReviewEnabled = hasFlag(subcommand.subArgs, '--disable-cross-review') ? false : undefined;
+      const crossReviewMaxRounds = parsePositiveIntegerFlag(
+        extractFlag(subcommand.subArgs, '--cross-review-max-rounds'),
+        '--cross-review-max-rounds',
+      );
+      const crossReviewJudgeModels = parseCsvFlag(subcommand.subArgs, '--cross-review-judge-models');
       const refined = refinePromptHeadless({ prompt: roughPrompt, headless: true });
-      const result = await runHeadlessV2({ prompt: refined.refinedPrompt });
+      const result = await runHeadlessV2({
+        prompt: refined.refinedPrompt,
+        crossReviewEnabled,
+        crossReviewMaxRounds,
+        crossReviewJudgeModels,
+      });
       process.stdout.write(formatMapOutput(result, 'json'));
     } else {
       const { handleRefineCommand } = await import('./cli/refine-commands.js');
@@ -182,6 +199,12 @@ Commands:
       extractFlag(args, '--judge-panel-max-rounds'),
       '--judge-panel-max-rounds',
     );
+    const crossReviewEnabled = hasFlag(args, '--disable-cross-review') ? false : undefined;
+    const crossReviewMaxRounds = parsePositiveIntegerFlag(
+      extractFlag(args, '--cross-review-max-rounds'),
+      '--cross-review-max-rounds',
+    );
+    const crossReviewJudgeModels = parseCsvFlag(args, '--cross-review-judge-models');
     const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
@@ -229,6 +252,9 @@ Commands:
         judgePanelRoles,
         judgePanelSteer,
         judgePanelMaxSteeringRounds,
+        crossReviewEnabled,
+        crossReviewMaxRounds,
+        crossReviewJudgeModels,
         ollama,
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
@@ -249,6 +275,9 @@ Commands:
       verbose,
       routerModel,
       routerConsensusModels,
+      crossReviewEnabled,
+      crossReviewMaxRounds,
+      crossReviewJudgeModels,
       ollama,
       routerTimeoutMs:
         routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,

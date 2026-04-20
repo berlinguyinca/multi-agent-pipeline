@@ -12,13 +12,28 @@ import type {
   AgentCreationConfig,
   AdapterDefaultsMap,
   EvidenceConfig,
+  CrossReviewConfig,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
-import { DEFAULT_AGENT_CONSENSUS_CONFIG, DEFAULT_ROUTER_CONSENSUS_CONFIG } from './defaults.js';
+import {
+  DEFAULT_AGENT_CONSENSUS_CONFIG,
+  DEFAULT_CROSS_REVIEW_CONFIG,
+  DEFAULT_ROUTER_CONSENSUS_CONFIG,
+} from './defaults.js';
 
 const VALID_ADAPTERS: readonly AdapterType[] = ['claude', 'codex', 'ollama', 'hermes', 'metadata', 'huggingface'];
 const VALID_AGENT_CONSENSUS_OUTPUT_TYPES = ['answer', 'data', 'presentation'] as const;
+const VALID_CROSS_REVIEW_GATES = [
+  'planning',
+  'routing',
+  'architecture',
+  'apiContract',
+  'fileOutputs',
+  'security',
+  'releaseReadiness',
+  'verificationFailure',
+] as const;
 
 function isValidAdapter(value: unknown): value is AdapterType {
   return typeof value === 'string' && (VALID_ADAPTERS as readonly string[]).includes(value);
@@ -558,6 +573,110 @@ function validateAgentConsensusConfig(value: unknown): AgentConsensusConfig {
   return consensus;
 }
 
+function validateCrossReviewConfig(value: unknown): CrossReviewConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('crossReview must be an object');
+  }
+  const obj = value as Record<string, unknown>;
+  const config: CrossReviewConfig = {
+    ...DEFAULT_CROSS_REVIEW_CONFIG,
+    judge: { ...DEFAULT_CROSS_REVIEW_CONFIG.judge },
+    gates: { ...DEFAULT_CROSS_REVIEW_CONFIG.gates },
+    roleModels: { ...DEFAULT_CROSS_REVIEW_CONFIG.roleModels },
+  };
+
+  if (obj['enabled'] !== undefined) {
+    if (typeof obj['enabled'] !== 'boolean') throw new Error('crossReview.enabled must be a boolean');
+    config.enabled = obj['enabled'];
+  }
+  if (obj['defaultHighImpactOnly'] !== undefined) {
+    if (typeof obj['defaultHighImpactOnly'] !== 'boolean') throw new Error('crossReview.defaultHighImpactOnly must be a boolean');
+    config.defaultHighImpactOnly = obj['defaultHighImpactOnly'];
+  }
+  if (obj['maxRoundsUpperBound'] !== undefined) {
+    config.maxRoundsUpperBound = validatePositiveInteger(obj['maxRoundsUpperBound'], 'crossReview.maxRoundsUpperBound');
+    if (config.maxRoundsUpperBound > 5) throw new Error('crossReview.maxRoundsUpperBound must be at most 5');
+  }
+  if (obj['maxRounds'] !== undefined) {
+    config.maxRounds = validatePositiveInteger(obj['maxRounds'], 'crossReview.maxRounds');
+  }
+  if (config.maxRounds > config.maxRoundsUpperBound) {
+    throw new Error('crossReview.maxRounds must be at most crossReview.maxRoundsUpperBound');
+  }
+  if (obj['autonomy'] !== undefined) {
+    if (obj['autonomy'] !== 'nonblocking') throw new Error('crossReview.autonomy must be "nonblocking"');
+    config.autonomy = 'nonblocking';
+  }
+  if (obj['judge'] !== undefined) {
+    config.judge = validateCrossReviewJudgeConfig(obj['judge']);
+  }
+  if (obj['gates'] !== undefined) {
+    config.gates = validateCrossReviewGates(obj['gates']);
+  }
+  if (obj['roleModels'] !== undefined) {
+    config.roleModels = validateCrossReviewRoleModels(obj['roleModels']);
+  }
+  return config;
+}
+
+function validateCrossReviewJudgeConfig(value: unknown): CrossReviewConfig['judge'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('crossReview.judge must be an object');
+  }
+  const obj = value as Record<string, unknown>;
+  const judge = { ...DEFAULT_CROSS_REVIEW_CONFIG.judge };
+  if (obj['preferSeparatePanel'] !== undefined) {
+    if (typeof obj['preferSeparatePanel'] !== 'boolean') throw new Error('crossReview.judge.preferSeparatePanel must be a boolean');
+    judge.preferSeparatePanel = obj['preferSeparatePanel'];
+  }
+  if (obj['models'] !== undefined) judge.models = validateStringArray(obj['models'], 'crossReview.judge.models');
+  if (obj['roles'] !== undefined) judge.roles = validateStringArray(obj['roles'], 'crossReview.judge.roles');
+  return judge;
+}
+
+function validateCrossReviewGates(value: unknown): CrossReviewConfig['gates'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('crossReview.gates must be an object');
+  }
+  const gates = { ...DEFAULT_CROSS_REVIEW_CONFIG.gates };
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!(VALID_CROSS_REVIEW_GATES as readonly string[]).includes(key)) {
+      throw new Error(`crossReview.gates.${key} is not supported`);
+    }
+    if (typeof entry !== 'boolean') throw new Error(`crossReview.gates.${key} must be a boolean`);
+    gates[key as keyof CrossReviewConfig['gates']] = entry;
+  }
+  return gates;
+}
+
+function validateCrossReviewRoleModels(value: unknown): CrossReviewConfig['roleModels'] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('crossReview.roleModels must be an object');
+  }
+  const result: CrossReviewConfig['roleModels'] = {};
+  for (const [role, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new Error(`crossReview.roleModels.${role} must be an object`);
+    }
+    const obj = entry as Record<string, unknown>;
+    const modelConfig: CrossReviewConfig['roleModels'][string] = {};
+    if (obj['proposer'] !== undefined) modelConfig.proposer = validateNonEmptyString(obj['proposer'], `crossReview.roleModels.${role}.proposer`);
+    if (obj['reviewer'] !== undefined) modelConfig.reviewer = validateNonEmptyString(obj['reviewer'], `crossReview.roleModels.${role}.reviewer`);
+    result[role] = modelConfig;
+  }
+  return result;
+}
+
+function validateStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  return value.map((entry, index) => validateNonEmptyString(entry, `${field}[${index}]`));
+}
+
+function validateNonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${field} must be a non-empty string`);
+  return value.trim();
+}
+
 function validateAgentConsensusOverrides(value: unknown): AgentConsensusConfig['perAgent'] {
   const obj = value as Record<string, unknown>;
   const result: AgentConsensusConfig['perAgent'] = {};
@@ -821,6 +940,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     agentConsensus = validateAgentConsensusConfig(obj['agentConsensus']);
   }
 
+  let crossReview: CrossReviewConfig | undefined;
+  if (obj['crossReview'] !== undefined) {
+    crossReview = validateCrossReviewConfig(obj['crossReview']);
+  }
+
   let agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }> | undefined;
   if (obj['agentOverrides'] !== undefined) {
     agentOverrides = validateAgentOverrides(obj['agentOverrides']);
@@ -843,6 +967,7 @@ export function validateConfig(config: unknown): PipelineConfig {
     ...(agentCreation !== undefined ? { agentCreation } : {}),
     ...(adapterDefaults !== undefined ? { adapterDefaults } : {}),
     ...(agentConsensus !== undefined ? { agentConsensus } : {}),
+    ...(crossReview !== undefined ? { crossReview } : {}),
     ...(agentOverrides !== undefined ? { agentOverrides } : {}),
   } as PipelineConfig;
 }

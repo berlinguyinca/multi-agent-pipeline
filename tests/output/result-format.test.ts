@@ -297,6 +297,51 @@ describe('result formatting', () => {
     expect(output).toContain('| 1 | recency-auditor | sonnet | accept | 90% | no | Satisfied |');
   });
 
+  it('renders cross-model review summaries in markdown and compact outputs', () => {
+    const reviewedResult = {
+      ...result,
+      crossReview: {
+        enabled: true,
+        totalReviewed: 1,
+        accepted: 0,
+        revised: 1,
+        degraded: 0,
+        budgetExhausted: 0,
+        ledgers: [
+          {
+            rootStepId: 'step-1',
+            round: 1,
+            gate: 'fileOutputs',
+            status: 'revised',
+            participants: [],
+            judgeDecision: 'revise',
+            judgeRationale: 'missing regression test',
+            residualRisks: [],
+            budgetExhausted: false,
+          },
+        ],
+      },
+    };
+
+    const markdown = formatMapOutput(reviewedResult, 'markdown');
+    const text = formatMapOutput(reviewedResult, 'text');
+    const html = formatMapOutput(reviewedResult, 'html');
+    const compactMarkdown = formatMapOutput(reviewedResult, 'markdown', { compact: true });
+    const compactText = formatMapOutput(reviewedResult, 'text', { compact: true });
+    const compactJson = JSON.parse(formatMapOutput(reviewedResult, 'json', { compact: true }));
+
+    expect(markdown).toContain('## Cross-Model Review');
+    expect(markdown).toContain('step-1');
+    expect(markdown).toContain('missing regression test');
+    expect(text).toContain('Cross-Model Review');
+    expect(text).toContain('missing regression test');
+    expect(html).toContain('<h2>Cross-Model Review</h2>');
+    expect(html).toContain('<td>missing regression test</td>');
+    expect(compactMarkdown).toContain('Cross-Model Review: reviewed 1');
+    expect(compactText).toContain('Cross-Model Review: reviewed 1');
+    expect(compactJson.crossReview).toMatchObject({ totalReviewed: 1, revised: 1 });
+  });
+
 
   it('renders a compact layered HTML flowchart with consensus run models', () => {
     const branched = {

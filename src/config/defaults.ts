@@ -1,5 +1,11 @@
 import type { AdapterType } from '../types/adapter.js';
-import type { AgentConsensusConfig, EvidenceConfig, PipelineConfig, RouterConsensusConfig } from '../types/config.js';
+import type {
+  AgentConsensusConfig,
+  CrossReviewConfig,
+  EvidenceConfig,
+  PipelineConfig,
+  RouterConsensusConfig,
+} from '../types/config.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
 import {
   DEFAULT_OLLAMA_CONTEXT_LENGTH,
@@ -56,6 +62,30 @@ export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
   remediationMaxRetries: 1,
 };
 
+export const DEFAULT_CROSS_REVIEW_CONFIG: CrossReviewConfig = {
+  enabled: true,
+  defaultHighImpactOnly: true,
+  maxRounds: 2,
+  maxRoundsUpperBound: 5,
+  autonomy: 'nonblocking',
+  judge: {
+    preferSeparatePanel: true,
+    models: [],
+    roles: [],
+  },
+  gates: {
+    planning: true,
+    routing: false,
+    architecture: false,
+    apiContract: false,
+    fileOutputs: true,
+    security: true,
+    releaseReadiness: true,
+    verificationFailure: false,
+  },
+  roleModels: {},
+};
+
 export const DEFAULT_CONFIG: PipelineConfig = {
   agents: {
     spec: { adapter: 'claude' },
@@ -102,6 +132,7 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     ollama: { think: false, temperature: 0, seed: 42 },
   },
   agentConsensus: DEFAULT_AGENT_CONSENSUS_CONFIG,
+  crossReview: DEFAULT_CROSS_REVIEW_CONFIG,
   agentOverrides: {
     'output-formatter': { enabled: false },
   },

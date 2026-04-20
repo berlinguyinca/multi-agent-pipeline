@@ -25,6 +25,8 @@ const flagsWithValues = new Set([
   '--judge-panel-models',
   '--judge-panel-roles',
   '--judge-panel-max-rounds',
+  '--cross-review-max-rounds',
+  '--cross-review-judge-models',
   '--ollama-host',
   '--ollama-context-length',
   '--ollama-num-parallel',
@@ -51,6 +53,7 @@ const booleanFlags = new Set([
   '--compare-agents',
   '--semantic-judge',
   '--judge-panel-steer',
+  '--disable-cross-review',
   '--refine',
   '--run',
 ]);

@@ -499,6 +499,9 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--judge-panel-roles <csv>` | run option | defaults by index | Assign adversarial judge roles such as `evidence-skeptic`, `recency-auditor`, `contradiction-finder`, and `user-value-judge` |
 | `--judge-panel-steer` | run option | off | Let a revise/reject judge-panel verdict trigger feedback-driven reruns with panel feedback injected into the task |
 | `--judge-panel-max-rounds <n>` | run option | 1 | Maximum judge-panel steering reruns; judges re-vote after each improvement until they accept or this budget is exhausted |
+| `--disable-cross-review` | run option | off | Disable high-impact autonomous cross-model review for this run |
+| `--cross-review-max-rounds <n>` | `crossReview.maxRounds` | `2` | Maximum judge-steered remediation rounds before best-effort reporting |
+| `--cross-review-judge-models <csv>` | `crossReview.judge.models` | config value | Override hybrid cross-review judges; currently only the first two entries are used (`1` = peer review, `2` = judge; one entry = judge; extras ignored/reserved) |
 | `--ollama-host` | `ollama.host` | `http://localhost:11434` | Override the Ollama server host for detection, pulls, and requests |
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
@@ -904,6 +907,34 @@ Execution order for file-output consensus:
 Worktrees are kept on failure when `keepWorktreesOnFailure` is true so the rejected candidates can be inspected. They are removed after successful selection. File-output consensus intentionally requires a clean checkout only when operating directly on a repository root; this prevents candidates from accidentally omitting or overwriting uncommitted user changes while still supporting ignored generated-output directories.
 
 Every consensus path reports diagnostics in the result graph/report. Reports include the participating provider/model per run, whether that run contributed, was selected, was merely valid, was rejected, or failed, and a contribution percentage. Consensus-enabled DAG nodes also surface the run count, method, run models, statuses, and contributions directly in compact graphs and selected `agent-network.svg` layouts. Router consensus contribution means the candidate supplied selected DAG steps. Agent-output consensus contribution means the candidate matched or was closest to the selected final output. File-output consensus contribution identifies the patch that passed verification and was applied.
+
+### Autonomous cross-model review
+
+MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
+
+The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
+
+Use `--disable-cross-review` for a single run, `--cross-review-max-rounds <n>` to tune remediation depth, and `--cross-review-judge-models <csv>` to choose hybrid judges such as `ollama/gemma4:26b,ollama/qwen3.6`. Currently only the first two entries are used: the first drives peer review, the second drives the judge, a single entry drives the judge, and additional entries are ignored or reserved.
+
+```yaml
+crossReview:
+  enabled: true
+  defaultHighImpactOnly: true
+  maxRounds: 2
+  autonomy: nonblocking
+  judge:
+    preferSeparatePanel: true
+    models: []
+  gates:
+    planning: true
+    routing: false # reserved for future cross-review expansion; router consensus protects routing today
+    architecture: false # reserved for future/expanded routing
+    apiContract: false # reserved for future/expanded routing
+    fileOutputs: true
+    security: true
+    releaseReadiness: true
+    verificationFailure: false # reserved for future/expanded routing
+```
 
 ## Agent Registry
 

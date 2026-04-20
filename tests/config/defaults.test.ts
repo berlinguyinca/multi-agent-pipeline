@@ -100,6 +100,25 @@ describe('DEFAULT_CONFIG', () => {
     });
   });
 
+  it('enables autonomous cross-review for high-impact gates by default', () => {
+    expect(DEFAULT_CONFIG.crossReview.enabled).toBe(true);
+    expect(DEFAULT_CONFIG.crossReview.defaultHighImpactOnly).toBe(true);
+    expect(DEFAULT_CONFIG.crossReview.autonomy).toBe('nonblocking');
+    expect(DEFAULT_CONFIG.crossReview.maxRounds).toBe(2);
+    expect(DEFAULT_CONFIG.crossReview.maxRoundsUpperBound).toBe(5);
+    expect(DEFAULT_CONFIG.crossReview.judge.preferSeparatePanel).toBe(true);
+    expect(DEFAULT_CONFIG.crossReview.gates).toMatchObject({
+      planning: true,
+      routing: false,
+      architecture: false,
+      apiContract: false,
+      fileOutputs: true,
+      security: true,
+      releaseReadiness: true,
+      verificationFailure: false,
+    });
+  });
+
   it('uses a bounded step retry default instead of hour-scale timeout backoff', () => {
     expect(DEFAULT_CONFIG.router.maxStepRetries).toBe(1);
   });

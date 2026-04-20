@@ -2,6 +2,7 @@ import type { DAGPlan, StepResult } from '../types/dag.js';
 import type { ConsensusDiagnostics } from '../types/dag.js';
 import type { HeadlessAgentComparison, HeadlessAgentContribution, HeadlessResultV2 } from '../types/headless.js';
 import { buildDAGResult } from '../types/dag.js';
+import { collectCrossReviewLedgers, summarizeCrossReviewLedgers } from '../orchestrator/cross-review.js';
 
 export function buildHeadlessResultV2(
   plan: DAGPlan,
@@ -34,6 +35,10 @@ export function buildHeadlessResultV2(
         ? 'success'
         : 'failed';
   const agentContributions = buildAgentContributions(plan, steps, artifacts.rerun);
+  const crossReviewLedgers = collectCrossReviewLedgers(steps);
+  const crossReview = crossReviewLedgers.length > 0
+    ? summarizeCrossReviewLedgers(crossReviewLedgers)
+    : undefined;
 
   return {
     version: 2,
@@ -53,6 +58,7 @@ export function buildHeadlessResultV2(
     ...(artifacts.agentComparisons ? { agentComparisons: artifacts.agentComparisons } : {}),
     ...(artifacts.semanticJudge ? { semanticJudge: artifacts.semanticJudge } : {}),
     ...(artifacts.judgePanel ? { judgePanel: artifacts.judgePanel } : {}),
+    ...(crossReview ? { crossReview } : {}),
     consensusDiagnostics: [
       ...(artifacts.consensusDiagnostics ?? []),
       ...steps
