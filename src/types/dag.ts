@@ -18,7 +18,15 @@ export interface DAGPlan {
 
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export type StepTerminalOutcome = 'success' | 'blocked' | 'failed' | 'cancelled';
-export type DAGEdgeType = 'planned' | 'handoff' | 'recovery' | 'spawned' | 'feedback';
+export type CrossReviewDAGEdgeType = 'review' | 'judge';
+export type DAGEdgeType =
+  | 'planned'
+  | 'handoff'
+  | 'recovery'
+  | 'spawned'
+  | 'feedback'
+  | CrossReviewDAGEdgeType
+  | string;
 
 
 export interface HandoffFinding {
@@ -79,6 +87,37 @@ export interface DAGNodeConsensus {
   participants?: ConsensusParticipant[];
 }
 
+export interface CrossReviewParticipant {
+  role: 'proposer' | 'reviewer' | 'judge';
+  agent?: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface CrossReviewLedger {
+  rootStepId: string;
+  round: number;
+  gate: string;
+  status:
+    | 'pending'
+    | 'accepted'
+    | 'revision-requested'
+    | 'revised'
+    | 'budget-exhausted'
+    | 'degraded';
+  participants: CrossReviewParticipant[];
+  critiqueSummary?: string;
+  judgeDecision?: 'accept' | 'revise' | 'run-verification' | 'combine' | 'degraded';
+  judgeRationale?: string;
+  requestedRemediation?: string[];
+  reviewStepId?: string;
+  judgeStepId?: string;
+  revisionStepId?: string;
+  verificationSummary?: string;
+  residualRisks: string[];
+  budgetExhausted: boolean;
+}
+
 export interface StepResult {
   id: string;
   agent: string;
@@ -109,6 +148,7 @@ export interface StepResult {
   evidenceClaims?: ClaimEvidence[];
   evidenceGate?: EvidenceGateResult;
   consensus?: DAGNodeConsensus;
+  crossReview?: CrossReviewLedger;
 }
 
 
@@ -121,6 +161,7 @@ export interface DAGNode {
   duration: number;
   final?: boolean;
   consensus?: DAGNodeConsensus;
+  crossReview?: CrossReviewLedger;
 }
 
 export interface DAGEdge {
@@ -250,6 +291,7 @@ export function buildDAGResult(results: StepResult[], plan: DAGPlan): DAGResult 
       duration: result?.duration ?? 0,
       ...(step.final === true ? { final: true } : {}),
       ...(result?.consensus ? { consensus: result.consensus } : {}),
+      ...(result?.crossReview ? { crossReview: result.crossReview } : {}),
     };
   });
 

@@ -102,6 +102,38 @@ export interface FileOutputConsensusConfig {
   selection: 'best-passing-minimal-diff';
 }
 
+export type CrossReviewGateKey =
+  | 'planning'
+  | 'routing'
+  | 'architecture'
+  | 'apiContract'
+  | 'fileOutputs'
+  | 'security'
+  | 'releaseReadiness'
+  | 'verificationFailure';
+
+export interface CrossReviewJudgeConfig {
+  preferSeparatePanel: boolean;
+  models: string[];
+  roles: string[];
+}
+
+export interface CrossReviewRoleModelConfig {
+  proposer?: string;
+  reviewer?: string;
+}
+
+export interface CrossReviewConfig {
+  enabled: boolean;
+  defaultHighImpactOnly: boolean;
+  maxRounds: number;
+  maxRoundsUpperBound: number;
+  autonomy: 'nonblocking';
+  judge: CrossReviewJudgeConfig;
+  gates: Record<CrossReviewGateKey, boolean>;
+  roleModels: Record<string, CrossReviewRoleModelConfig>;
+}
+
 export interface PipelineConfig {
   agents: {
     spec: AgentAssignment;
@@ -123,6 +155,7 @@ export interface PipelineConfig {
   agentCreation: AgentCreationConfig;
   adapterDefaults: AdapterDefaultsMap;
   agentConsensus: AgentConsensusConfig;
+  crossReview: CrossReviewConfig;
   agentOverrides: Record<string, { adapter?: AdapterType; model?: string; enabled?: boolean }>;
   security: SecurityConfig;
 }

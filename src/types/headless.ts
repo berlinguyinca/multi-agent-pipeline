@@ -1,6 +1,13 @@
 import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
-import type { ConsensusDiagnostics, DAGResult, RouterRationale, StepResult, StepTerminalOutcome } from './dag.js';
+import type {
+  ConsensusDiagnostics,
+  CrossReviewLedger,
+  DAGResult,
+  RouterRationale,
+  StepResult,
+  StepTerminalOutcome,
+} from './dag.js';
 import type { OllamaConfig } from './config.js';
 import type { AgentDiscoveryDiagnostics } from '../agents/autonomous-discovery.js';
 
@@ -26,6 +33,9 @@ export interface HeadlessOptions {
   judgePanelRoles?: string[];
   judgePanelSteer?: boolean;
   judgePanelMaxSteeringRounds?: number;
+  crossReviewEnabled?: boolean;
+  crossReviewMaxRounds?: number;
+  crossReviewJudgeModels?: string[];
   ollama?: Partial<OllamaConfig>;
   personality?: string;
   verbose?: boolean;
@@ -103,6 +113,16 @@ export interface HeadlessJudgePanel {
   steeringOutputDir?: string;
 }
 
+export interface HeadlessCrossReviewSummary {
+  enabled: boolean;
+  totalReviewed: number;
+  accepted: number;
+  revised: number;
+  degraded: number;
+  budgetExhausted: number;
+  ledgers: CrossReviewLedger[];
+}
+
 export interface HeadlessResult {
   version: 1;
   success: boolean;
@@ -142,4 +162,5 @@ export interface HeadlessResultV2 {
   agentComparisons?: HeadlessAgentComparison[];
   semanticJudge?: HeadlessSemanticJudge;
   judgePanel?: HeadlessJudgePanel;
+  crossReview?: HeadlessCrossReviewSummary;
 }
