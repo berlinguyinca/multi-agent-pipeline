@@ -126,6 +126,28 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
         ],
       },
     },
+    crossReview: {
+      ...base.crossReview,
+      ...override.crossReview,
+      judge: {
+        ...base.crossReview.judge,
+        ...override.crossReview?.judge,
+        models: [
+          ...(override.crossReview?.judge?.models ?? base.crossReview.judge.models),
+        ],
+        roles: [
+          ...(override.crossReview?.judge?.roles ?? base.crossReview.judge.roles),
+        ],
+      },
+      gates: {
+        ...base.crossReview.gates,
+        ...override.crossReview?.gates,
+      },
+      roleModels: {
+        ...base.crossReview.roleModels,
+        ...override.crossReview?.roleModels,
+      },
+    },
     agentOverrides: {
       ...base.agentOverrides,
       ...override.agentOverrides,
@@ -178,6 +200,16 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
             ...DEFAULT_CONFIG.agentConsensus.fileOutputs.verificationCommands,
           ],
         },
+      },
+      crossReview: {
+        ...DEFAULT_CONFIG.crossReview,
+        judge: {
+          ...DEFAULT_CONFIG.crossReview.judge,
+          models: [...DEFAULT_CONFIG.crossReview.judge.models],
+          roles: [...DEFAULT_CONFIG.crossReview.judge.roles],
+        },
+        gates: { ...DEFAULT_CONFIG.crossReview.gates },
+        roleModels: { ...DEFAULT_CONFIG.crossReview.roleModels },
       },
       agentOverrides: { ...DEFAULT_CONFIG.agentOverrides },
       security: { ...DEFAULT_CONFIG.security },
