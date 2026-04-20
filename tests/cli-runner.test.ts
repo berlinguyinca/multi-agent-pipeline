@@ -715,11 +715,34 @@ describe('runCli', () => {
     expect(writePdfArtifactMock).not.toHaveBeenCalled();
     expect(writeGraphPngArtifactsMock).not.toHaveBeenCalled();
     const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
-    expect(output).toContain('"mode": "refine"');
-    expect(output).toContain('"questionsAsked"');
+    expect(output).toContain('# MAP Refine Questions');
+    expect(output).toContain('Please answer these questions before execution');
+    expect(output).toContain('What evidence or verification should be required for success?');
     expect(output).toContain('Build a PubChem sync tool with markdown conversion');
+    expect(output).not.toContain('"mode": "refine"');
     expect(output).not.toContain('5m pdf');
     expect(output).not.toContain('pubchem Build');
+  });
+
+  it('headless refine emits machine-readable JSON when silent', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--silent',
+        '--refine',
+        '--router-timeout',
+        '5m',
+        'Build a PubChem sync tool with markdown conversion',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
+    expect(output).toContain('"mode": "refine"');
+    expect(output).toContain('"questionsAsked"');
+    expect(output).not.toContain('5m Build');
   });
 
   it('passes disabled agent overrides to headless smart routing', async () => {

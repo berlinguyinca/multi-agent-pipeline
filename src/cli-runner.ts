@@ -212,8 +212,8 @@ Commands:
     if (refineOnly) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
       const refined = refinePromptHeadless({ prompt, headless: true });
-      process.stdout.write(`${JSON.stringify(refined, null, 2)}
-`);
+      process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}
+` : formatRefineQuestions(refined));
       process.exit(0);
     }
 
@@ -358,6 +358,31 @@ Commands:
     specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
   });
   await app.run();
+}
+
+
+function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; assumptions: string[]; refinedPrompt: string }): string {
+  const questions = result.questionsAsked.length > 0
+    ? result.questionsAsked.map((question, index) => `${index + 1}. ${question}`)
+    : ['1. No clarification questions were generated; review the optimized prompt below before execution.'];
+  return [
+    '# MAP Refine Questions',
+    '',
+    'Please answer these questions before execution, then rerun MAP with your answers included in the prompt or use `map refine --run` when you are ready to execute automatically.',
+    '',
+    '## Original request',
+    result.inputPrompt,
+    '',
+    '## Questions',
+    ...questions,
+    '',
+    '## Assumptions MAP would use if you proceed without more answers',
+    ...result.assumptions.map((assumption) => `- ${assumption}`),
+    '',
+    '## Refined prompt draft',
+    result.refinedPrompt,
+    '',
+  ].join('\n');
 }
 
 function parseCompareAgents(args: string[]): string[] | undefined {
