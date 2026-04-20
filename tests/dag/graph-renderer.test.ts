@@ -30,6 +30,25 @@ describe('renderSimplifiedGraph', () => {
     expect(rendered).toContain('step-2-recovery-1 -> step-2-retry-1 (planned)');
   });
 
+  it('labels cross-review review and judge edges clearly', () => {
+    const dag: DAGResult = {
+      nodes: [
+        { id: 'step-1', agent: 'implementation-coder', status: 'completed', duration: 1 },
+        { id: 'step-1-peer-review-1', agent: 'code-qa-analyst', status: 'completed', duration: 1 },
+        { id: 'step-1-judge-1', agent: 'release-readiness-reviewer', status: 'completed', duration: 1 },
+      ],
+      edges: [
+        { from: 'step-1', to: 'step-1-peer-review-1', type: 'review' },
+        { from: 'step-1-peer-review-1', to: 'step-1-judge-1', type: 'judge' },
+      ],
+    };
+
+    const rendered = renderSimplifiedGraph(dag).join('\n');
+
+    expect(rendered).toContain('step-1 --review--> step-1-peer-review-1');
+    expect(rendered).toContain('step-1-peer-review-1 --judge--> step-1-judge-1');
+  });
+
   it('renders compact dependency stages with concurrency and consensus run models', () => {
     const dag: DAGResult = {
       nodes: [

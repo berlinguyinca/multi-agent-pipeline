@@ -78,11 +78,13 @@ export function formatCompactMapOutput(result: unknown): string {
 function buildCompactData(result: unknown): Record<string, unknown> {
   const data = isRecord(result) ? result : { result };
   const consensusDiagnostics = collectConsensusDiagnostics(data);
+  const crossReview = normalizeCrossReviewSummary(data);
   return {
     ...(data['success'] !== undefined ? { success: data['success'] } : {}),
     ...(data['outcome'] !== undefined ? { outcome: data['outcome'] } : {}),
     agentGraph: buildSimplifiedGraph(data),
     ...(consensusDiagnostics.length > 0 ? { consensusDiagnostics } : {}),
+    ...(crossReview ? { crossReview } : {}),
     finalResult: extractDisplayFinalResult(data) ?? '',
     ...buildErrorData(data),
     ...buildWarningData(data),
@@ -188,6 +190,7 @@ function formatMarkdownResult(result: unknown): string {
   appendConsensusDiagnostics(lines, data);
   appendEvidenceVerification(lines, data);
   appendJudgePanel(lines, data);
+  appendCrossReview(lines, data);
   appendRouterRationale(lines, data);
   appendAgentDiscovery(lines, data);
   appendAgentContributions(lines, data);
@@ -210,6 +213,7 @@ function formatCompactMarkdownResult(result: unknown): string {
   appendWarnings(lines, data);
   appendAgentGraph(lines, data);
   appendCompactConsensusDiagnostics(lines, data);
+  appendCompactCrossReview(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -222,6 +226,7 @@ function formatTextResult(result: unknown): string {
   appendPlainWarnings(lines, data);
   appendPlainGraph(lines, data);
   appendPlainJudgePanel(lines, data);
+  appendPlainCrossReview(lines, data);
   appendPlainRouterRationale(lines, data);
   appendPlainAgentDiscovery(lines, data);
   appendPlainAgentContributions(lines, data);
@@ -237,6 +242,7 @@ function formatCompactTextResult(result: unknown): string {
   appendPlainFinalResult(lines, data);
   appendPlainGraph(lines, data);
   appendPlainConsensusDiagnostics(lines, data);
+  appendCompactPlainCrossReview(lines, data);
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -304,12 +310,14 @@ function buildHtmlDocument(
     ...renderHtmlEvidenceVerification(data),
     ...(compact ? [] : [
       renderHtmlJudgePanel(data),
+      renderHtmlCrossReview(data),
       renderHtmlRouterRationale(data),
       renderHtmlAgentDiscovery(data),
       renderHtmlAgentContributions(data),
       renderHtmlAgentComparisons(data),
       renderHtmlSelfOptimization(data),
     ]),
+    ...(compact ? [renderHtmlCrossReview(data)] : []),
     ...renderHtmlConsensusDiagnostics(data),
     ...renderHtmlErrors(data),
     ...renderHtmlWarnings(data),
@@ -894,6 +902,129 @@ function formatEvidenceSourceSummary(source: Record<string, unknown>): string {
     : '';
   const dates = [publishedAt, retrievedAt].filter(Boolean).join(', ');
   return dates ? `${title} (${dates})` : title;
+}
+
+interface CrossReviewSummary {
+  enabled: boolean;
+  totalReviewed: number;
+  accepted: number;
+  revised: number;
+  degraded: number;
+  budgetExhausted: number;
+  ledgers: CrossReviewLedgerSummary[];
+}
+
+interface CrossReviewLedgerSummary {
+  rootStepId: string;
+  round: number;
+  gate: string;
+  status: string;
+  judgeDecision: string;
+  judgeRationale: string;
+  budgetExhausted: boolean;
+}
+
+function appendCrossReview(lines: string[], data: Record<string, unknown>): void {
+  const summary = normalizeCrossReviewSummary(data);
+  if (!summary) return;
+  lines.push(
+    '',
+    '## Cross-Model Review',
+    '',
+    `- Reviewed: ${summary.totalReviewed}`,
+    `- Accepted: ${summary.accepted}`,
+    `- Revised: ${summary.revised}`,
+    `- Degraded: ${summary.degraded}`,
+    `- Budget exhausted: ${summary.budgetExhausted}`,
+    '',
+    '| Step | Round | Gate | Status | Judge | Rationale / gate | Budget exhausted |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  );
+  for (const ledger of summary.ledgers) {
+    lines.push(`| ${cell(ledger.rootStepId)} | ${cell(ledger.round)} | ${cell(ledger.gate)} | ${cell(ledger.status)} | ${cell(ledger.judgeDecision)} | ${cell(ledger.judgeRationale || ledger.gate)} | ${cell(ledger.budgetExhausted ? 'yes' : 'no')} |`);
+  }
+}
+
+function appendCompactCrossReview(lines: string[], data: Record<string, unknown>): void {
+  const summary = normalizeCrossReviewSummary(data);
+  if (!summary) return;
+  lines.push('', '## Cross-Model Review', '', compactCrossReviewLine(summary));
+}
+
+function appendPlainCrossReview(lines: string[], data: Record<string, unknown>): void {
+  const summary = normalizeCrossReviewSummary(data);
+  if (!summary) return;
+  lines.push('Cross-Model Review', '------------------');
+  lines.push(compactCrossReviewLine(summary));
+  for (const ledger of summary.ledgers) {
+    lines.push(`- ${ledger.rootStepId}: ${ledger.status}; ${ledger.judgeRationale || ledger.gate}`);
+  }
+  lines.push('');
+}
+
+function appendCompactPlainCrossReview(lines: string[], data: Record<string, unknown>): void {
+  const summary = normalizeCrossReviewSummary(data);
+  if (!summary) return;
+  lines.push(compactCrossReviewLine(summary), '');
+}
+
+function renderHtmlCrossReview(data: Record<string, unknown>): string {
+  const summary = normalizeCrossReviewSummary(data);
+  if (!summary) return '';
+  return [
+    '<h2>Cross-Model Review</h2>',
+    `<p><strong>Reviewed:</strong> ${summary.totalReviewed} · <strong>Accepted:</strong> ${summary.accepted} · <strong>Revised:</strong> ${summary.revised} · <strong>Degraded:</strong> ${summary.degraded} · <strong>Budget exhausted:</strong> ${summary.budgetExhausted}</p>`,
+    '<table>',
+    '<thead><tr><th>Step</th><th>Round</th><th>Gate</th><th>Status</th><th>Judge</th><th>Rationale / gate</th><th>Budget exhausted</th></tr></thead>',
+    '<tbody>',
+    ...summary.ledgers.map((ledger) => `<tr><td>${escapeHtml(ledger.rootStepId)}</td><td>${escapeHtml(String(ledger.round))}</td><td>${escapeHtml(ledger.gate)}</td><td>${escapeHtml(ledger.status)}</td><td>${escapeHtml(ledger.judgeDecision)}</td><td>${escapeHtml(ledger.judgeRationale || ledger.gate)}</td><td>${ledger.budgetExhausted ? 'yes' : 'no'}</td></tr>`),
+    '</tbody>',
+    '</table>',
+  ].join('\n');
+}
+
+function compactCrossReviewLine(summary: CrossReviewSummary): string {
+  return `Cross-Model Review: reviewed ${summary.totalReviewed}, accepted ${summary.accepted}, revised ${summary.revised}, degraded ${summary.degraded}, budget-exhausted ${summary.budgetExhausted}`;
+}
+
+function normalizeCrossReviewSummary(data: Record<string, unknown>): CrossReviewSummary | null {
+  const explicit = isRecord(data['crossReview']) ? data['crossReview'] : undefined;
+  const ledgers = explicit
+    ? normalizeCrossReviewLedgers(explicit['ledgers'])
+    : collectStepCrossReviewLedgers(data);
+  if (ledgers.length === 0) return null;
+  return {
+    enabled: explicit?.['enabled'] !== false,
+    totalReviewed: numberOrDefault(explicit?.['totalReviewed'], ledgers.length),
+    accepted: numberOrDefault(explicit?.['accepted'], ledgers.filter((ledger) => ledger.status === 'accepted' || ledger.judgeDecision === 'accept').length),
+    revised: numberOrDefault(explicit?.['revised'], ledgers.filter((ledger) => ledger.status === 'revised' || ledger.status === 'revision-requested' || ledger.judgeDecision === 'revise').length),
+    degraded: numberOrDefault(explicit?.['degraded'], ledgers.filter((ledger) => ledger.status === 'degraded' || ledger.judgeDecision === 'degraded').length),
+    budgetExhausted: numberOrDefault(explicit?.['budgetExhausted'], ledgers.filter((ledger) => ledger.budgetExhausted || ledger.status === 'budget-exhausted').length),
+    ledgers,
+  };
+}
+
+function collectStepCrossReviewLedgers(data: Record<string, unknown>): CrossReviewLedgerSummary[] {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  return normalizeCrossReviewLedgers(steps.map((step) => step['crossReview']).filter(Boolean));
+}
+
+function normalizeCrossReviewLedgers(value: unknown): CrossReviewLedgerSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((ledger) => ({
+    rootStepId: String(ledger['rootStepId'] ?? '').trim(),
+    round: numberOrDefault(ledger['round'], 0),
+    gate: String(ledger['gate'] ?? '').trim(),
+    status: String(ledger['status'] ?? '').trim(),
+    judgeDecision: String(ledger['judgeDecision'] ?? '').trim(),
+    judgeRationale: String(ledger['judgeRationale'] ?? '').trim(),
+    budgetExhausted: ledger['budgetExhausted'] === true,
+  })).filter((ledger) => ledger.rootStepId.length > 0);
+}
+
+function numberOrDefault(value: unknown, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function appendJudgePanel(lines: string[], data: Record<string, unknown>): void {
@@ -1490,11 +1621,20 @@ function buildRenderableDag(data: Record<string, unknown>): DAGResult {
     edges: edges.map((edge) => ({
       from: String(edge['from'] ?? ''),
       to: String(edge['to'] ?? ''),
-      type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned' || edge['type'] === 'feedback'
-        ? edge['type']
-        : 'planned',
+      type: normalizeDAGEdgeType(edge['type']),
     })),
   };
+}
+
+function normalizeDAGEdgeType(value: unknown): DAGResult['edges'][number]['type'] {
+  return value === 'handoff' ||
+    value === 'recovery' ||
+    value === 'spawned' ||
+    value === 'feedback' ||
+    value === 'review' ||
+    value === 'judge'
+    ? value
+    : 'planned';
 }
 
 function normalizeNodeConsensus(value: Record<string, unknown> | undefined): DAGNodeConsensus | undefined {
