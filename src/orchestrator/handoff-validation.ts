@@ -22,6 +22,9 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
   if (isOutputRequired(options.result) && output.length === 0) {
     findings.push(finding('high', 'Step completed without usable output.', options.step.id));
   }
+  if (options.result.outputType === 'files' && output.length === 0 && (options.result.filesCreated?.length ?? 0) === 0) {
+    findings.push(finding('high', 'file-output step completed without usable output or file evidence.', options.step.id));
+  }
 
   if (options.step.agent === 'adviser' && output.includes('adviser-workflow')) {
     const workflow = parseAdviserWorkflow(output);

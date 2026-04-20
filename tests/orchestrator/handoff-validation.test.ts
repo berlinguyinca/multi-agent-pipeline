@@ -18,6 +18,28 @@ describe('validateStepHandoff', () => {
     expect(validation.handoffFindings[0]).toMatchObject({ severity: 'high' });
   });
 
+
+  it('fails file-output steps that provide no output or file evidence', () => {
+    const validation = validateStepHandoff({
+      step: step({ agent: 'tdd-engineer' }),
+      result: result({ outputType: 'files', output: '', filesCreated: [] }),
+      priorResults: new Map(),
+    });
+
+    expect(validation.handoffPassed).toBe(false);
+    expect(validation.handoffFindings[0]?.message).toContain('file-output step completed without usable output or file evidence');
+  });
+
+  it('allows file-output steps with textual implementation evidence', () => {
+    const validation = validateStepHandoff({
+      step: step({ agent: 'tdd-engineer' }),
+      result: result({ outputType: 'files', output: 'Created tests/pubchem-sync.test.ts and ran npm test.' }),
+      priorResults: new Map(),
+    });
+
+    expect(validation.handoffPassed).toBe(true);
+  });
+
   it('fails adviser workflow output when JSON is malformed', () => {
     const validation = validateStepHandoff({
       step: step({ agent: 'adviser' }),
