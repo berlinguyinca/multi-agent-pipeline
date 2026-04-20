@@ -178,7 +178,7 @@ Commands:
     const verbose = !silent && (hasFlag(args, '--verbose') || hasFlag(args, '-V'));
     const prompt = extractPrompt(args);
     const specFileArg = extractFlag(args, '--spec-file');
-    const outputDir = extractFlag(args, '--output-dir');
+    const outputDir = extractFlag(args, '--output-dir') ?? extractFlag(args, '--ouputDir');
     const workspaceDir = extractFlag(args, '--workspace-dir') ?? extractFlag(args, '--target-dir');
     const configPath = extractFlag(args, '--config');
     const totalTimeout = extractFlag(args, '--total-timeout');
@@ -210,10 +210,74 @@ Commands:
     const personality = extractFlag(args, '--personality');
 
     if (refineOnly) {
-      const { handleRefineCommand } = await import('./cli/refine-commands.js');
-      const result = await handleRefineCommand(['--headless', ...args.filter((arg) => arg !== '--headless' && arg !== '--refine')]);
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      process.exit(0);
+      const { refinePromptHeadless } = await import('./refine/refiner.js');
+      const refined = refinePromptHeadless({ prompt, headless: true });
+      if (silent) {
+        process.stdout.write(`${JSON.stringify(refined, null, 2)}\n`);
+        process.exit(0);
+      }
+
+      const refinedPrompt = refined.refinedPrompt;
+      if (useV2) {
+        const { runHeadlessV2 } = await import('./headless/runner.js');
+        const result = await runHeadlessV2({
+          prompt: refinedPrompt,
+          githubIssueUrl,
+          outputDir,
+          workspaceDir,
+          configPath,
+          personality,
+          verbose,
+          routerModel,
+          routerConsensusModels,
+          disabledAgents,
+          rerunPrompt: prompt,
+          compareAgents,
+          semanticJudge,
+          judgePanelModels,
+          judgePanelRoles,
+          judgePanelSteer,
+          judgePanelMaxSteeringRounds,
+          crossReviewEnabled,
+          crossReviewMaxRounds,
+          crossReviewJudgeModels,
+          ollama,
+          routerTimeoutMs:
+            routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
+        });
+        await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
+        process.exit(result.success ? 0 : 1);
+      }
+
+      const result = await runHeadless({
+        prompt: refinedPrompt,
+        githubIssueUrl,
+        outputDir,
+        workspaceDir,
+        configPath,
+        personality,
+        verbose,
+        routerModel,
+        routerConsensusModels,
+        crossReviewEnabled,
+        crossReviewMaxRounds,
+        crossReviewJudgeModels,
+        ollama,
+        routerTimeoutMs:
+          routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
+        totalTimeoutMs:
+          totalTimeout !== undefined
+            ? parseDuration(totalTimeout, '--total-timeout')
+            : undefined,
+        inactivityTimeoutMs:
+          inactivityTimeout !== undefined
+            ? parseDuration(inactivityTimeout, '--inactivity-timeout')
+            : undefined,
+        pollIntervalMs:
+          pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
+      });
+      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
+      process.exit(result.success ? 0 : 1);
     }
 
     const validation = validatePrompt(prompt, githubIssueUrl, specFileArg, {
@@ -319,7 +383,7 @@ Commands:
     loadedSpec !== undefined
       ? (useV2 ? buildV2SpecFilePrompt(specFileArg!, loadedSpec, initialPrompt) : buildSpecFilePrompt(specFileArg!))
       : initialPrompt;
-  const outputDir = extractFlag(args, '--output-dir');
+  const outputDir = extractFlag(args, '--output-dir') ?? extractFlag(args, '--ouputDir');
   const workspaceDir = extractFlag(args, '--workspace-dir') ?? extractFlag(args, '--target-dir');
   const config = await loadConfig(configPath);
   config.outputDir = path.resolve(outputDir ?? process.cwd());

@@ -535,7 +535,7 @@ map refine --run "Analyze this repo and make it better"
 map --headless --refine "Analyze this repo and make it better"
 ```
 
-`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. Headless refine mode uses explicit assumptions instead of asking interactive questions.
+`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. `map --headless --refine ...` does the same while preserving execution flags such as `--router-timeout`, `--output-format`, `--open-output`, `--graph`, and `--output-dir`/legacy `--ouputDir`; use `map refine` when you only want the refined prompt artifact. Headless refine mode uses explicit assumptions instead of asking interactive questions.
 
 Evidence gates are configurable under `evidence`:
 

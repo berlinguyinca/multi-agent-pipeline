@@ -689,6 +689,53 @@ describe('runCli', () => {
     );
   });
 
+
+  it('refines then runs headless smart routing without leaking execution flags into the prompt', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/pubchem',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--v2',
+        '--router-timeout',
+        '5m',
+        '--output-format',
+        'pdf',
+        '--open-output',
+        '--verbose',
+        '--graph',
+        'Build a PubChem sync tool with markdown conversion',
+        '--refine',
+        '--ouputDir',
+        'pubchem',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      outputDir: 'pubchem',
+      routerTimeoutMs: 5 * 60 * 1000,
+      verbose: true,
+      prompt: expect.stringContaining('Build a PubChem sync tool with markdown conversion'),
+    }));
+    const refinedPrompt = String(runHeadlessV2Mock.mock.calls[0]?.[0].prompt ?? '');
+    expect(refinedPrompt).toContain('Original request');
+    expect(refinedPrompt).not.toContain('5m pdf');
+    expect(refinedPrompt).not.toContain('pubchem Build');
+    expect(writeGraphPngArtifactsMock).toHaveBeenCalled();
+    expect(writePdfArtifactMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outputDir: '/tmp/pubchem' }),
+      expect.objectContaining({ outputDir: '/tmp/pubchem' }),
+    );
+    expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.pdf');
+  });
+
   it('passes disabled agent overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

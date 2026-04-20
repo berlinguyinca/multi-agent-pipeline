@@ -9,6 +9,7 @@ export function extractSubcommand(args: string[]): { command: string; subArgs: s
 
 const flagsWithValues = new Set([
   '--output-dir',
+  '--ouputDir',
   '--workspace-dir',
   '--target-dir',
   '--config',
@@ -33,6 +34,7 @@ const flagsWithValues = new Set([
   '--ollama-max-loaded-models',
   '--github-issue',
   '--spec-file',
+  '--refined-prompt',
   '--personality',
   '--review-pr',
   '--output-format',

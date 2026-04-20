@@ -50,6 +50,22 @@ describe('cli argument parsing', () => {
     expect(prompt).toBe('Build pantry');
   });
 
+
+  it('excludes legacy misspelled output dir alias from the prompt', () => {
+    const prompt = extractPrompt([
+      '--headless',
+      '--ouputDir',
+      'pubchem',
+      '--router-timeout',
+      '5m',
+      '--output-format',
+      'pdf',
+      'Build a PubChem sync tool',
+    ]);
+
+    expect(prompt).toBe('Build a PubChem sync tool');
+  });
+
   it('extracts option flag values', () => {
     expect(extractFlag(['--output-dir', 'eval-output/demo'], '--output-dir')).toBe(
       'eval-output/demo',

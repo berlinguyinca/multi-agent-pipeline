@@ -33,4 +33,22 @@ describe('refine command', () => {
     expect(saved).toContain('Original request');
     expect(saved).toContain('Build something useful');
   });
+
+  it('does not leak MAP execution flag values into the refined prompt', async () => {
+    const result = await handleRefineCommand([
+      '--headless',
+      '--router-timeout',
+      '5m',
+      '--output-format',
+      'pdf',
+      '--ouputDir',
+      'pubchem',
+      'Build a PubChem sync tool',
+    ]);
+
+    expect(result.inputPrompt).toBe('Build a PubChem sync tool');
+    expect(result.refinedPrompt).not.toContain('5m pdf');
+    expect(result.refinedPrompt).not.toContain('pubchem Build');
+  });
+
 });

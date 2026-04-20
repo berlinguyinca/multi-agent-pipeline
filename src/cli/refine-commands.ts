@@ -1,16 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
+import { extractPrompt } from '../cli-args.js';
 import { refinePromptHeadless, type RefineResult } from '../refine/refiner.js';
 
 export async function handleRefineCommand(args: string[]): Promise<RefineResult> {
   const outputPath = flagValue(args, '--output');
   const headless = args.includes('--headless') || !process.stdin.isTTY;
-  const prompt = args.filter((arg, index) =>
-    !arg.startsWith('--') &&
-    !(index > 0 && args[index - 1] === '--output') &&
-    arg !== 'refine',
-  ).join(' ').trim();
+  const prompt = extractPrompt(args.filter((arg) => arg !== 'refine'));
 
   const inputPrompt = prompt || (headless ? '' : await askPrompt());
   const result = refinePromptHeadless({ prompt: inputPrompt, headless, outputPath });
