@@ -236,18 +236,18 @@ function describeResultOutput(result: StepResult): string {
 }
 
 function parseFirstJsonObject(output: string): Record<string, unknown> | null {
-  const start = output.indexOf('{');
-  if (start === -1) return null;
-  for (let end = output.length; end > start; end -= 1) {
-    const candidate = output.slice(start, end).trim();
-    if (!candidate.endsWith('}')) continue;
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null;
-    } catch {
-      continue;
+  for (let start = output.indexOf('{'); start !== -1; start = output.indexOf('{', start + 1)) {
+    for (let end = output.length; end > start; end -= 1) {
+      const candidate = output.slice(start, end).trim();
+      if (!candidate.endsWith('}')) continue;
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : null;
+      } catch {
+        continue;
+      }
     }
   }
   return null;
