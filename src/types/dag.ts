@@ -18,15 +18,14 @@ export interface DAGPlan {
 
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export type StepTerminalOutcome = 'success' | 'blocked' | 'failed' | 'cancelled';
-export type CrossReviewDAGEdgeType = 'review' | 'judge';
 export type DAGEdgeType =
   | 'planned'
   | 'handoff'
   | 'recovery'
   | 'spawned'
   | 'feedback'
-  | CrossReviewDAGEdgeType
-  | string;
+  | 'review'
+  | 'judge';
 
 
 export interface HandoffFinding {
