@@ -69,21 +69,47 @@ export class VerboseReporter {
     return formatElapsed(Date.now() - this.startedAt);
   }
 
-  private color(text: string, color: 'cyan'): string {
+  private color(text: string, color: 'cyan' | 'green' | 'yellow' | 'red' | 'magenta' | 'blue' | 'bold' | 'dim'): string {
     const supportsColor = this.writer.supportsColor ?? process.stderr.isTTY;
     if (!supportsColor) return text;
     const codes: Record<typeof color, string> = {
       cyan: '\x1b[36m',
+      green: '\x1b[32m',
+      yellow: '\x1b[33m',
+      red: '\x1b[31m',
+      magenta: '\x1b[35m',
+      blue: '\x1b[34m',
+      bold: '\x1b[1m',
+      dim: '\x1b[2m',
     };
     return `${codes[color]}${text}\x1b[0m`;
   }
 
-  private log(icon: string, message: string): void {
+  private decisionColor(decision: string): 'green' | 'yellow' | 'red' | 'cyan' | 'dim' {
+    if (decision === 'selected' || decision === 'added' || decision === 'accept') return 'green';
+    if (decision === 'skipped' || decision === 'not-needed' || decision === 'revise') return 'yellow';
+    if (decision === 'degraded' || decision === 'reject' || decision === 'failed') return 'red';
+    if (decision === 'combine') return 'cyan';
+    return 'dim';
+  }
+
+  private agentLabel(agent: string): string {
+    return this.color(agent, 'magenta');
+  }
+
+  private stepLabel(stepId: string): string {
+    return this.color(stepId, 'blue');
+  }
+
+  private log(icon: string, message: string, options: { preserveAnsi?: boolean } = {}): void {
     this.stopSpinner();
     this.writer.clearLine();
     const prefix = `[${this.elapsed()}] ${icon} `;
     const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
-    this.writer.write(`${wrapWithPrefix(prefix, normalizeTerminalText(message), width)}\n`);
+    const line = options.preserveAnsi
+      ? `${prefix}${message}`
+      : wrapWithPrefix(prefix, normalizeTerminalText(message), width);
+    this.writer.write(`${line}\n`);
   }
 
   private startSpinner(label: string): void {
@@ -200,12 +226,15 @@ export class VerboseReporter {
     reason: string;
     stepId?: string;
   }): void {
+    const coloredAgent = this.agentLabel(event.agent);
+    const coloredBy = this.color(event.by, 'blue');
+    const coloredDecision = this.color(event.decision, this.decisionColor(event.decision));
     const action =
       event.decision === 'not-needed'
-        ? `did not add ${event.agent}`
-        : `${event.decision} ${event.agent}`;
-    const step = event.stepId ? ` as ${event.stepId}` : '';
-    this.log('◊', `Agent decision — ${event.by} ${action}${step}. Why: ${event.reason}`);
+        ? `did not add ${coloredAgent}`
+        : `${coloredDecision} ${coloredAgent}`;
+    const step = event.stepId ? ` as ${this.stepLabel(event.stepId)}` : '';
+    this.log('◊', `${this.color('Agent decision', 'cyan')} — ${coloredBy} ${action}${step}. ${this.color('Why:', 'yellow')} ${normalizeTerminalText(event.reason)}`, { preserveAnsi: true });
   }
 
   crossReviewDecision(event: {
@@ -216,9 +245,11 @@ export class VerboseReporter {
     reason: string;
   }): void {
     const label = this.color('Cross-review', 'cyan');
+    const decision = this.color(event.decision, this.decisionColor(event.decision));
     this.log(
       '◈',
-      `${label} — ${event.stepId} gate=${event.gate} round=${event.round} decision=${event.decision}. Why: ${event.reason}`,
+      `${label} — ${this.stepLabel(event.stepId)} gate=${event.gate} round=${event.round} decision=${decision}. ${this.color('Why:', 'yellow')} ${normalizeTerminalText(event.reason)}`,
+      { preserveAnsi: true },
     );
   }
 
@@ -256,12 +287,12 @@ export class VerboseReporter {
     const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
     const cleaned = normalizeTerminalText(task).replace(/\s+/g, ' ').trim();
     const truncated = truncateText(cleaned, Math.max(20, width - 34));
-    this.log('▶', `Step ${stepId} [${agent}] — ${truncated}`);
+    this.log('▶', `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] — ${truncated}`, { preserveAnsi: true });
     this.startSpinner(`Step ${stepId} [${agent}]`);
   }
 
   dagStepComplete(stepId: string, agent: string, duration: number): void {
-    this.log('✔', `Step ${stepId} [${agent}] complete (${formatElapsed(duration)})`);
+    this.log('✔', `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] ${this.color('complete', 'green')} (${formatElapsed(duration)})`, { preserveAnsi: true });
   }
 
   dagStepOutput(stepId: string, agent: string, output: string): void {
@@ -276,15 +307,15 @@ export class VerboseReporter {
     if (!cleaned) return;
     const width = process.stderr.isTTY ? process.stderr.columns ?? 80 : 80;
     const truncated = truncateText(cleaned, Math.max(40, width * 2));
-    this.log('☷', `Output ${stepId} [${agent}] — ${truncated}`);
+    this.log('☷', `${this.color('Output', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] — ${truncated}`, { preserveAnsi: true });
   }
 
   dagStepFailed(stepId: string, agent: string, error: string): void {
-    this.log('✘', `Step ${stepId} [${agent}] failed: ${error}`);
+    this.log('✘', `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] ${this.color('failed', 'red')}: ${normalizeTerminalText(error)}`, { preserveAnsi: true });
   }
 
   dagStepRetry(stepId: string, agent: string, attempt: number, error: string): void {
-    this.log('↻', `Step ${stepId} [${agent}] retry ${attempt}. Why: ${error}`);
+    this.log('↻', `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] ${this.color(`retry ${attempt}`, 'yellow')}. ${this.color('Why:', 'yellow')} ${normalizeTerminalText(error)}`, { preserveAnsi: true });
   }
 
   dagStepSkipped(stepId: string, reason: string): void {

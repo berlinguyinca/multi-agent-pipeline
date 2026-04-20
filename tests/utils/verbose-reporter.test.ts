@@ -145,6 +145,33 @@ describe('VerboseReporter', () => {
     expect(line).toContain('5 steps');
   });
 
+  it('colorizes agent decisions, agents, and verdicts when color is supported', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.agentDecision({
+      by: 'router',
+      agent: 'implementation-coder',
+      decision: 'selected',
+      reason: 'best fit for code changes',
+    });
+    colorReporter.dagStepStart('step-1', 'implementation-coder', 'Implement the fix');
+    colorReporter.crossReviewDecision({
+      stepId: 'step-1',
+      gate: 'fileOutputs',
+      decision: 'revise',
+      round: 1,
+      reason: 'missing test',
+    });
+
+    const output = colorWriter.output.join('');
+    expect(output).toContain('\x1b[');
+    expect(output).toMatch(/\x1b\[[0-9;]+mimplementation-coder\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[[0-9;]+mselected\x1b\[0m/);
+    expect(output).toMatch(/decision=\x1b\[[0-9;]+mrevise\x1b\[0m/);
+  });
+
   it('logs agent routing and helper decisions', () => {
     reporter.agentDecision({
       by: 'router',
