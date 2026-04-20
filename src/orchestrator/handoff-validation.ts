@@ -29,7 +29,7 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     findings.push(finding('medium', 'file-output implementation step did not produce observed workspace file changes.', options.step.id));
   }
 
-  if (options.step.agent === 'adviser' && output.includes('adviser-workflow')) {
+  if (options.step.agent === 'adviser' && !options.step.parentStepId && output.includes('adviser-workflow')) {
     const workflow = parseAdviserWorkflow(output);
     if (!workflow) {
       findings.push(finding('high', 'Invalid adviser workflow JSON; cannot safely mutate the DAG.', options.step.id));

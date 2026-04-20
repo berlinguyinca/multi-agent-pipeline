@@ -2548,6 +2548,71 @@ describe('executeDAG', () => {
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 
+
+  it('does not fail the DAG when adviser revision returns malformed workflow JSON', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'adviser', task: 'Advise workflow', dependsOn: [] },
+        { id: 'step-2', agent: 'implementation-coder', task: 'Implement original plan', dependsOn: ['step-1'] },
+      ],
+    };
+    const adviser = makeAgent('adviser', 'answer');
+    const codeQaAnalyst = makeAgent('code-qa-analyst', 'answer');
+    const releaseReadinessReviewer = makeAgent('release-readiness-reviewer', 'answer');
+    const implementationCoder = makeAgent('implementation-coder', 'files');
+    const agents = new Map([
+      ['adviser', adviser],
+      ['code-qa-analyst', codeQaAnalyst],
+      ['release-readiness-reviewer', releaseReadinessReviewer],
+      ['implementation-coder', implementationCoder],
+    ]);
+    const outputs: string[] = [
+      'Initial adviser prose with workflow idea',
+      'Review says revise',
+      '{"decision":"revise","rationale":"replace placeholder","remediation":["fix malformed workflow"],"residualRisks":[]}',
+      'Implementation continued',
+    ];
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'claude',
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Implement original plan')) {
+          yield 'Implementation continued';
+          return;
+        }
+        yield outputs.shift() ?? '';
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        crossReview: {
+          ...DEFAULT_CROSS_REVIEW_CONFIG,
+          maxRounds: 1,
+        },
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        localModelConcurrency: 1,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.find((step) => step.id === 'step-1')?.crossReview).toMatchObject({
+      status: 'budget-exhausted',
+      budgetExhausted: true,
+    });
+    expect(result.steps.find((step) => step.id === 'step-2')?.output).toBe('Implementation continued');
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],
