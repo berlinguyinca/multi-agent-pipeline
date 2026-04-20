@@ -180,6 +180,27 @@ describe('VerboseReporter', () => {
     expect(notNeededLine).toContain('structured data');
   });
 
+  it('logs cross-review decisions', () => {
+    const writes: string[] = [];
+    const reporter = new VerboseReporter({
+      supportsColor: false,
+      write(text) { writes.push(text); },
+      clearLine() {},
+    });
+
+    reporter.crossReviewDecision({
+      stepId: 'step-1',
+      gate: 'fileOutputs',
+      decision: 'revise',
+      round: 1,
+      reason: 'missing regression test',
+    });
+
+    expect(writes.join('')).toContain('Cross-review');
+    expect(writes.join('')).toContain('step-1');
+    expect(writes.join('')).toContain('missing regression test');
+  });
+
   it('logs DAG routing complete singular step', () => {
     reporter.dagRoutingComplete(1, 1000);
     const line = writer.output.find((s) => s.includes('Router complete'));

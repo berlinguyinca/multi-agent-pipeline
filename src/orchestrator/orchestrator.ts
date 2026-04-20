@@ -511,6 +511,7 @@ export async function executeDAG(
               results,
               settled,
               crossReview,
+              reporter,
             });
             maybeScheduleCrossReviewGate({
               step,
@@ -914,6 +915,7 @@ interface CrossReviewRevisionOptions {
   results: Map<string, StepResult>;
   settled: Set<string>;
   crossReview?: CrossReviewConfig;
+  reporter?: VerboseReporter;
 }
 
 function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): void {
@@ -937,16 +939,27 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
   ledger.critiqueSummary = summarizeCrossReviewCritique(
     ledger.reviewStepId ? options.results.get(ledger.reviewStepId)?.output : undefined,
   );
+  const reportDecision = (reportedDecision: string, reason = decision.rationale): void => {
+    options.reporter?.crossReviewDecision?.({
+      stepId: rootStepId,
+      gate: ledger.gate,
+      decision: reportedDecision,
+      round: ledger.round,
+      reason: reason || 'No judge rationale provided.',
+    });
+  };
 
   if (decision.decision === 'accept') {
     ledger.status = 'accepted';
     ledger.budgetExhausted = false;
+    reportDecision(decision.decision);
     options.results.set(rootStepId, sourceResult);
     return;
   }
   if (decision.decision === 'degraded') {
     ledger.status = 'degraded';
     ledger.budgetExhausted = false;
+    reportDecision(decision.decision);
     options.results.set(rootStepId, sourceResult);
     return;
   }
@@ -954,6 +967,10 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
   if (ledger.round >= options.crossReview.maxRounds) {
     ledger.status = 'budget-exhausted';
     ledger.budgetExhausted = true;
+    reportDecision(
+      'budget-exhausted',
+      `${decision.rationale || 'Judge requested more review.'} Max cross-review rounds (${options.crossReview.maxRounds}) reached.`,
+    );
     options.results.set(rootStepId, sourceResult);
     return;
   }
@@ -966,6 +983,7 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
       ...ledger.residualRisks,
       'Could not find the original source step to schedule a cross-review revision.',
     ];
+    reportDecision('degraded', 'Could not find the original source step to schedule a cross-review revision.');
     options.results.set(rootStepId, sourceResult);
     return;
   }
@@ -977,6 +995,7 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
     remediation: decision.remediation,
   });
   if (options.allIds.has(revisionStep.id)) {
+    reportDecision(decision.decision);
     options.results.set(rootStepId, sourceResult);
     return;
   }
@@ -984,6 +1003,7 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
   ledger.status = 'revision-requested';
   ledger.revisionStepId = revisionStep.id;
   ledger.budgetExhausted = false;
+  reportDecision(decision.decision);
   insertAfter(options.plan, options.step.id, [revisionStep]);
   options.allIds.add(revisionStep.id);
   const reviewedContentStepId = contentDependencyForJudgeStep(options.step, ledger.reviewStepId) ?? rootStepId;

@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DEFAULT_CROSS_REVIEW_CONFIG } from '../../src/config/defaults.js';
 import { executeDAG } from '../../src/orchestrator/orchestrator.js';
+import { VerboseReporter } from '../../src/utils/verbose-reporter.js';
 import type { DAGPlan } from '../../src/types/dag.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 import type { AdapterConfig, AgentAdapter } from '../../src/types/adapter.js';
@@ -2475,11 +2476,17 @@ describe('executeDAG', () => {
       maxRounds: 2,
       gates: { ...DEFAULT_CROSS_REVIEW_CONFIG.gates, releaseReadiness: false },
     };
+    const verboseWrites: string[] = [];
+    const reporter = new VerboseReporter({
+      supportsColor: false,
+      write(text) { verboseWrites.push(text); },
+      clearLine() {},
+    });
     const result = await executeDAG(
       plan,
       agents,
       createAdapter,
-      undefined,
+      reporter,
       undefined,
       undefined,
       undefined,
@@ -2540,6 +2547,11 @@ describe('executeDAG', () => {
     expect(downstreamPrompt).toContain('"decision":"accept"');
     expect(downstreamPrompt).toContain('"rationale":"revision accepted"');
     expect(downstreamPrompt).not.toContain('[step-1: implementation-coder]\nsource output');
+    const verboseOutput = verboseWrites.join('');
+    expect(verboseOutput).toContain('Cross-review — step-1 gate=fileOutputs round=1 decision=revise');
+    expect(verboseOutput).toContain('file output needs a regression test');
+    expect(verboseOutput).toContain('Cross-review — step-1 gate=fileOutputs round=2 decision=accept');
+    expect(verboseOutput).toContain('revision accepted');
     expect(createAdapter).toHaveBeenCalledTimes(7);
   });
 
