@@ -11,6 +11,8 @@ const EDGE_LABELS: Record<DAGEdgeType, string> = {
   recovery: '--recovery-->',
   spawned: '--spawned-->',
   feedback: '--feedback-->',
+  review: '--review-->',
+  judge: '--judge-->',
 };
 
 export interface DAGLayoutNode {
