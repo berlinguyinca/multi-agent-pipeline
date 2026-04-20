@@ -51,6 +51,31 @@ describe('Socratic prompt refiner', () => {
   });
 
 
+
+  it('uses generated task-specific question details when provided', () => {
+    const result = refinePromptHeadless({
+      prompt: 'Build a PubChem sync tool',
+      headless: true,
+      questionDetails: [
+        {
+          question: 'Which PubChem distribution source should be authoritative: FTP bulk dumps, PUG-REST, PUG-View, or another endpoint?',
+          reason: 'Different sources have different rate limits and file layouts.',
+          defaultAssumption: 'Prefer FTP bulk dumps for full-database sync.',
+        },
+      ],
+    });
+
+    expect(result.questionsAsked).toEqual([
+      expect.stringContaining('PubChem distribution source'),
+    ]);
+    expect(result.questionDetails[0]).toMatchObject({
+      reason: expect.stringContaining('rate limits'),
+      defaultAssumption: expect.stringContaining('FTP bulk dumps'),
+    });
+    expect(result.refinedPrompt).toContain('Why it matters: Different sources have different rate limits');
+    expect(result.refinedPrompt).toContain('Default if unanswered: Prefer FTP bulk dumps');
+  });
+
   it('incorporates collected answers into the refined prompt', () => {
     const initial = refinePromptHeadless({
       prompt: 'Build something useful',

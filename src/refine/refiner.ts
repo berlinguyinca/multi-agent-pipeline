@@ -13,6 +13,12 @@ export interface RefineCapabilityRecommendation {
   reason: string;
 }
 
+export interface RefineQuestion {
+  question: string;
+  reason?: string;
+  defaultAssumption?: string;
+}
+
 export interface RefineResult {
   version: 1;
   mode: 'refine';
@@ -20,6 +26,7 @@ export interface RefineResult {
   refinedPrompt: string;
   score: SocraticScore;
   questionsAsked: string[];
+  questionDetails: RefineQuestion[];
   assumptions: string[];
   recommendedCapabilities: RefineCapabilityRecommendation[];
   answers: string[];
@@ -30,6 +37,7 @@ export interface RefineOptions {
   prompt: string;
   headless?: boolean;
   answers?: string[];
+  questionDetails?: RefineQuestion[];
   outputPath?: string;
 }
 
@@ -59,8 +67,10 @@ export function scorePromptForRefinement(prompt: string): SocraticScore {
 
 export function refinePromptHeadless(options: RefineOptions): RefineResult {
   const initial = scorePromptForRefinement(options.prompt);
-  const assumptions = buildAssumptions(initial.questions);
-  const answers = normalizeAnswers(options.answers, initial.questions.length);
+  const questionDetails = normalizeQuestionDetails(options.questionDetails, initial.questions);
+  const questions = questionDetails.map((entry) => entry.question);
+  const assumptions = buildAssumptions(questions);
+  const answers = normalizeAnswers(options.answers, questions.length);
   const recommendedCapabilities = recommendCapabilities(options.prompt);
   const refinedPrompt = [
     '# Refined MAP Prompt',
@@ -71,23 +81,27 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
     '## Assumptions to use',
     ...assumptions.map((assumption) => `- ${assumption}`),
     '',
-    ...(initial.questions.length > 0
+    ...(questionDetails.length > 0
       ? [
           '## Questions to answer before execution',
-          ...initial.questions.map((question, index) => `${index + 1}. ${question}`),
+          ...questionDetails.flatMap((entry, index) => [
+            `${index + 1}. ${entry.question}`,
+            ...(entry.reason ? [`   Why it matters: ${entry.reason}`] : []),
+            ...(entry.defaultAssumption ? [`   Default if unanswered: ${entry.defaultAssumption}`] : []),
+          ]),
           '',
         ]
       : []),
     ...(answers.length > 0
       ? [
           '## Answers provided',
-          ...answers.map((answer, index) => `${index + 1}. ${initial.questions[index] ?? `Question ${index + 1}`}
+          ...answers.map((answer, index) => `${index + 1}. ${questions[index] ?? `Question ${index + 1}`}
    Answer: ${answer}`),
           '',
         ]
       : []),
     '## Optimized prompt',
-    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities, initial.questions, answers),
+    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities, questions, answers),
   ].join('\n');
 
   return {
@@ -104,7 +118,8 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
       riskCoverage: Math.max(initial.riskCoverage, 0.9),
       overall: 0.9,
     },
-    questionsAsked: initial.questions,
+    questionsAsked: questions,
+    questionDetails,
     assumptions,
     recommendedCapabilities,
     answers,
@@ -143,6 +158,22 @@ function buildOptimizedPrompt(
   ].join('\n');
 }
 
+
+
+function normalizeQuestionDetails(
+  details: RefineQuestion[] | undefined,
+  fallbackQuestions: string[],
+): RefineQuestion[] {
+  const normalized = (details ?? [])
+    .map((entry) => ({
+      question: entry.question.trim(),
+      ...(entry.reason?.trim() ? { reason: entry.reason.trim() } : {}),
+      ...(entry.defaultAssumption?.trim() ? { defaultAssumption: entry.defaultAssumption.trim() } : {}),
+    }))
+    .filter((entry) => entry.question.length > 0);
+  if (normalized.length > 0) return normalized.slice(0, 6);
+  return fallbackQuestions.map((question) => ({ question }));
+}
 
 function normalizeAnswers(answers: string[] | undefined, questionCount: number): string[] {
   return (answers ?? [])

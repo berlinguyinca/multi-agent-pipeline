@@ -12,6 +12,7 @@ import { extractFlag, extractPrompt, extractSubcommand, hasFlag } from './cli-ar
 import { formatMapOutput, parseDagLayoutOption, parseMapOutputFormat, type FormatMapOutputOptions, type MapOutputFormat } from './output/result-format.js';
 import { openOutputArtifact, writeGraphPngArtifacts, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
 import type { OllamaConfig, PipelineConfig } from './types/config.js';
+import type { RefineQuestion, RefineResult } from './refine/refiner.js';
 
 export async function runCli(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -213,10 +214,19 @@ Commands:
     if (refineOnly) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
       const initial = refinePromptHeadless({ prompt, headless: true });
-      const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(initial.questionsAsked) : [];
+      const generatedQuestions = await generateRefineQuestionDetails({
+        prompt,
+        initial,
+        configPath,
+        routerModel,
+        ollama,
+      });
+      const questionDetails = generatedQuestions.length > 0 ? generatedQuestions : initial.questionDetails;
+      const questioned = refinePromptHeadless({ prompt, headless: true, questionDetails });
+      const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionsAsked) : [];
       const refined = answers.length > 0
-        ? refinePromptHeadless({ prompt, headless: true, answers })
-        : initial;
+        ? refinePromptHeadless({ prompt, headless: true, questionDetails, answers })
+        : questioned;
       process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}\n` : formatRefineQuestions(refined));
       process.exit(0);
     }
@@ -365,6 +375,36 @@ Commands:
 }
 
 
+
+
+async function generateRefineQuestionDetails(options: {
+  prompt: string;
+  initial: Pick<RefineResult, 'questionsAsked' | 'recommendedCapabilities'>;
+  configPath?: string;
+  routerModel?: string;
+  ollama?: Partial<OllamaConfig>;
+}): Promise<RefineQuestion[]> {
+  try {
+    const [{ createAdapter }, { generateRefineQuestions }] = await Promise.all([
+      import('./adapters/adapter-factory.js'),
+      import('./refine/question-generator.js'),
+    ]);
+    const config = await loadConfig(options.configPath);
+    const adapter = createAdapter({
+      type: config.router.adapter,
+      model: options.routerModel ?? config.router.model,
+      ...(config.router.adapter === 'ollama' ? { ...config.ollama, ...options.ollama } : {}),
+    });
+    return await generateRefineQuestions({
+      adapter,
+      prompt: options.prompt,
+      heuristicQuestions: options.initial.questionsAsked,
+      recommendedCapabilities: options.initial.recommendedCapabilities,
+    });
+  } catch {
+    return [];
+  }
+}
 
 async function askRefineAnswers(questions: string[]): Promise<string[]> {
   if (questions.length === 0) return [];

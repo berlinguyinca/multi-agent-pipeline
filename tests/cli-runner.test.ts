@@ -6,6 +6,7 @@ const createTuiAppMock = vi.fn(() => ({
 const loadConfigMock = vi.fn(async () => ({
   outputDir: '',
   ollama: { host: 'http://localhost:11434' },
+  router: { adapter: 'ollama', model: 'gemma4' },
 }));
 const detectAllAdaptersMock = vi.fn(async () => ({ available: [] }));
 const mkdirMock = vi.fn(async () => {});
@@ -13,6 +14,13 @@ const readFileMock = vi.fn(async () => '# Loaded Spec\n\nBuild the thing from th
 const runHeadlessMock = vi.fn(async () => ({ version: 1, success: true }));
 const runHeadlessV2Mock = vi.fn(async () => ({ version: 2, success: true }));
 const runPRReviewMock = vi.fn(async () => ({ success: true, verdict: 'comment' }));
+const generateRefineQuestionsMock = vi.fn(async () => [
+  {
+    question: 'Which PubChem distribution source should be authoritative: FTP bulk dumps, PUG-REST, PUG-View, or another endpoint?',
+    reason: 'Different sources have different rate limits and file layouts.',
+    defaultAssumption: 'Prefer FTP bulk dumps for full-database sync.',
+  },
+]);
 const handleEvidenceCommandMock = vi.fn(async () => {});
 const writePdfArtifactMock = vi.fn(async () => ({
   pdfPath: '/tmp/map-result.pdf',
@@ -45,6 +53,10 @@ vi.mock('../src/headless/pr-review.js', () => ({
   runPRReview: runPRReviewMock,
 }));
 
+vi.mock('../src/refine/question-generator.js', () => ({
+  generateRefineQuestions: generateRefineQuestionsMock,
+}));
+
 vi.mock('../src/cli/evidence-commands.js', () => ({
   handleEvidenceCommand: handleEvidenceCommandMock,
 }));
@@ -62,6 +74,16 @@ vi.mock('../src/config/loader.js', () => ({
 
 vi.mock('../src/adapters/detect.js', () => ({
   detectAllAdapters: detectAllAdaptersMock,
+}));
+
+vi.mock('../src/adapters/adapter-factory.js', () => ({
+  createAdapter: vi.fn(() => ({
+    type: 'ollama',
+    model: 'gemma4',
+    detect: vi.fn(),
+    cancel: vi.fn(),
+    async *run() { yield '{}'; },
+  })),
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -717,7 +739,10 @@ describe('runCli', () => {
     const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
     expect(output).toContain('# MAP Refine Questions');
     expect(output).toContain('Please answer these questions before execution');
-    expect(output).toContain('What evidence or verification should be required for success?');
+    expect(output).toContain('Which PubChem distribution source should be authoritative');
+    expect(output).toContain('Different sources have different rate limits');
+    expect(output).not.toContain('What evidence or verification should be required for success?');
+    expect(generateRefineQuestionsMock).toHaveBeenCalled();
     expect(output).toContain('Build a PubChem sync tool with markdown conversion');
     expect(output).not.toContain('"mode": "refine"');
     expect(output).not.toContain('5m pdf');

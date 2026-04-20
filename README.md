@@ -535,7 +535,7 @@ map refine --run "Analyze this repo and make it better"
 map --headless --refine "Analyze this repo and make it better"
 ```
 
-`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. `map --headless --refine ...` is a question gate: in an interactive terminal it asks the refinement questions and incorporates your answers into the refined prompt; in non-interactive use it prints the questions and stops. Use `--silent` when automation needs machine-readable refinement JSON. Execution flags such as `--output-format`, `--open-output`, and `--graph` are ignored unless `--run` is used.
+`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. `map --headless --refine ...` is a question gate: when a router model is available, MAP first asks that model to generate task-specific questions that are not already answered by the request; in an interactive terminal it asks those questions and incorporates your answers into the refined prompt. In non-interactive use it prints the questions and stops. Use `--silent` when automation needs machine-readable refinement JSON. Execution flags such as `--output-format`, `--open-output`, and `--graph` are ignored unless `--run` is used.
 
 Evidence gates are configurable under `evidence`:
 
