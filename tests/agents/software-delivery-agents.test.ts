@@ -52,7 +52,7 @@ describe('software delivery agent bundle', () => {
       expect(agent.adapter).toBe('ollama');
       if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
         expect(agent.model).toBe('bespoke-minicheck:7b');
-      } else if (name === 'tdd-engineer') {
+      } else if (['tdd-engineer', 'implementation-coder', 'build-fixer', 'test-stabilizer'].includes(name)) {
         expect(agent.model).toBe('qwen3.6:latest');
       } else {
         expect(agent.model).toBe('gemma4:26b');
@@ -296,6 +296,33 @@ describe('software delivery agent bundle', () => {
   });
 
 
+
+
+  it('uses coding models and action-first prompts for execution-heavy file agents', async () => {
+    for (const name of ['implementation-coder', 'build-fixer', 'test-stabilizer'] as const) {
+      const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, name));
+
+      expect(agent.adapter).toBe('ollama');
+      expect(agent.model).toBe('qwen3.6:latest');
+      expect(agent.prompt, `${name} missing action-first protocol`).toContain('Action-First Tool Protocol');
+      expect(agent.prompt, `${name} missing first tool call guidance`).toContain('first response must be a JSON shell tool call');
+      expect(agent.prompt, `${name} missing empty response ban`).toContain('Do not return an empty response');
+    }
+  });
+
+  it('hardens review, docs, and readiness agents against missing artifacts', async () => {
+    const qa = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'code-qa-analyst'));
+    const docs = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'docs-maintainer'));
+    const readiness = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'release-readiness-reviewer'));
+    const adviser = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'adviser'));
+
+    expect(qa.prompt).toContain('No implementation artifacts means no approval');
+    expect(docs.prompt).toContain('Do not edit documentation when implementation artifacts are missing');
+    expect(readiness.prompt).toContain('Hard readiness blockers');
+    expect(adviser.prompt).toContain('Valid implementation agents');
+    expect(adviser.prompt).toContain('implementation-coder');
+    expect(adviser.prompt).toContain('Do not invent agent names');
+  });
 
   it('uses the stronger Qwen coding model and action-first prompt for TDD test authoring', async () => {
     const tdd = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'tdd-engineer'));

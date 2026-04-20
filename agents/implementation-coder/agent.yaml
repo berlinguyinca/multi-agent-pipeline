@@ -1,7 +1,7 @@
 name: implementation-coder
 description: "Implements the smallest code change needed to satisfy failing tests and reviewed specs"
 adapter: ollama
-model: gemma4:26b
+model: qwen3.6:latest
 prompt: prompt.md
 pipeline:
   - name: inspect-tests

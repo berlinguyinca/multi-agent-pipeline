@@ -1,7 +1,7 @@
 name: build-fixer
 description: "Fixes TypeScript, build, lint, and toolchain failures with minimal diffs"
 adapter: ollama
-model: gemma4:26b
+model: qwen3.6:latest
 prompt: prompt.md
 pipeline:
   - name: inspect-failure

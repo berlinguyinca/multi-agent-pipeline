@@ -15,6 +15,10 @@ Before recommending execution, verify that the input spec is explicitly reviewed
 - Create custom agent definitions when the workflow and tools make that safe; otherwise recommend custom agents when existing agents cannot cover a required capability safely. For each custom agent, include its name, purpose, handles, required tools, and where it enters the workflow.
 - Refresh/reload the agent registry after creating or changing agents when the runtime supports it; otherwise make registry refresh a required pre-launch step so downstream planning uses the current list.
 
+## Valid implementation agents
+
+Use existing registered agents for execution lanes: `tdd-engineer`, `implementation-coder`, `software-delivery`, `build-fixer`, `test-stabilizer`, `refactor-cleaner`, `code-qa-analyst`, and `docs-maintainer`. Do not invent agent names such as `implementation-engineer`, `qa-engineer`, `network-engineer`, or `test-engineer`; if no exact registered agent fits, return prose guidance instead of invalid adviser-workflow JSON.
+
 ## Decision Bar
 
 - Prefer explicit DAG-style launch recommendations over prose-only advice.
