@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { extractPrompt } from '../cli-args.js';
-import { refinePromptHeadless, type RefineResult } from '../refine/refiner.js';
+import { refinePromptHeadless, type RefineQuestion, type RefineResult } from '../refine/refiner.js';
 
 export async function handleRefineCommand(args: string[]): Promise<RefineResult> {
   const outputPath = flagValue(args, '--output');
@@ -11,7 +11,7 @@ export async function handleRefineCommand(args: string[]): Promise<RefineResult>
 
   const inputPrompt = prompt || (headless ? '' : await askPrompt());
   const initial = refinePromptHeadless({ prompt: inputPrompt, headless, outputPath });
-  const answers = !headless ? await askRefineAnswers(initial.questionsAsked) : [];
+  const answers = !headless ? await askRefineAnswers(initial.questionDetails) : [];
   const result = answers.length > 0
     ? refinePromptHeadless({ prompt: inputPrompt, headless, outputPath, answers })
     : initial;
@@ -32,14 +32,14 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 
-async function askRefineAnswers(questions: string[]): Promise<string[]> {
+async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> {
   if (questions.length === 0) return [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answers: string[] = [];
     console.log('MAP refine needs a few answers before execution.');
-    for (const [index, question] of questions.entries()) {
-      answers.push(await rl.question(`${index + 1}. ${question}\n> `));
+    for (const [index, entry] of questions.entries()) {
+      answers.push(await rl.question(`${index + 1}. ${entry.question}\n> `));
     }
     return answers;
   } finally {

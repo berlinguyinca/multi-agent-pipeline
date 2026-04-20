@@ -223,7 +223,7 @@ Commands:
       });
       const questionDetails = generatedQuestions.length > 0 ? generatedQuestions : initial.questionDetails;
       const questioned = refinePromptHeadless({ prompt, headless: true, questionDetails });
-      const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionsAsked) : [];
+      const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionDetails) : [];
       const refined = answers.length > 0
         ? refinePromptHeadless({ prompt, headless: true, questionDetails, answers })
         : questioned;
@@ -406,14 +406,14 @@ async function generateRefineQuestionDetails(options: {
   }
 }
 
-async function askRefineAnswers(questions: string[]): Promise<string[]> {
+async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> {
   if (questions.length === 0) return [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answers: string[] = [];
-    process.stdout.write('MAP refine needs a few answers before execution.\n');
-    for (const [index, question] of questions.entries()) {
-      answers.push(await rl.question(`${index + 1}. ${question}\n> `));
+    process.stdout.write(`${paint('MAP refine needs a few answers before execution.', 'cyan', 'bold')}\n`);
+    for (const [index, entry] of questions.entries()) {
+      answers.push(await rl.question(formatInteractiveQuestion(entry, index)));
     }
     return answers;
   } finally {
@@ -421,37 +421,74 @@ async function askRefineAnswers(questions: string[]): Promise<string[]> {
   }
 }
 
-function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; assumptions: string[]; answers?: string[]; refinedPrompt: string }): string {
-  const questions = result.questionsAsked.length > 0
-    ? result.questionsAsked.map((question, index) => `${index + 1}. ${question}`)
+function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; questionDetails?: RefineQuestion[]; assumptions: string[]; answers?: string[]; refinedPrompt: string }): string {
+  const questionDetails = result.questionDetails && result.questionDetails.length > 0
+    ? result.questionDetails
+    : result.questionsAsked.map((question) => ({ question }));
+  const questions = questionDetails.length > 0
+    ? questionDetails.flatMap(formatQuestionLines)
     : ['1. No clarification questions were generated; review the optimized prompt below before execution.'];
   return [
-    '# MAP Refine Questions',
+    paint('# MAP Refine Questions', 'cyan', 'bold'),
     '',
     result.answers && result.answers.length > 0
       ? 'Answers collected. Review the refined prompt below, then rerun MAP with it or use `map refine --run` when you are ready to execute automatically.'
       : 'Please answer these questions before execution, then rerun MAP with your answers included in the prompt or use `map refine --run` when you are ready to execute automatically.',
     '',
-    '## Original request',
+    paint('## Original request', 'bold'),
     result.inputPrompt,
     '',
-    '## Questions',
+    paint('## Questions', 'bold'),
     ...questions,
     '',
     ...(result.answers && result.answers.length > 0
       ? [
-          '## Answers collected',
+          paint('## Answers collected', 'bold'),
           ...result.answers.map((answer, index) => `${index + 1}. ${result.questionsAsked[index] ?? `Question ${index + 1}`}\n   Answer: ${answer}`),
           '',
         ]
       : []),
-    '## Assumptions MAP would use if you proceed without more answers',
+    paint('## Assumptions MAP would use if you proceed without more answers', 'bold'),
     ...result.assumptions.map((assumption) => `- ${assumption}`),
     '',
-    '## Refined prompt draft',
+    paint('## Refined prompt draft', 'bold'),
     result.refinedPrompt,
     '',
   ].join('\n');
+}
+
+
+function formatInteractiveQuestion(entry: RefineQuestion, index: number): string {
+  return [
+    `${paint(`${index + 1}.`, 'yellow', 'bold')} ${paint(entry.question, 'bold')}`,
+    ...(entry.reason ? [`   ${paint('Why it matters:', 'dim')} ${entry.reason}`] : []),
+    ...(entry.defaultAssumption ? [`   ${paint('Default if unanswered:', 'dim')} ${entry.defaultAssumption}`] : []),
+    paint('> ', 'green', 'bold'),
+  ].join('\n');
+}
+
+function formatQuestionLines(entry: RefineQuestion, index: number): string[] {
+  return [
+    `${paint(`${index + 1}.`, 'yellow', 'bold')} ${entry.question}`,
+    ...(entry.reason ? [`   ${paint('Why it matters:', 'dim')} ${entry.reason}`] : []),
+    ...(entry.defaultAssumption ? [`   ${paint('Default if unanswered:', 'dim')} ${entry.defaultAssumption}`] : []),
+  ];
+}
+
+function paint(text: string, ...styles: Array<'bold' | 'cyan' | 'yellow' | 'green' | 'dim'>): string {
+  if (!shouldUseColor()) return text;
+  const codes: Record<'bold' | 'cyan' | 'yellow' | 'green' | 'dim', string> = {
+    bold: '1',
+    cyan: '36',
+    yellow: '33',
+    green: '32',
+    dim: '2',
+  };
+  return `${styles.map((style) => `[${codes[style]}m`).join('')}${text}[0m`;
+}
+
+function shouldUseColor(): boolean {
+  return process.env.MAP_NO_COLOR !== '1' && process.stdout.isTTY === true;
 }
 
 function parseCompareAgents(args: string[]): string[] | undefined {

@@ -52,6 +52,18 @@ describe('Socratic prompt refiner', () => {
 
 
 
+
+  it('uses task-specific deterministic fallback questions for PubChem software sync requests', () => {
+    const score = scorePromptForRefinement('I require local software to download PubChem data without being rate throttled and convert compound and substance files to Markdown');
+
+    expect(score.questions).toEqual(expect.arrayContaining([
+      expect.stringContaining('PubChem distribution source'),
+      expect.stringContaining('bulk dumps'),
+      expect.stringContaining('Markdown output layout'),
+    ]));
+    expect(score.questions).not.toContain('What is the primary goal and why does it matter?');
+  });
+
   it('uses generated task-specific question details when provided', () => {
     const result = refinePromptHeadless({
       prompt: 'Build a PubChem sync tool',

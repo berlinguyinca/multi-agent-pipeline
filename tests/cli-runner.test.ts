@@ -749,6 +749,26 @@ describe('runCli', () => {
     expect(output).not.toContain('pubchem Build');
   });
 
+
+  it('colors headless refine questions in an interactive terminal', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    try {
+      const { runCli } = await import('../src/cli-runner.js');
+      await expect(runCli(['--headless', '--refine', 'Build a PubChem sync tool'])).rejects.toThrow('process.exit:0');
+
+      const writeOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+      expect(writeOutput).toContain('[36m');
+      expect(writeOutput).toContain('# MAP Refine Questions');
+    } finally {
+      if (originalIsTty) {
+        Object.defineProperty(process.stdout, 'isTTY', originalIsTty);
+      } else {
+        delete (process.stdout as typeof process.stdout & { isTTY?: boolean }).isTTY;
+      }
+    }
+  });
+
   it('headless refine emits machine-readable JSON when silent', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

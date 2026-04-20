@@ -43,8 +43,25 @@ export interface RefineOptions {
 
 export function scorePromptForRefinement(prompt: string): SocraticScore {
   const text = prompt.toLowerCase();
+  if (isPubChemSoftwareSyncRequest(text)) {
+    return {
+      goalClarity: 0.9,
+      constraintClarity: 0.65,
+      evidenceRequirements: 0.65,
+      outputSpecificity: 0.65,
+      riskCoverage: 0.65,
+      overall: 0.7,
+      questions: [
+        'Which PubChem distribution source should be authoritative: FTP bulk dumps, PUG-REST, PUG-View, or another endpoint?',
+        'Should the sync cover full PubChem compound/substance bulk dumps, selected file types, or filtered subsets?',
+        'What Markdown output layout is required: one file per source record, one file per downloaded archive, or indexes plus raw archives?',
+        'What local sync policy should be used for deletes, resumable partial downloads, checksums, and versioned snapshots?',
+      ],
+    };
+  }
+
   const questions: string[] = [];
-  const hasAction = /\b(build|create|write|provide|classify|summarize|analyze|implement|refactor|review|install)\b/.test(text);
+  const hasAction = /\b(build|create|write|provide|classify|summarize|analyze|implement|refactor|review|install|develop|require|need|download|sync|synchroni[sz]e|convert)\b/.test(text);
   const hasVagueGoal = /\b(something|stuff|things?|useful|better|improve it|help me)\b/.test(text);
   const goalClarity = scoreBoolean(hasAction && !hasVagueGoal);
   if (goalClarity < 0.85) questions.push('What is the primary goal and why does it matter?');
@@ -55,15 +72,16 @@ export function scorePromptForRefinement(prompt: string): SocraticScore {
   const evidenceRequirements = scoreBoolean(/\b(correct|evidence|source|citation|verify|fact|current|recent|judge|accuracy)\b/.test(text));
   if (evidenceRequirements < 0.85) questions.push('What evidence or verification should be required for success?');
 
-  const outputSpecificity = scoreBoolean(/\b(table|graph|plot|cells|file|report|prompt|code|tests|artifact)\b/.test(text));
+  const outputSpecificity = scoreBoolean(/\b(table|graph|plot|cells|file|report|prompt|code|tests|artifact|markdown)\b/.test(text));
   if (outputSpecificity < 0.85) questions.push('What exact output artifact or structure should be produced?');
 
-  const riskCoverage = scoreBoolean(/\b(risk|avoid|fail|hallucinat|incorrect|edge|assumption|only)\b/.test(text));
+  const riskCoverage = scoreBoolean(/\b(risk|avoid|fail|hallucinat|incorrect|edge|assumption|only|rate thrott|backoff|resume)\b/.test(text));
   if (riskCoverage < 0.85) questions.push('What assumptions or failure modes should be challenged before execution?');
 
   const overall = average([goalClarity, constraintClarity, evidenceRequirements, outputSpecificity, riskCoverage]);
   return { goalClarity, constraintClarity, evidenceRequirements, outputSpecificity, riskCoverage, overall, questions };
 }
+
 
 export function refinePromptHeadless(options: RefineOptions): RefineResult {
   const initial = scorePromptForRefinement(options.prompt);
@@ -197,6 +215,10 @@ function recommendCapabilities(prompt: string): RefineCapabilityRecommendation[]
     capabilities.push({ agent: 'usage-classification-tree', reason: 'The prompt asks for usage, exposure, or metabolomics context.' });
   }
   return dedupeByAgent(capabilities);
+}
+
+function isPubChemSoftwareSyncRequest(text: string): boolean {
+  return /\bpubchem\b/.test(text) && isSoftwareDevelopmentRequest(text);
 }
 
 function isSoftwareDevelopmentRequest(text: string): boolean {
