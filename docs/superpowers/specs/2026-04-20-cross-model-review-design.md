@@ -38,9 +38,9 @@ By default, MAP should enable cross-model review for high-impact gates. Users ma
 3. High-impact planning decisions receive cross-model critique and hybrid judge synthesis.
 4. File-changing agents produce tests, patches, docs, or fixes.
 5. A different model reviews high-impact file outputs.
-6. Judges decide whether to accept, revise, run extra verification, or synthesize a combined approach.
+6. Judges decide whether to accept, revise with verification requested as remediation, or synthesize a combined approach.
 7. MAP autonomously retries within the configured round budget.
-8. Final results include the selected output plus a decision ledger explaining cross-review participation, remediation, verification, and residual risk.
+8. Final results include the selected output plus a decision ledger explaining cross-review participation, remediation, requested verification, and residual risk.
 
 Disagreement never asks the user to choose. The user sees transparent diagnostics after MAP has tried to resolve the issue internally.
 
@@ -84,7 +84,7 @@ Judges should not merely vote yes/no. They should choose an action:
 
 - Accept as-is.
 - Revise using specific reviewer findings.
-- Run additional verification.
+- Request verification as remediation under a revise or combine decision.
 - Combine parts of competing proposals.
 - Request a focused retry from the original proposer.
 - Escalate only when MAP lacks authority or the action would be destructive.
@@ -163,15 +163,14 @@ The gate planner decides whether a DAG step needs cross-review. Inputs should in
 - security/evidence criticality;
 - whether the step changes files.
 
-Default high-impact gates:
+Default runtime-enforced high-impact gates:
 
-- router/planning decisions;
-- spec QA and adviser replans;
-- architecture/API-contract decisions;
+- planning/spec outputs and adviser replans;
 - security-sensitive steps;
 - file-changing agents;
-- release-readiness review;
-- verification failure recovery.
+- release-readiness review.
+
+Reserved/default-off gates remain in the config surface for future expansion: routing, architecture/API-contract, and verification-failure recovery. Routing remains protected by router consensus in this implementation.
 
 ### Review loop executor
 
