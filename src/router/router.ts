@@ -669,6 +669,23 @@ function cleanRouterDecision(
   userTask = '',
 ): RouterDecision {
   if (decision.kind === 'no-match') {
+    if (decision.suggestedAgent) {
+      const suggestedAgent = normalizeRouterAgentName(decision.suggestedAgent.name, agents);
+      if (agents.has(suggestedAgent)) {
+        return {
+          kind: 'plan',
+          plan: {
+            plan: [{
+              id: 'step-1',
+              agent: suggestedAgent,
+              task: cleanRouterTaskText(`Execute with the existing suggested agent. Router reason: ${decision.reason}`),
+              dependsOn: [],
+            }],
+          },
+          ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set([suggestedAgent])) } : {}),
+        };
+      }
+    }
     return decision;
   }
 

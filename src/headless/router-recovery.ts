@@ -106,7 +106,7 @@ export async function routeWithAutonomousRecovery(
   }
 
   if (decision.kind === 'no-match') {
-    const fallbackPlan = buildBestEffortFallbackPlan(decision, agents);
+    const fallbackPlan = buildBestEffortFallbackPlan(decision, agents, options.config);
     if (fallbackPlan !== null) {
       agentDiscovery.push(buildFallbackDiscoveryDiagnostic(decision, fallbackPlan, agents, options.config));
       options.reporter?.routerRecoveryComplete({
@@ -160,11 +160,13 @@ export function formatRouterNoMatch(decision: {
 function buildBestEffortFallbackPlan(
   decision: { reason: string; suggestedAgent?: { name: string; description: string } },
   agents: Map<string, AgentDefinition>,
+  config: PipelineConfig,
 ): DAGPlan | null {
-  const fallback = [...agents.values()].find((agent) => agent.name === 'researcher') ??
-    [...agents.values()].find((agent) => agent.output.type === 'answer') ??
-    [...agents.values()][0];
+  const fallback = selectBestEffortFallbackAgent(decision, agents);
   if (!fallback) return null;
+  const requiresLedger = config.evidence.enabled !== false &&
+    config.evidence.mode !== 'off' &&
+    config.evidence.requiredAgents.includes(fallback.name);
   return {
     plan: [{
       id: 'step-1',
@@ -175,10 +177,53 @@ function buildBestEffortFallbackPlan(
         decision.suggestedAgent
           ? `Missing suggested agent: ${decision.suggestedAgent.name} — ${decision.suggestedAgent.description}`
           : '',
+        requiresLedger
+          ? 'Because this fallback agent is evidence-gated, include a ## Claim Evidence Ledger section with JSON claims and direct evidence before finalizing.'
+          : '',
       ].filter(Boolean).join(' '),
       dependsOn: [],
     }],
   };
+}
+
+function selectBestEffortFallbackAgent(
+  decision: { reason: string; suggestedAgent?: { name: string; description: string } },
+  agents: Map<string, AgentDefinition>,
+): AgentDefinition | undefined {
+  const suggested = decision.suggestedAgent?.name ? findAgentByLooseName(decision.suggestedAgent.name, agents) : undefined;
+  if (suggested) return suggested;
+
+  const text = `${decision.reason} ${decision.suggestedAgent?.description ?? ''}`.toLowerCase();
+  for (const agent of agents.values()) {
+    if (text.includes(agent.name.toLowerCase())) return agent;
+  }
+
+  const softwareSignals = /\b(software|implementation|feature|code|build|test|tdd|docs|developer|lifecycle|tool|cli|app|service)\b/.test(text);
+  if (softwareSignals) {
+    for (const name of ['software-delivery', 'implementation-coder', 'adviser', 'coder']) {
+      const agent = findAgentByLooseName(name, agents);
+      if (agent) return agent;
+    }
+  }
+
+  return [...agents.values()].find((agent) => agent.name === 'researcher') ??
+    [...agents.values()].find((agent) => agent.output.type === 'answer') ??
+    [...agents.values()][0];
+}
+
+function findAgentByLooseName(name: string, agents: Map<string, AgentDefinition>): AgentDefinition | undefined {
+  if (agents.has(name)) return agents.get(name);
+  const normalized = name.toLowerCase().replace(/_/g, '-');
+  for (const candidate of [
+    normalized,
+    normalized.replace(/^agent-/, ''),
+    normalized.replace(/-agent$/, ''),
+    normalized.replace(/^agent[-_]/, ''),
+  ]) {
+    const agent = agents.get(candidate);
+    if (agent) return agent;
+  }
+  return undefined;
 }
 
 function buildFallbackDiscoveryDiagnostic(

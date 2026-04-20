@@ -979,6 +979,28 @@ describe('routeTask', () => {
     })).rejects.toThrow('Router consensus failed');
   });
 
+  it('converts no-match suggestedAgent to a plan when the suggested agent already exists', async () => {
+    const json = JSON.stringify({
+      kind: 'no-match',
+      reason: 'The coder agent is better suited for this software implementation.',
+      suggestedAgent: {
+        name: 'coder',
+        description: 'Implement code changes',
+      },
+    });
+
+    const result = await routeTask('Build a tested CLI tool', agents, mockAdapter(json), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected plan');
+    expect(result.plan.plan).toEqual([{
+      id: 'step-1',
+      agent: 'coder',
+      task: 'Execute with the existing suggested agent. Router reason: The coder agent is better suited for this software implementation.',
+      dependsOn: [],
+    }]);
+  });
+
   it('returns an explicit no-match result when no suitable agent exists', async () => {
     const json = JSON.stringify({
       kind: 'no-match',
