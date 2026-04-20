@@ -75,13 +75,13 @@ export const DEFAULT_CROSS_REVIEW_CONFIG: CrossReviewConfig = {
   },
   gates: {
     planning: true,
-    routing: true,
-    architecture: true,
-    apiContract: true,
+    routing: false,
+    architecture: false,
+    apiContract: false,
     fileOutputs: true,
     security: true,
     releaseReadiness: true,
-    verificationFailure: true,
+    verificationFailure: false,
   },
   roleModels: {},
 };

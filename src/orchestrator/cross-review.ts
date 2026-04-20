@@ -34,7 +34,6 @@ const JUDGE_AGENT_PREFERENCES = ['release-readiness-reviewer', 'adviser', 'code-
 const VALID_JUDGE_DECISIONS = new Set<CrossReviewJudgeDecision['decision']>([
   'accept',
   'revise',
-  'run-verification',
   'combine',
   'degraded',
 ]);
@@ -292,12 +291,12 @@ function buildJudgeTask(step: DAGStep, result: StepResult, reviewStepId: string,
   return [
     'Judge the original step output and its peer-review critique for this cross-review gate.',
     'Return ONLY JSON with this shape:',
-    '{"decision":"accept|revise|run-verification|combine|degraded","rationale":"brief reason","remediation":["specific required action"],"residualRisks":["remaining risk"]}',
+    '{"decision":"accept|revise|combine|degraded","rationale":"brief reason","remediation":["specific required action"],"residualRisks":["remaining risk"]}',
     '',
     'Decision rules:',
     '- accept: output is adequate and residual risks are minor or documented.',
     '- revise: original agent should produce a corrected revision before downstream use.',
-    '- run-verification: missing verification should be run before acceptance.',
+    '- request verification as remediation under revise or combine when missing verification blocks acceptance.',
     '- combine: reviewer found useful additions that should be merged with otherwise adequate output.',
     '- degraded: judge cannot confidently assess because required evidence or critique is missing.',
     '',

@@ -142,6 +142,7 @@ describe('cross-review planning helpers', () => {
     expect(judgeStep.task).toContain('rationale');
     expect(judgeStep.task).toContain('remediation');
     expect(judgeStep.task).toContain('residualRisks');
+    expect(judgeStep.task).not.toContain('run-verification');
   });
 
   it('parses judge JSON decisions and degrades invalid JSON without throwing', () => {
@@ -157,6 +158,14 @@ describe('cross-review planning helpers', () => {
     expect(parseCrossReviewJudgeDecision('not json')).toMatchObject({
       decision: 'degraded',
       remediation: [],
+      residualRisks: [],
+    });
+
+    expect(parseCrossReviewJudgeDecision(
+      '{"decision":"run-verification","rationale":"missing test run","remediation":["run tests"],"residualRisks":[]}',
+    )).toMatchObject({
+      decision: 'degraded',
+      remediation: ['run tests'],
       residualRisks: [],
     });
   });

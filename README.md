@@ -910,7 +910,7 @@ Every consensus path reports diagnostics in the result graph/report. Reports inc
 
 ### Autonomous cross-model review
 
-MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs verification, and records the decision trail in output. The `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future or expanded routing, but they are not described here as always-on gates.
+MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
 
 The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
 
@@ -927,7 +927,7 @@ crossReview:
     models: []
   gates:
     planning: true
-    routing: true
+    routing: false # reserved for future cross-review expansion; router consensus protects routing today
     architecture: false # reserved for future/expanded routing
     apiContract: false # reserved for future/expanded routing
     fileOutputs: true

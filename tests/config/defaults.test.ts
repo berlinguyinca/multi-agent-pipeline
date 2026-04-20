@@ -109,13 +109,13 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.crossReview.judge.preferSeparatePanel).toBe(true);
     expect(DEFAULT_CONFIG.crossReview.gates).toMatchObject({
       planning: true,
-      routing: true,
-      architecture: true,
-      apiContract: true,
+      routing: false,
+      architecture: false,
+      apiContract: false,
       fileOutputs: true,
       security: true,
       releaseReadiness: true,
-      verificationFailure: true,
+      verificationFailure: false,
     });
   });
 

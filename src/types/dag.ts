@@ -109,7 +109,7 @@ export interface CrossReviewLedger {
     | 'degraded';
   participants: CrossReviewParticipant[];
   critiqueSummary?: string;
-  judgeDecision?: 'accept' | 'revise' | 'run-verification' | 'combine' | 'degraded';
+  judgeDecision?: 'accept' | 'revise' | 'combine' | 'degraded';
   judgeRationale?: string;
   requestedRemediation?: string[];
   reviewStepId?: string;
