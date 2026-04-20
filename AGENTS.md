@@ -43,6 +43,7 @@ MAP uses consensus selectively for local model quality without making heavyweigh
    When MAP has to start a missing local Ollama server, it must pass the configured `ollama.contextLength`, `ollama.numParallel`, and `ollama.maxLoadedModels` values as `OLLAMA_CONTEXT_LENGTH`, `OLLAMA_NUM_PARALLEL`, and `OLLAMA_MAX_LOADED_MODELS`. Defaults are 100000 context, 2 parallel requests, and 2 loaded models; CLI overrides (`--ollama-context-length`, `--ollama-num-parallel`, `--ollama-max-loaded-models`, plus `--ollama-host`) must remain wired through to Ollama-backed routers, agents, model sync, and security review.
 5. **Adaptive timeout learning** treats `router.stepTimeoutMs` as a no-progress timeout, not a hard step total. Successful timeout backoffs are persisted in `.map/adaptive-timeouts.json` per agent. Timeout-only failures should retry with larger budgets but should not spawn recovery agents such as `bug-debugger`.
 6. **Prompt evidence discipline** belongs in `src/utils/agent-conduct.ts`: do not fabricate citations, file paths, tool results, command output, test results, or verification evidence.
+7. **Autonomous cross-model review** runs on high-impact planning, routing, release, and file-changing software-delivery gates by default. Model disagreement must not ask the user to pick a winner; MAP should send critique through hybrid judge arbitration, create bounded remediation work, run verification, and report residual risk when the budget is exhausted.
 
 Do not remove these controls casually. If changing them, update README and tests in the same change.
 
@@ -89,3 +90,4 @@ This app should be self-documenting. Any change to routing, consensus, agent con
 - `README.md` for user-facing behavior and commands.
 - This `AGENTS.md` for future coding-agent context.
 - Tests covering the changed behavior.
+Changes to cross-review gates, judge arbitration, remediation budgets, or cross-review reporting must update README, AGENTS.md, and tests in the same change.
