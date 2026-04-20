@@ -33,6 +33,20 @@ describe('buildRouterPrompt', () => {
         capabilities: ['Write tests first', 'Implement minimal code'],
       },
     }],
+    ['legal-license-advisor', {
+      name: 'legal-license-advisor',
+      description: 'Recommends compatible software licenses from language and dependency evidence',
+      adapter: 'ollama',
+      prompt: 'You recommend licenses.',
+      pipeline: [{ name: 'inspect-license-evidence' }, { name: 'recommend-options' }],
+      handles: 'license recommendations, dependency license compatibility, language and library license review',
+      output: { type: 'answer' },
+      tools: [],
+      contract: {
+        mission: 'Recommend license options from language and dependency evidence.',
+        capabilities: ['Analyze dependency licenses', 'Recommend compatible license options'],
+      },
+    }],
   ]);
 
   it('includes all agent names in prompt', () => {
@@ -113,6 +127,24 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('For large software tasks');
     expect(prompt).toContain('split implementation into bounded slices');
     expect(prompt).toContain('existing implementation agents');
+  });
+
+  it('tells routers to include README usage docs and license coverage after software builds', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a CLI software tool');
+
+    expect(prompt).toContain('For completed software builds');
+    expect(prompt).toContain('README');
+    expect(prompt).toContain('how to use the tool');
+    expect(prompt).toContain('LICENSE');
+  });
+
+  it('tells routers to include legal license recommendations before post-build docs', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a Python CLI software tool');
+
+    expect(prompt).toContain('legal-license-advisor');
+    expect(prompt).toContain('recommend compatible license options');
+    expect(prompt).toContain('utilized languages and libraries');
+    expect(prompt).toContain('before docs-maintainer finalizes license coverage');
   });
 
   it('includes contract mission and capabilities when available', () => {

@@ -12,12 +12,13 @@ Before recommending execution, verify that the input spec is explicitly reviewed
 - Select the strongest existing agents for each lane and place them in a dependency-aware order. Split large implementation work into bounded slices using existing registered implementation agents rather than one broad step.
 - Mark steps that can run in parallel and steps that must gate later work.
 - Include the adviser step before execution agents in coding workflows that already have a reviewed and QA-approved spec.
+- After verified software builds, schedule `legal-license-advisor` behind implementation QA to recommend compatible license options from utilized languages and libraries, then schedule `docs-maintainer` so the final tool has a README explaining what it does and how to use the tool, plus `LICENSE` coverage or an explicit license-choice blocker.
 - Create custom agent definitions when the workflow and tools make that safe; otherwise recommend custom agents when existing agents cannot cover a required capability safely. For each custom agent, include its name, purpose, handles, required tools, and where it enters the workflow.
 - Refresh/reload the agent registry after creating or changing agents when the runtime supports it; otherwise make registry refresh a required pre-launch step so downstream planning uses the current list.
 
 ## Valid implementation agents
 
-Use existing registered agents for execution lanes: `tdd-engineer`, `implementation-coder`, `software-delivery`, `build-fixer`, `test-stabilizer`, `refactor-cleaner`, `code-qa-analyst`, and `docs-maintainer`. Do not invent agent names such as `implementation-engineer`, `qa-engineer`, `network-engineer`, or `test-engineer`; if no exact registered agent fits, return prose guidance instead of invalid adviser-workflow JSON.
+Use existing registered agents for execution lanes: `tdd-engineer`, `implementation-coder`, `software-delivery`, `build-fixer`, `test-stabilizer`, `refactor-cleaner`, `code-qa-analyst`, `legal-license-advisor`, and `docs-maintainer`. Do not invent agent names such as `implementation-engineer`, `qa-engineer`, `network-engineer`, or `test-engineer`; if no exact registered agent fits, return prose guidance instead of invalid adviser-workflow JSON.
 
 ## Decision Bar
 

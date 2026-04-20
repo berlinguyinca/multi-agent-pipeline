@@ -30,6 +30,7 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'test-stabilizer',
   'refactor-cleaner',
   'docs-maintainer',
+  'legal-license-advisor',
   'stabilization-reviewer',
   'release-readiness-reviewer',
   'presentation-designer',
@@ -283,9 +284,10 @@ describe('software delivery agent bundle', () => {
     const researcher = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'researcher'));
     const classyfire = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'classyfire-taxonomy-classifier'));
     const security = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'security-advisor'));
+    const legal = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'legal-license-advisor'));
     const readiness = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'release-readiness-reviewer'));
 
-    for (const agent of [researcher, classyfire, security, readiness]) {
+    for (const agent of [researcher, classyfire, security, legal, readiness]) {
       expect(agent.prompt, `${agent.name} missing ledger`).toContain('Claim Evidence Ledger');
       expect(agent.prompt, `${agent.name} missing claims JSON`).toContain('"claims"');
       expect(agent.prompt, `${agent.name} missing evidence field`).toContain('"evidence"');
@@ -322,6 +324,47 @@ describe('software delivery agent bundle', () => {
     expect(adviser.prompt).toContain('Valid implementation agents');
     expect(adviser.prompt).toContain('implementation-coder');
     expect(adviser.prompt).toContain('Do not invent agent names');
+  });
+
+  it('requires docs-maintainer to produce release README and license coverage after software builds', async () => {
+    const docs = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'docs-maintainer'));
+
+    expect(docs.prompt).toContain('Release Documentation Contract');
+    expect(docs.prompt).toContain('README');
+    expect(docs.prompt).toContain('what the tool does');
+    expect(docs.prompt).toContain('how to use the tool');
+    expect(docs.prompt).toContain('LICENSE');
+    expect(docs.prompt).toContain('Do not invent license terms');
+    expect(docs.contract?.capabilities).toContain('Create or update release README documentation for completed user-facing software tools.');
+    expect(docs.contract?.capabilities).toContain('Ensure license coverage is present or report the exact license-choice blocker.');
+    expect(docs.contract?.handoff.includes).toContain('README usage documentation');
+    expect(docs.contract?.handoff.includes).toContain('License file or license blocker');
+  });
+
+  it('loads a legal-license-advisor that recommends compatible license options from language and library evidence', async () => {
+    const legal = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'legal-license-advisor'));
+
+    expect(legal.adapter).toBe('ollama');
+    expect(legal.model).toBe('gemma4:26b');
+    expect(legal.handles).toContain('license recommendations');
+    expect(legal.prompt).toContain('License Recommendation Contract');
+    expect(legal.prompt).toContain('based on utilized languages and libraries');
+    expect(legal.prompt).toContain('SPDX');
+    expect(legal.prompt).toContain('not legal advice');
+    expect(legal.prompt).toContain('Do not create or modify LICENSE files');
+    expect(legal.contract?.capabilities).toContain('Recommend a short list of compatible license options based on detected languages, package manifests, and dependency license evidence.');
+    expect(legal.contract?.handoff.includes).toContain('Recommended license options');
+    expect(legal.contract?.handoff.includes).toContain('Compatibility caveats');
+  });
+
+  it('requires adviser workflows to schedule docs-maintainer for README and license handoff after verified software builds', async () => {
+    const adviser = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'adviser'));
+
+    expect(adviser.prompt).toContain('After verified software builds');
+    expect(adviser.prompt).toContain('docs-maintainer');
+    expect(adviser.prompt).toContain('legal-license-advisor');
+    expect(adviser.prompt).toContain('README');
+    expect(adviser.prompt).toContain('LICENSE');
   });
 
   it('uses the stronger Qwen coding model and action-first prompt for TDD test authoring', async () => {
@@ -429,6 +472,7 @@ describe('software delivery agent bundle', () => {
     expect(prompt).toContain('classyfire-taxonomy-classifier');
     expect(prompt).toContain('usage-classification-tree');
     expect(prompt).toContain('stabilization-reviewer');
+    expect(prompt).toContain('legal-license-advisor');
     expect(prompt).toContain('Mission:');
     expect(prompt).toContain('Capabilities:');
   });
@@ -442,10 +486,11 @@ describe('software delivery agent bundle', () => {
         { id: 'step-4', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: ['step-3'] },
         { id: 'step-5', agent: 'implementation-coder', task: 'Implement the behavior', dependsOn: ['step-4'] },
         { id: 'step-6', agent: 'code-qa-analyst', task: 'Review the implementation', dependsOn: ['step-5'] },
-        { id: 'step-7', agent: 'docs-maintainer', task: 'Update Markdown docs', dependsOn: ['step-6'] },
-        { id: 'step-8', agent: 'stabilization-reviewer', task: 'Audit capability claims, specs, docs, and integration boundaries', dependsOn: ['step-7'] },
-        { id: 'step-9', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-8'] },
-        { id: 'step-10', agent: 'github-review-merge-specialist', task: 'Perform the final GitHub PR review and merge the approved changes', dependsOn: ['step-9'] },
+        { id: 'step-7', agent: 'legal-license-advisor', task: 'Recommend compatible license options from language and dependency evidence', dependsOn: ['step-6'] },
+        { id: 'step-8', agent: 'docs-maintainer', task: 'Update README docs and license coverage', dependsOn: ['step-7'] },
+        { id: 'step-9', agent: 'stabilization-reviewer', task: 'Audit capability claims, specs, docs, and integration boundaries', dependsOn: ['step-8'] },
+        { id: 'step-10', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-9'] },
+        { id: 'step-11', agent: 'github-review-merge-specialist', task: 'Perform the final GitHub PR review and merge the approved changes', dependsOn: ['step-10'] },
       ],
     };
 

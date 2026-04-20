@@ -18,6 +18,8 @@ MAP supports two execution modes:
 
 The core idea is the same in both modes: invest in the spec and verification path before spending expensive implementation cycles.
 
+For software builds, smart routing and adviser guidance now treat licensing and post-build documentation as part of delivery: after implementation and QA, `legal-license-advisor` should recommend compatible license options from the utilized languages, libraries, package manifests, and existing license evidence, then `docs-maintainer` should update or create a README that explains what the tool does and how to use it and should document license coverage. If no repository license exists and the requested license is unspecified, the docs agent reports an explicit license-choice blocker instead of inventing legal terms.
+
 ## Quick Start
 
 Install the `map` command:
@@ -547,6 +549,7 @@ evidence:
     - researcher
     - classyfire-taxonomy-classifier
     - security-advisor
+    - legal-license-advisor
     - release-readiness-reviewer
   currentClaimMaxSourceAgeDays: 730
   requireRetrievedAtForWebClaims: true
@@ -1035,6 +1038,7 @@ spec-writer
   -> tdd-engineer
   -> implementation-coder
   -> code-qa-analyst
+  -> legal-license-advisor
   -> docs-maintainer / stabilization-reviewer / release-readiness-reviewer as needed
 ```
 
@@ -1091,6 +1095,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `legal-license-advisor` | `answer` | Post-build license option recommendations from utilized languages, libraries, package manifests, and existing license evidence. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
 | `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries and commonness rankings/scores for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
@@ -1105,7 +1110,7 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
 | `refactor-cleaner` | `files` | Behavior-preserving cleanup using existing patterns. |
-| `docs-maintainer` | `files` | Markdown docs updates after implementation and QA. |
+| `docs-maintainer` | `files` | Post-build README, license coverage, and Markdown docs updates after implementation and QA. |
 | `stabilization-reviewer` | `answer` | Capability truth, spec/doc mismatch checks, integration risks, and hardening recommendations. |
 | `release-readiness-reviewer` | `answer` | Final readiness, evidence, risk, and handoff status. |
 

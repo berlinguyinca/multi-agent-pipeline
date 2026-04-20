@@ -46,6 +46,7 @@ ${cleanTask}
 15. For existing-codebase implementation, refactor, review, or architecture tasks, prefer one read-only metadata generator step (insightcode-metadata, codefetch-metadata, or codesight-metadata when available) before LLM editing/review steps when it materially improves codebase understanding. Metadata agents are deterministic and must not modify source files.
 16. When a task asks to download, pull, import, build, install, or verify a Hugging Face or Ollama model, route through model-installer when available before any downstream agent that needs the model.
 17. For large software tasks, split implementation into bounded slices handled by existing implementation agents instead of one broad file-output step; each slice should have a focused task, clear dependencies, and verification context. Prefer TDD/test-authoring, then implementation-coder/software-delivery slices, then QA/docs.
+18. For completed software builds, include legal-license-advisor when available to recommend compatible license options based on utilized languages and libraries before docs-maintainer finalizes license coverage. Then include a post-build docs step when docs-maintainer is available so the delivered tool gets a README explaining what the tool does and how to use the tool, plus LICENSE coverage or an explicit license-choice blocker.
 
 ## Output Format
 

@@ -31,7 +31,7 @@ export function runEvidenceGate(options: {
     const draftClaims = buildDraftClaimEvidenceLedger(output);
     findings.push({
       severity: 'high',
-      message: 'Claim Evidence Ledger is required for fact-critical usage classification output.',
+      message: 'Claim Evidence Ledger is required for fact-critical agent output.',
     });
     return { checked: true, passed: false, claims: draftClaims, findings };
   }
