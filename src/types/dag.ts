@@ -1,6 +1,7 @@
 // src/types/dag.ts
 
 import type { SecurityFinding } from '../security/types.js';
+import type { AdapterType } from './adapter.js';
 import type { ClaimEvidence, EvidenceGateResult } from './evidence.js';
 
 export interface DAGStep {
@@ -8,6 +9,8 @@ export interface DAGStep {
   agent: string;
   task: string;
   dependsOn: string[];
+  adapter?: AdapterType;
+  model?: string;
   parentStepId?: string;
   final?: boolean;
 }

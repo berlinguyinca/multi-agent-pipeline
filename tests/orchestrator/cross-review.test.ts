@@ -77,6 +77,8 @@ describe('cross-review planning helpers', () => {
 
   it('does not select generated cross-review helper steps', () => {
     expect(isCrossReviewHelperStep({ id: 'step-1-peer-review-1' })).toBe(true);
+    expect(isCrossReviewHelperStep({ id: 'step-1-judge-1' })).toBe(true);
+    expect(isCrossReviewHelperStep({ id: 'step-1-revision-1' })).toBe(false);
 
     const decision = shouldCrossReviewStep({
       config: DEFAULT_CROSS_REVIEW_CONFIG,
@@ -87,6 +89,18 @@ describe('cross-review planning helpers', () => {
     });
 
     expect(decision.shouldReview).toBe(false);
+  });
+
+  it('keeps revision outputs eligible for the next cross-review round', () => {
+    const decision = shouldCrossReviewStep({
+      config: DEFAULT_CROSS_REVIEW_CONFIG,
+      step: step({ id: 'step-1-revision-1', parentStepId: 'step-1' }),
+      result: result({ id: 'step-1-revision-1', output: 'Revised implementation.' }),
+      agent: agent({ output: { type: 'files' } }),
+      round: 2,
+    });
+
+    expect(decision).toMatchObject({ shouldReview: true, gate: 'fileOutputs' });
   });
 
   it('builds visible peer-review and judge helper DAG steps with required instructions', () => {

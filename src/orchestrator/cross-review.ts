@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '../types/agent-definition.js';
+import type { AdapterType } from '../types/adapter.js';
 import type { CrossReviewConfig, CrossReviewGateKey } from '../types/config.js';
 import type { CrossReviewLedger, DAGStep, StepResult } from '../types/dag.js';
 import type { HeadlessCrossReviewSummary } from '../types/headless.js';
@@ -16,8 +17,18 @@ export interface CrossReviewJudgeDecision {
   residualRisks: string[];
 }
 
+export interface CrossReviewJudgeSelection {
+  judgeAgent: string;
+  degradedIndependence: boolean;
+}
+
+export interface CrossReviewModelOverride {
+  adapter?: AdapterType;
+  model?: string;
+}
+
 const PLANNING_AGENTS = new Set(['adviser', 'spec-writer', 'spec-qa-reviewer']);
-const CROSS_REVIEW_HELPER_ID_PATTERN = /-(peer-review|judge|revision)-\d+$/;
+const CROSS_REVIEW_HELPER_ID_PATTERN = /-(peer-review|judge)-\d+$/;
 const REVIEWER_AGENT_PREFERENCES = ['code-qa-analyst', 'release-readiness-reviewer', 'spec-qa-reviewer'];
 const JUDGE_AGENT_PREFERENCES = ['release-readiness-reviewer', 'adviser', 'code-qa-analyst', 'spec-qa-reviewer'];
 const VALID_JUDGE_DECISIONS = new Set<CrossReviewJudgeDecision['decision']>([
@@ -78,15 +89,72 @@ export function selectCrossReviewReviewerAgent(
   sourceAgent: string,
   agents: Map<string, AgentDefinition>,
 ): string | null {
-  return selectPreferredAgent(REVIEWER_AGENT_PREFERENCES, sourceAgent, agents);
+  return selectPreferredAgent(REVIEWER_AGENT_PREFERENCES, new Set([sourceAgent]), agents);
 }
 
 export function selectCrossReviewJudgeAgent(
   sourceAgent: string,
   reviewerAgent: string,
   agents: Map<string, AgentDefinition>,
+  options: { preferSeparatePanel?: boolean } = {},
 ): string {
-  return selectPreferredAgent(JUDGE_AGENT_PREFERENCES, sourceAgent, agents) ?? reviewerAgent;
+  return selectCrossReviewJudgeSelection(sourceAgent, reviewerAgent, agents, options).judgeAgent;
+}
+
+export function selectCrossReviewJudgeSelection(
+  sourceAgent: string,
+  reviewerAgent: string,
+  agents: Map<string, AgentDefinition>,
+  options: { preferSeparatePanel?: boolean } = {},
+): CrossReviewJudgeSelection {
+  const preferSeparatePanel = options.preferSeparatePanel !== false;
+  if (preferSeparatePanel) {
+    const separateJudge =
+      selectPreferredAgent(JUDGE_AGENT_PREFERENCES, new Set([sourceAgent, reviewerAgent]), agents) ??
+      selectAnyEligibleJudgeAgent(new Set([sourceAgent, reviewerAgent]), agents);
+    if (separateJudge) {
+      return { judgeAgent: separateJudge, degradedIndependence: false };
+    }
+    return { judgeAgent: reviewerAgent, degradedIndependence: true };
+  }
+
+  const judgeAgent =
+    selectPreferredAgent(JUDGE_AGENT_PREFERENCES, new Set([sourceAgent]), agents) ??
+    selectAnyEligibleJudgeAgent(new Set([sourceAgent]), agents) ??
+    reviewerAgent;
+  return { judgeAgent, degradedIndependence: false };
+}
+
+export function resolveCrossReviewModelOverrides(options: {
+  config: CrossReviewConfig;
+  reviewerAgent: string;
+  judgeAgent: string;
+  agents: Map<string, AgentDefinition>;
+}): { review?: CrossReviewModelOverride; judge?: CrossReviewModelOverride } {
+  const modelSpecs = options.config.judge.models.map((entry) => entry.trim()).filter(Boolean);
+  if (modelSpecs.length === 0) {
+    return {};
+  }
+
+  if (modelSpecs.length === 1) {
+    return {
+      judge: parseCrossReviewModelOverride(
+        modelSpecs[0]!,
+        options.agents.get(options.judgeAgent)?.adapter,
+      ),
+    };
+  }
+
+  return {
+    review: parseCrossReviewModelOverride(
+      modelSpecs[0]!,
+      options.agents.get(options.reviewerAgent)?.adapter,
+    ),
+    judge: parseCrossReviewModelOverride(
+      modelSpecs[1]!,
+      options.agents.get(options.judgeAgent)?.adapter,
+    ),
+  };
 }
 
 export function buildCrossReviewReviewStep(options: {
@@ -95,6 +163,7 @@ export function buildCrossReviewReviewStep(options: {
   reviewerAgent: string;
   round: number;
   gate: string;
+  override?: CrossReviewModelOverride;
 }): DAGStep {
   const rootStepId = rootIdFor(options.step);
   return {
@@ -102,6 +171,8 @@ export function buildCrossReviewReviewStep(options: {
     agent: options.reviewerAgent,
     task: buildReviewTask(options.step, options.result, options.gate, options.round),
     dependsOn: [options.step.id],
+    ...(options.override?.adapter ? { adapter: options.override.adapter } : {}),
+    ...(options.override?.model ? { model: options.override.model } : {}),
     parentStepId: rootStepId,
   };
 }
@@ -113,6 +184,7 @@ export function buildCrossReviewJudgeStep(options: {
   judgeAgent: string;
   round: number;
   gate: string;
+  override?: CrossReviewModelOverride;
 }): DAGStep {
   const rootStepId = rootIdFor(options.step);
   return {
@@ -120,6 +192,8 @@ export function buildCrossReviewJudgeStep(options: {
     agent: options.judgeAgent,
     task: buildJudgeTask(options.step, options.result, options.reviewStepId, options.gate, options.round),
     dependsOn: [options.step.id, options.reviewStepId],
+    ...(options.override?.adapter ? { adapter: options.override.adapter } : {}),
+    ...(options.override?.model ? { model: options.override.model } : {}),
     parentStepId: rootStepId,
   };
 }
@@ -293,8 +367,43 @@ function degradedDecision(rationale: string): CrossReviewJudgeDecision {
 
 function selectPreferredAgent(
   preferences: string[],
-  sourceAgent: string,
+  excludedAgents: Set<string>,
   agents: Map<string, AgentDefinition>,
 ): string | null {
-  return preferences.find((candidate) => candidate !== sourceAgent && agents.has(candidate)) ?? null;
+  return preferences.find((candidate) => !excludedAgents.has(candidate) && agents.has(candidate)) ?? null;
+}
+
+function selectAnyEligibleJudgeAgent(
+  excludedAgents: Set<string>,
+  agents: Map<string, AgentDefinition>,
+): string | null {
+  for (const [name, agent] of agents) {
+    if (excludedAgents.has(name)) continue;
+    if (agent.output.type === 'files') continue;
+    return name;
+  }
+  return null;
+}
+
+function parseCrossReviewModelOverride(
+  value: string,
+  defaultAdapter: AdapterType | undefined,
+): CrossReviewModelOverride {
+  const trimmed = value.trim();
+  const slash = trimmed.indexOf('/');
+  if (slash > 0) {
+    const adapter = trimmed.slice(0, slash);
+    const model = trimmed.slice(slash + 1).trim();
+    if (isAdapterType(adapter) && model.length > 0) {
+      return { adapter, model };
+    }
+  }
+  return {
+    ...(defaultAdapter ? { adapter: defaultAdapter } : {}),
+    model: trimmed,
+  };
+}
+
+function isAdapterType(value: string): value is AdapterType {
+  return value === 'ollama' || value === 'claude' || value === 'codex' || value === 'hermes' || value === 'metadata' || value === 'huggingface';
 }

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { AdapterDefaultsMap, AgentConsensusConfig, CrossReviewConfig, EvidenceConfig } from '../types/config.js';
-import type { CrossReviewParticipant, DAGPlan, DAGStep, StepResult, StepStatus } from '../types/dag.js';
+import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
@@ -29,7 +29,8 @@ import {
   buildCrossReviewReviewStep,
   buildCrossReviewRevisionStep,
   parseCrossReviewJudgeDecision,
-  selectCrossReviewJudgeAgent,
+  resolveCrossReviewModelOverrides,
+  selectCrossReviewJudgeSelection,
   selectCrossReviewReviewerAgent,
   shouldCrossReviewStep,
 } from './cross-review.js';
@@ -75,6 +76,8 @@ const DEFAULT_STEP_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STEP_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
 const ADAPTIVE_TIMEOUTS_PATH = path.join('.map', 'adaptive-timeouts.json');
+const CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK =
+  'Cross-review judge independence degraded because no distinct judge agent was available.';
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof Error)) return true;
@@ -188,6 +191,8 @@ export async function executeDAG(
 
         running.add(step.id);
         const agent = agents.get(step.agent)!;
+        const stepAdapter = step.adapter ?? agent.adapter;
+        const stepModel = step.model ?? agent.model;
         const startedAt = Date.now();
         reporter?.dagStepStart(step.id, step.agent, step.task);
 
@@ -227,7 +232,7 @@ export async function executeDAG(
               : rawContext;
 
             const configs: AdapterConfig[] = [
-              { type: agent.adapter, model: agent.model },
+              { type: stepAdapter, model: stepModel },
               ...(agent.fallbacks ?? []).map((fb) => ({
                 type: fb.adapter,
                 model: fb.model,
@@ -259,9 +264,9 @@ export async function executeDAG(
             armStepTimer();
 
             // Resolve thinking: agent-level > adapter-default > undefined
-            const resolvedThink = agent.think ?? adapterDefaults?.[agent.adapter]?.think;
-            const resolvedTemperature = adapterDefaults?.[agent.adapter]?.temperature;
-            const resolvedSeed = adapterDefaults?.[agent.adapter]?.seed;
+            const resolvedThink = agent.think ?? adapterDefaults?.[stepAdapter]?.think;
+            const resolvedTemperature = adapterDefaults?.[stepAdapter]?.temperature;
+            const resolvedSeed = adapterDefaults?.[stepAdapter]?.seed;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
               const context = injectToolCatalog(fullContext, tools, agent.prompt);
@@ -292,8 +297,8 @@ export async function executeDAG(
                   workingDir,
                   stepId: step.id,
                   config: fileConsensusConfig,
-                  provider: agent.adapter,
-                  model: agent.model,
+                  provider: stepAdapter,
+                  model: stepModel,
                   runCandidate: (candidateWorkingDir, candidateIndex) =>
                     runOnce(candidateWorkingDir, candidateIndex),
                 });
@@ -326,8 +331,8 @@ export async function executeDAG(
             const result: StepResult = {
               id: step.id,
               agent: step.agent,
-              provider: agent.adapter,
-              model: agent.model,
+              provider: stepAdapter,
+              model: stepModel,
               task: step.task,
               dependsOn: [...step.dependsOn],
               status: 'completed',
@@ -787,13 +792,26 @@ function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
     });
     return;
   }
-  const judgeAgent = selectCrossReviewJudgeAgent(options.step.agent, reviewerAgent, options.agents);
+  const judgeSelection = selectCrossReviewJudgeSelection(
+    options.step.agent,
+    reviewerAgent,
+    options.agents,
+    { preferSeparatePanel: config.judge.preferSeparatePanel },
+  );
+  const judgeAgent = judgeSelection.judgeAgent;
+  const modelOverrides = resolveCrossReviewModelOverrides({
+    config,
+    reviewerAgent,
+    judgeAgent,
+    agents: options.agents,
+  });
   const reviewStep = buildCrossReviewReviewStep({
     step: options.step,
     result: options.result,
     reviewerAgent,
     round,
     gate: decision.gate ?? 'unknown',
+    override: modelOverrides.review,
   });
   const judgeStep = buildCrossReviewJudgeStep({
     step: options.step,
@@ -802,6 +820,7 @@ function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
     judgeAgent,
     round,
     gate: decision.gate ?? 'unknown',
+    override: modelOverrides.judge,
   });
 
   if (options.allIds.has(reviewStep.id) || options.allIds.has(judgeStep.id)) return;
@@ -816,25 +835,41 @@ function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
     judgeStep.id,
   ]), options.settled);
 
-  options.result.crossReview = {
+  const rootResult = options.results.get(rootStepId) ?? options.result;
+  const existingLedger = rootResult.crossReview;
+  const residualRisks = judgeSelection.degradedIndependence
+    ? mergeUnique(existingLedger?.residualRisks ?? [], [CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK])
+    : existingLedger?.residualRisks ?? [];
+  const nextLedger: CrossReviewLedger = {
     rootStepId,
     round,
     gate: decision.gate ?? 'unknown',
     status: 'pending',
     participants: [
-      crossReviewParticipant('proposer', options.step.agent, options.agents),
-      crossReviewParticipant('reviewer', reviewerAgent, options.agents),
-      crossReviewParticipant('judge', judgeAgent, options.agents),
+      crossReviewParticipant('proposer', options.step.agent, options.agents, {
+        adapter: options.step.adapter,
+        model: options.step.model,
+      }),
+      crossReviewParticipant('reviewer', reviewerAgent, options.agents, modelOverrides.review),
+      crossReviewParticipant('judge', judgeAgent, options.agents, modelOverrides.judge),
     ],
     reviewStepId: reviewStep.id,
     judgeStepId: judgeStep.id,
-    residualRisks: [],
+    revisionStepId: existingLedger?.revisionStepId,
+    residualRisks,
     budgetExhausted: false,
   };
+  rootResult.crossReview = nextLedger;
+  if (rootStepId === options.step.id) {
+    options.result.crossReview = nextLedger;
+  }
+  options.results.set(rootStepId, rootResult);
   options.results.set(options.step.id, options.result);
   options.results.set(reviewStep.id, {
     id: reviewStep.id,
     agent: reviewStep.agent,
+    provider: reviewStep.adapter ?? options.agents.get(reviewStep.agent)?.adapter,
+    model: reviewStep.model ?? options.agents.get(reviewStep.agent)?.model,
     task: reviewStep.task,
     dependsOn: [...reviewStep.dependsOn],
     status: 'pending',
@@ -845,6 +880,8 @@ function maybeScheduleCrossReviewGate(options: CrossReviewGateOptions): void {
   options.results.set(judgeStep.id, {
     id: judgeStep.id,
     agent: judgeStep.agent,
+    provider: judgeStep.adapter ?? options.agents.get(judgeStep.agent)?.adapter,
+    model: judgeStep.model ?? options.agents.get(judgeStep.agent)?.model,
     task: judgeStep.task,
     dependsOn: [...judgeStep.dependsOn],
     status: 'pending',
@@ -890,10 +927,13 @@ function maybeScheduleCrossReviewRevision(options: CrossReviewRevisionOptions): 
   if (!sourceResult || !ledger || ledger.judgeStepId !== options.step.id) return;
 
   const decision = parseCrossReviewJudgeDecision(options.result.output ?? '');
+  const preservedResidualRisks = ledger.residualRisks.filter(
+    (risk) => risk === CROSS_REVIEW_DEGRADED_INDEPENDENCE_RISK,
+  );
   ledger.judgeDecision = decision.decision;
   ledger.judgeRationale = decision.rationale;
   ledger.requestedRemediation = decision.remediation;
-  ledger.residualRisks = decision.residualRisks;
+  ledger.residualRisks = mergeUnique(preservedResidualRisks, decision.residualRisks);
   ledger.critiqueSummary = summarizeCrossReviewCritique(
     ledger.reviewStepId ? options.results.get(ledger.reviewStepId)?.output : undefined,
   );
@@ -992,13 +1032,14 @@ function crossReviewParticipant(
   role: CrossReviewParticipant['role'],
   agentName: string,
   agents: Map<string, AgentDefinition>,
+  override: { adapter?: CrossReviewParticipant['provider']; model?: string } = {},
 ): CrossReviewParticipant {
   const agent = agents.get(agentName);
   return {
     role,
     agent: agentName,
-    provider: agent?.adapter,
-    model: agent?.model,
+    provider: override.adapter ?? agent?.adapter,
+    model: override.model ?? agent?.model,
   };
 }
 
@@ -1006,6 +1047,10 @@ function summarizeCrossReviewCritique(output: string | undefined): string | unde
   const normalized = output?.trim().replace(/\s+/g, ' ');
   if (!normalized) return undefined;
   return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
+}
+
+function mergeUnique(left: string[], right: string[]): string[] {
+  return [...new Set([...left, ...right])];
 }
 
 function scheduleReadySteps(
@@ -1018,7 +1063,7 @@ function scheduleReadySteps(
 
   for (const step of ready) {
     const agent = agents.get(step.agent);
-    if (agent?.adapter === 'ollama') {
+    if ((step.adapter ?? agent?.adapter) === 'ollama') {
       localGpuReady.push(step);
     } else {
       remoteReady.push(step);
