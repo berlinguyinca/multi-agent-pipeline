@@ -2613,6 +2613,45 @@ describe('executeDAG', () => {
     expect(result.steps.find((step) => step.id === 'step-2')?.output).toBe('Implementation continued');
   });
 
+
+  it('retries an empty file-output step with explicit file-output remediation context', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-empty-file-output-retry-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    const agents = new Map([['tdd-engineer', tdd]]);
+    const prompts: string[] = [];
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        runCount += 1;
+        yield runCount === 1 ? '' : 'Created tests/pubchem-sync.test.ts and ran npm test (expected red).';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]).toMatchObject({
+      status: 'completed',
+      attempts: 2,
+      output: expect.stringContaining('Created tests/pubchem-sync.test.ts'),
+    });
+    expect(prompts[1]).toContain('Your previous file-output response was empty');
+    expect(prompts[1]).toContain('create or modify files in the workspace');
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],

@@ -207,6 +207,8 @@ export async function executeDAG(
         let securityRemediationContext: string | undefined;
         let evidenceRemediationRetries = 0;
         let evidenceRemediationContext: string | undefined;
+        let fileOutputRemediationRetries = 0;
+        let fileOutputRemediationContext: string | undefined;
 
         while (true) {
           if (signal?.aborted) break;
@@ -228,9 +230,12 @@ export async function executeDAG(
               workspaceAwareContext,
               securityRemediationContext,
             );
-            const fullContext = evidenceRemediationContext
+            const evidenceAwareContext = evidenceRemediationContext
               ? `${rawContext}\n\n${evidenceRemediationContext}`
               : rawContext;
+            const fullContext = fileOutputRemediationContext
+              ? `${evidenceAwareContext}\n\n${fileOutputRemediationContext}`
+              : evidenceAwareContext;
 
             const configs: AdapterConfig[] = [
               { type: stepAdapter, model: stepModel },
@@ -452,6 +457,12 @@ export async function executeDAG(
               priorResults: results,
               reviewedSpecContent: retry?.handoffValidation?.reviewedSpecContent,
             });
+            if (shouldRetryEmptyFileOutput(agent, result, handoffValidation) && fileOutputRemediationRetries < 1) {
+              fileOutputRemediationRetries += 1;
+              lastError = 'file-output step completed without usable output or file evidence';
+              fileOutputRemediationContext = buildFileOutputRemediationContext(step, result);
+              continue;
+            }
             result.handoffPassed = handoffValidation.handoffPassed;
             result.handoffFindings = handoffValidation.handoffFindings;
             result.specConformance = handoffValidation.specConformance;
@@ -667,6 +678,34 @@ export async function executeDAG(
     plan: mutablePlan,
     ...(replans.length > 0 ? { replans } : {}),
   };
+}
+
+
+function shouldRetryEmptyFileOutput(
+  agent: AgentDefinition,
+  result: StepResult,
+  handoffValidation: ReturnType<typeof validateStepHandoff>,
+): boolean {
+  if (agent.output.type !== 'files') return false;
+  if (result.output?.trim()) return false;
+  return handoffValidation.handoffFindings.some((finding) =>
+    finding.severity === 'high' && finding.message.includes('file-output step completed without usable output'),
+  );
+}
+
+function buildFileOutputRemediationContext(step: DAGStep, result: StepResult): string {
+  return [
+    '--- File-Output Remediation Required ---',
+    'Your previous file-output response was empty or did not provide usable file evidence.',
+    'You must create or modify files in the workspace using the available tools, then report changed files and verification evidence.',
+    'If you are blocked from editing files, return a concrete blocker with the exact missing information, command failure, or missing authority.',
+    '',
+    `Original step: ${step.id}`,
+    `Original task: ${step.task}`,
+    '',
+    'Previous output:',
+    result.output?.trim() || '(empty)',
+  ].join('\n');
 }
 
 function formatEvidenceGateError(
