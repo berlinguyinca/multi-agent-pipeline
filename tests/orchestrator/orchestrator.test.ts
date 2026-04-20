@@ -2668,6 +2668,38 @@ describe('executeDAG', () => {
   });
 
 
+
+  it('returns a final answer after a repeated identical successful tool request', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'build-fixer', task: 'Run git diff --check', dependsOn: [] }],
+    };
+    const buildFixer = makeAgent('build-fixer', 'files');
+    buildFixer.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['build-fixer', buildFixer]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        yield '{"tool":"shell","params":{"command":"printf clean"}}';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.output).toContain('Tool shell already returned the same successful result');
+    expect(result.steps[0]?.output).toContain('clean');
+    expect(runCount).toBe(2);
+  });
+
   it('does not security-gate cross-review control outputs before judge decisions are parsed', async () => {
     const plan: DAGPlan = {
       plan: [

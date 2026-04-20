@@ -1340,6 +1340,7 @@ interface RunStepWithToolsOptions {
 
 async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {
   let prompt = options.context;
+  const successfulToolResults = new Map<string, string>();
 
   for (let toolRound = 0; toolRound <= MAX_TOOL_CALLS; toolRound += 1) {
     const output = await runWithFailover(options.configs, options.createAdapter, async (adapter) => {
@@ -1381,10 +1382,24 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
       return output;
     }
 
+    const toolCallKey = stableToolCallKey(toolCall);
+    const previousSuccessfulOutput = successfulToolResults.get(toolCallKey);
+    if (previousSuccessfulOutput !== undefined) {
+      return [
+        `Tool ${toolCall.tool} already returned the same successful result for identical parameters.`,
+        'Returning that result instead of repeating the tool call.',
+        '',
+        previousSuccessfulOutput,
+      ].join('\n');
+    }
+
     const tool = options.tools.find((candidate) => candidate.name === toolCall.tool);
     const toolResult = tool
       ? await tool.execute(toolCall.params)
       : { success: false, output: '', error: `Unknown tool "${toolCall.tool}"` };
+    if (toolResult.success) {
+      successfulToolResults.set(toolCallKey, toolResult.output);
+    }
 
     prompt = [
       options.context,
@@ -1400,6 +1415,24 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
   }
 
   throw new Error(`Tool loop exceeded ${MAX_TOOL_CALLS} rounds`);
+}
+
+
+function stableToolCallKey(toolCall: { tool: string; params: Record<string, unknown> }): string {
+  return `${toolCall.tool}:${stableJson(toolCall.params)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`;
+  }
+  if (typeof value === 'object' && value !== null) {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function extractToolCall(output: string): { tool: string; params: Record<string, unknown> } | null {
