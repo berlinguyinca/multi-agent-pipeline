@@ -150,13 +150,10 @@ function buildDomainFallbackDecision(
 ): RouterPlanDecision | null {
   const task = userTask.toLowerCase();
   if (isSoftwareDevelopmentRequest(task)) return null;
+  if (!isExplicitChemicalTaxonomyUsageReport(task)) return null;
   const requestContext = compactStepRequestContext(userTask);
-  const specialistRationaleHint = hasChemicalSpecialistSkipRationale(original);
-  const wantsChemicalTaxonomy = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
-    (specialistRationaleHint || /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task));
-  const wantsUsage = /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
-    (specialistRationaleHint || /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task));
-  if (!wantsChemicalTaxonomy && !wantsUsage) return null;
+  const wantsChemicalTaxonomy = true;
+  const wantsUsage = true;
 
   const plan: DAGPlan['plan'] = [];
   if (wantsChemicalTaxonomy && agents.has('classyfire-taxonomy-classifier')) {
@@ -203,14 +200,17 @@ function compactStepRequestContext(userTask: string): string {
 }
 
 function shouldUseDeterministicChemicalRoute(userTask: string): boolean {
-  const task = userTask.toLowerCase();
+  return isExplicitChemicalTaxonomyUsageReport(userTask.toLowerCase()) &&
+    /\b(only report|output tables|graph plot|xls cells|customer)\b/.test(userTask.toLowerCase());
+}
+
+function isExplicitChemicalTaxonomyUsageReport(task: string): boolean {
   if (isSoftwareDevelopmentRequest(task)) return false;
   return /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
     /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
-    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task) &&
-    /\b(only report|output tables|graph plot|xls cells|customer)\b/.test(task);
+    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule|benzene)\b/.test(task) &&
+    /\b(report|table|tables|graph|plot|xls|customer|classification tree|usage tree)\b/.test(task);
 }
-
 
 function isSoftwareDevelopmentRequest(task: string): boolean {
   const asksForSoftware = /\b(software|app|application|cli|tool|service|program|script|pipeline|develop|implement|build|create)\b/.test(task);

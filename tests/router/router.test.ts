@@ -554,6 +554,40 @@ describe('routeTask', () => {
   });
 
 
+
+  it('does not use chemical fallback for taxonomy-only or usage-only prompts', async () => {
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const noMatch = JSON.stringify({ kind: 'no-match', reason: 'router could not plan' });
+
+    const taxonomyOnly = await routeTask('taxonomy report for aspirin', localAgents, mockAdapter(noMatch), routerConfig);
+    const usageOnly = await routeTask('medical usage report for aspirin', localAgents, mockAdapter(noMatch), routerConfig);
+
+    expect(taxonomyOnly.kind).toBe('no-match');
+    expect(usageOnly.kind).toBe('no-match');
+  });
+
   it('does not use chemical fallback for PubChem software development requests', async () => {
     const localAgents = new Map(agents);
     localAgents.set('classyfire-taxonomy-classifier', {
