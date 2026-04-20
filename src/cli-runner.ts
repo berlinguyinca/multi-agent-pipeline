@@ -13,6 +13,7 @@ import { formatMapOutput, parseDagLayoutOption, parseMapOutputFormat, type Forma
 import { openOutputArtifact, writeGraphPngArtifacts, writeHtmlArtifact, writePdfArtifact } from './output/pdf-artifact.js';
 import type { OllamaConfig, PipelineConfig } from './types/config.js';
 import type { RefineQuestion, RefineResult } from './refine/refiner.js';
+import { loadRefineHandoff, saveRefineHandoff } from './refine/handoff.js';
 
 export async function runCli(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -211,24 +212,127 @@ Commands:
     const githubIssueUrl = extractFlag(args, '--github-issue');
     const personality = extractFlag(args, '--personality');
 
-    if (refineOnly) {
+    const runWithPrompt = async (resolvedPrompt: string, options: { initialSpec?: string; specFilePath?: string; rerunPrompt?: string } = {}) => {
+      if (useV2) {
+        const { runHeadlessV2 } = await import('./headless/runner.js');
+        const result = await runHeadlessV2({
+          prompt: resolvedPrompt,
+          githubIssueUrl,
+          ...(options.initialSpec !== undefined ? { initialSpec: options.initialSpec } : {}),
+          ...(options.specFilePath ? { specFilePath: options.specFilePath } : {}),
+          outputDir,
+          workspaceDir,
+          configPath,
+          personality,
+          verbose,
+          routerModel,
+          routerConsensusModels,
+          disabledAgents,
+          rerunPrompt: options.rerunPrompt ?? prompt,
+          compareAgents,
+          semanticJudge,
+          judgePanelModels,
+          judgePanelRoles,
+          judgePanelSteer,
+          judgePanelMaxSteeringRounds,
+          crossReviewEnabled,
+          crossReviewMaxRounds,
+          crossReviewJudgeModels,
+          ollama,
+          routerTimeoutMs:
+            routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
+        });
+        await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
+        process.exit(result.success ? 0 : 1);
+      }
+
+      const result = await runHeadless({
+        prompt: resolvedPrompt,
+        githubIssueUrl,
+        ...(options.initialSpec !== undefined ? { initialSpec: options.initialSpec } : {}),
+        ...(options.specFilePath ? { specFilePath: options.specFilePath } : {}),
+        outputDir,
+        workspaceDir,
+        configPath,
+        personality,
+        verbose,
+        routerModel,
+        routerConsensusModels,
+        crossReviewEnabled,
+        crossReviewMaxRounds,
+        crossReviewJudgeModels,
+        ollama,
+        routerTimeoutMs:
+          routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
+        totalTimeoutMs:
+          totalTimeout !== undefined
+            ? parseDuration(totalTimeout, '--total-timeout')
+            : undefined,
+        inactivityTimeoutMs:
+          inactivityTimeout !== undefined
+            ? parseDuration(inactivityTimeout, '--inactivity-timeout')
+            : undefined,
+        pollIntervalMs:
+          pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
+      });
+      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
+      process.exit(result.success ? 0 : 1);
+    };
+
+    const runRefineGate = async (basePrompt: string) => {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
-      const initial = refinePromptHeadless({ prompt, headless: true });
+      const initial = refinePromptHeadless({ prompt: basePrompt, headless: true });
       const generatedQuestions = await generateRefineQuestionDetails({
-        prompt,
+        prompt: basePrompt,
         initial,
         configPath,
         routerModel,
         ollama,
       });
       const questionDetails = generatedQuestions.length > 0 ? generatedQuestions : initial.questionDetails;
-      const questioned = refinePromptHeadless({ prompt, headless: true, questionDetails });
+      const questioned = refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails });
       const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionDetails) : [];
       const refined = answers.length > 0
-        ? refinePromptHeadless({ prompt, headless: true, questionDetails, answers })
+        ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers })
         : questioned;
-      process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}\n` : formatRefineQuestions(refined));
+      if (silent || !process.stdin.isTTY) {
+        process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}\n` : formatRefineQuestions(refined));
+        process.exit(0);
+      }
+
+      const choice = await askRefineHandoffChoice();
+      if (choice === 'implement') {
+        await runWithPrompt(refined.refinedPrompt, { rerunPrompt: basePrompt });
+        return;
+      }
+      if (choice === 'save') {
+        const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
+        process.stdout.write(`${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}\n`);
+        process.exit(0);
+      }
+
+      process.stdout.write(formatRefineQuestions(refined));
       process.exit(0);
+    };
+
+    if (!refineOnly && !silent && process.stdin.isTTY) {
+      const handoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
+      if (handoff) {
+        const choice = await askSavedRefineHandoffChoice(handoff.refinedPromptPath);
+        if (choice === 'execute') {
+          await runWithPrompt(handoff.result.refinedPrompt, { rerunPrompt: prompt });
+          return;
+        }
+        if (choice === 'refine') {
+          await runRefineGate(handoff.result.refinedPrompt);
+          return;
+        }
+      }
+    }
+
+    if (refineOnly) {
+      await runRefineGate(prompt);
+      return;
     }
 
     const validation = validatePrompt(prompt, githubIssueUrl, specFileArg, {
@@ -245,70 +349,11 @@ Commands:
         ? (useV2 ? buildV2SpecFilePrompt(specFileArg!, loadedSpec, prompt) : buildSpecFilePrompt(specFileArg!))
         : prompt;
 
-    if (useV2) {
-      const { runHeadlessV2 } = await import('./headless/runner.js');
-      const result = await runHeadlessV2({
-        prompt: resolvedPrompt,
-        githubIssueUrl,
-        initialSpec: loadedSpec,
-        specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
-        outputDir,
-        workspaceDir,
-        configPath,
-        personality,
-        verbose,
-        routerModel,
-        routerConsensusModels,
-        disabledAgents,
-        rerunPrompt: prompt,
-        compareAgents,
-        semanticJudge,
-        judgePanelModels,
-        judgePanelRoles,
-        judgePanelSteer,
-        judgePanelMaxSteeringRounds,
-        crossReviewEnabled,
-        crossReviewMaxRounds,
-        crossReviewJudgeModels,
-        ollama,
-        routerTimeoutMs:
-          routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
-      });
-      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
-      process.exit(result.success ? 0 : 1);
-    }
-
-    const result = await runHeadless({
-      prompt: resolvedPrompt,
-      githubIssueUrl,
-      initialSpec: loadedSpec,
-      specFilePath: specFileArg ? path.resolve(specFileArg) : undefined,
-      outputDir,
-      workspaceDir,
-      configPath,
-      personality,
-      verbose,
-      routerModel,
-      routerConsensusModels,
-      crossReviewEnabled,
-      crossReviewMaxRounds,
-      crossReviewJudgeModels,
-      ollama,
-      routerTimeoutMs:
-        routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
-      totalTimeoutMs:
-        totalTimeout !== undefined
-          ? parseDuration(totalTimeout, '--total-timeout')
-          : undefined,
-      inactivityTimeoutMs:
-        inactivityTimeout !== undefined
-          ? parseDuration(inactivityTimeout, '--inactivity-timeout')
-          : undefined,
-      pollIntervalMs:
-        pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
+    await runWithPrompt(resolvedPrompt, {
+      ...(loadedSpec !== undefined ? { initialSpec: loadedSpec } : {}),
+      ...(specFileArg ? { specFilePath: path.resolve(specFileArg) } : {}),
+      rerunPrompt: prompt,
     });
-    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
-    process.exit(result.success ? 0 : 1);
   }
 
   const configPath = extractFlag(args, '--config');
@@ -416,6 +461,45 @@ async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> 
       answers.push(await rl.question(formatInteractiveQuestion(entry, index)));
     }
     return answers;
+  } finally {
+    rl.close();
+  }
+}
+
+
+async function askRefineHandoffChoice(): Promise<'implement' | 'save' | 'print'> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question([
+      '',
+      paint('What next?', 'cyan', 'bold'),
+      `${paint('i', 'green', 'bold')}) implement now`,
+      `${paint('s', 'yellow', 'bold')}) save refined spec for next session`,
+      `${paint('p', 'dim')}) print only`,
+      '> ',
+    ].join('\n'))).trim().toLowerCase();
+    if (answer.startsWith('i')) return 'implement';
+    if (answer.startsWith('s') || answer === '') return 'save';
+    return 'print';
+  } finally {
+    rl.close();
+  }
+}
+
+async function askSavedRefineHandoffChoice(refinedPromptPath: string): Promise<'execute' | 'refine' | 'ignore'> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question([
+      paint('Saved refined spec found for this output folder.', 'cyan', 'bold'),
+      refinedPromptPath,
+      `${paint('e', 'green', 'bold')}) execute saved spec now`,
+      `${paint('r', 'yellow', 'bold')}) refine it further`,
+      `${paint('i', 'dim')}) ignore and continue with current prompt`,
+      '> ',
+    ].join('\n'))).trim().toLowerCase();
+    if (answer.startsWith('e') || answer === '') return 'execute';
+    if (answer.startsWith('r')) return 'refine';
+    return 'ignore';
   } finally {
     rl.close();
   }

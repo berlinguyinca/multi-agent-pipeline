@@ -14,6 +14,10 @@ const readFileMock = vi.fn(async () => '# Loaded Spec\n\nBuild the thing from th
 const runHeadlessMock = vi.fn(async () => ({ version: 1, success: true }));
 const runHeadlessV2Mock = vi.fn(async () => ({ version: 2, success: true }));
 const runPRReviewMock = vi.fn(async () => ({ success: true, verdict: 'comment' }));
+const saveRefineHandoffMock = vi.fn(async () => ({ refinedPromptPath: '/tmp/pubchem/.map/refine/refined-prompt.md' }));
+const loadRefineHandoffMock = vi.fn(async () => null);
+const questionMock = vi.fn(async () => '');
+const closeReadlineMock = vi.fn(() => undefined);
 const generateRefineQuestionsMock = vi.fn(async () => [
   {
     question: 'Which PubChem distribution source should be authoritative: FTP bulk dumps, PUG-REST, PUG-View, or another endpoint?',
@@ -55,6 +59,18 @@ vi.mock('../src/headless/pr-review.js', () => ({
 
 vi.mock('../src/refine/question-generator.js', () => ({
   generateRefineQuestions: generateRefineQuestionsMock,
+}));
+
+vi.mock('../src/refine/handoff.js', () => ({
+  saveRefineHandoff: saveRefineHandoffMock,
+  loadRefineHandoff: loadRefineHandoffMock,
+}));
+
+vi.mock('node:readline/promises', () => ({
+  createInterface: vi.fn(() => ({
+    question: questionMock,
+    close: closeReadlineMock,
+  })),
 }));
 
 vi.mock('../src/cli/evidence-commands.js', () => ({
@@ -104,6 +120,9 @@ describe('runCli', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    loadRefineHandoffMock.mockResolvedValue(null);
+    saveRefineHandoffMock.mockResolvedValue({ refinedPromptPath: '/tmp/pubchem/.map/refine/refined-prompt.md' });
+    questionMock.mockResolvedValue('');
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code ?? 0}`);
     }) as never);
@@ -788,6 +807,86 @@ describe('runCli', () => {
     expect(output).toContain('"mode": "refine"');
     expect(output).toContain('"questionsAsked"');
     expect(output).not.toContain('5m Build');
+  });
+
+
+  it('interactive headless refine saves the answered spec for the next session when requested', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    questionMock
+      .mockResolvedValueOnce('Use FTP bulk downloads')
+      .mockResolvedValueOnce('s');
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--refine',
+        '--ouputDir',
+        'pubchem',
+        'Build a PubChem sync tool',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pubchem$/),
+      expect.objectContaining({
+        refinedPrompt: expect.stringContaining('Use FTP bulk downloads'),
+      }),
+    );
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Saved refined spec'));
+    if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
+    else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
+  });
+
+  it('interactive headless refine executes immediately when requested', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    questionMock
+      .mockResolvedValueOnce('Use FTP bulk downloads')
+      .mockResolvedValueOnce('i');
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--refine',
+        '--ouputDir',
+        'pubchem',
+        'Build a PubChem sync tool',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(saveRefineHandoffMock).not.toHaveBeenCalled();
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      outputDir: 'pubchem',
+      prompt: expect.stringContaining('Use FTP bulk downloads'),
+    }));
+    if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
+    else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
+  });
+
+  it('offers a saved refine spec from the same output folder on the next session', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    loadRefineHandoffMock.mockResolvedValueOnce({
+      result: { refinedPrompt: '# Saved refined prompt\n\nUse FTP bulk downloads' },
+      refinedPromptPath: '/tmp/pubchem/.map/refine/refined-prompt.md',
+    });
+    questionMock.mockResolvedValueOnce('e');
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--ouputDir', 'pubchem', 'ignored prompt']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      outputDir: 'pubchem',
+      prompt: expect.stringContaining('Use FTP bulk downloads'),
+    }));
+    if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
+    else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
   });
 
   it('passes disabled agent overrides to headless smart routing', async () => {
