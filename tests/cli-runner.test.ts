@@ -690,14 +690,7 @@ describe('runCli', () => {
   });
 
 
-  it('refines then runs headless smart routing without leaking execution flags into the prompt', async () => {
-    runHeadlessV2Mock.mockResolvedValueOnce({
-      version: 2,
-      success: true,
-      outputDir: '/tmp/pubchem',
-      dag: { nodes: [], edges: [] },
-      steps: [],
-    });
+  it('headless refine returns Socratic questions without running smart routing or leaking execution flags', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
     await expect(
@@ -718,22 +711,15 @@ describe('runCli', () => {
       ]),
     ).rejects.toThrow('process.exit:0');
 
-    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
-      outputDir: 'pubchem',
-      routerTimeoutMs: 5 * 60 * 1000,
-      verbose: true,
-      prompt: expect.stringContaining('Build a PubChem sync tool with markdown conversion'),
-    }));
-    const refinedPrompt = String(runHeadlessV2Mock.mock.calls[0]?.[0].prompt ?? '');
-    expect(refinedPrompt).toContain('Original request');
-    expect(refinedPrompt).not.toContain('5m pdf');
-    expect(refinedPrompt).not.toContain('pubchem Build');
-    expect(writeGraphPngArtifactsMock).toHaveBeenCalled();
-    expect(writePdfArtifactMock).toHaveBeenCalledWith(
-      expect.objectContaining({ outputDir: '/tmp/pubchem' }),
-      expect.objectContaining({ outputDir: '/tmp/pubchem' }),
-    );
-    expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.pdf');
+    expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    expect(writePdfArtifactMock).not.toHaveBeenCalled();
+    expect(writeGraphPngArtifactsMock).not.toHaveBeenCalled();
+    const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
+    expect(output).toContain('"mode": "refine"');
+    expect(output).toContain('"questionsAsked"');
+    expect(output).toContain('Build a PubChem sync tool with markdown conversion');
+    expect(output).not.toContain('5m pdf');
+    expect(output).not.toContain('pubchem Build');
   });
 
   it('passes disabled agent overrides to headless smart routing', async () => {

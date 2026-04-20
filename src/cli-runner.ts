@@ -212,72 +212,9 @@ Commands:
     if (refineOnly) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
       const refined = refinePromptHeadless({ prompt, headless: true });
-      if (silent) {
-        process.stdout.write(`${JSON.stringify(refined, null, 2)}\n`);
-        process.exit(0);
-      }
-
-      const refinedPrompt = refined.refinedPrompt;
-      if (useV2) {
-        const { runHeadlessV2 } = await import('./headless/runner.js');
-        const result = await runHeadlessV2({
-          prompt: refinedPrompt,
-          githubIssueUrl,
-          outputDir,
-          workspaceDir,
-          configPath,
-          personality,
-          verbose,
-          routerModel,
-          routerConsensusModels,
-          disabledAgents,
-          rerunPrompt: prompt,
-          compareAgents,
-          semanticJudge,
-          judgePanelModels,
-          judgePanelRoles,
-          judgePanelSteer,
-          judgePanelMaxSteeringRounds,
-          crossReviewEnabled,
-          crossReviewMaxRounds,
-          crossReviewJudgeModels,
-          ollama,
-          routerTimeoutMs:
-            routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
-        });
-        await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
-        process.exit(result.success ? 0 : 1);
-      }
-
-      const result = await runHeadless({
-        prompt: refinedPrompt,
-        githubIssueUrl,
-        outputDir,
-        workspaceDir,
-        configPath,
-        personality,
-        verbose,
-        routerModel,
-        routerConsensusModels,
-        crossReviewEnabled,
-        crossReviewMaxRounds,
-        crossReviewJudgeModels,
-        ollama,
-        routerTimeoutMs:
-          routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
-        totalTimeoutMs:
-          totalTimeout !== undefined
-            ? parseDuration(totalTimeout, '--total-timeout')
-            : undefined,
-        inactivityTimeoutMs:
-          inactivityTimeout !== undefined
-            ? parseDuration(inactivityTimeout, '--inactivity-timeout')
-            : undefined,
-        pollIntervalMs:
-          pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
-      });
-      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
-      process.exit(result.success ? 0 : 1);
+      process.stdout.write(`${JSON.stringify(refined, null, 2)}
+`);
+      process.exit(0);
     }
 
     const validation = validatePrompt(prompt, githubIssueUrl, specFileArg, {

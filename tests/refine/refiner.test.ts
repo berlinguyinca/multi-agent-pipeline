@@ -38,6 +38,18 @@ describe('Socratic prompt refiner', () => {
     ]));
   });
 
+
+  it('includes unanswered Socratic questions in the refined prompt', () => {
+    const result = refinePromptHeadless({
+      prompt: 'Build something useful',
+      headless: true,
+    });
+
+    expect(result.questionsAsked.length).toBeGreaterThan(0);
+    expect(result.refinedPrompt).toContain('Questions to answer before execution');
+    expect(result.refinedPrompt).toContain('What is the primary goal');
+  });
+
   it('does not recommend chemical classification agents for PubChem software sync requests', () => {
     const result = refinePromptHeadless({
       prompt: 'Develop local software to synchronize PubChem compound and substance files and convert them to Markdown',

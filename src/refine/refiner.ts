@@ -69,6 +69,13 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
     '## Assumptions to use',
     ...assumptions.map((assumption) => `- ${assumption}`),
     '',
+    ...(initial.questions.length > 0
+      ? [
+          '## Questions to answer before execution',
+          ...initial.questions.map((question, index) => `${index + 1}. ${question}`),
+          '',
+        ]
+      : []),
     '## Optimized prompt',
     buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities),
   ].join('\n');
