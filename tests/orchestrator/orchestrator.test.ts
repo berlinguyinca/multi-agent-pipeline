@@ -2410,6 +2410,91 @@ describe('executeDAG', () => {
     ]);
   });
 
+
+  it('continues the original DAG when adviser workflow references an unknown agent', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'spec-qa-reviewer', task: 'Approve spec', dependsOn: [] },
+        { id: 'step-2', agent: 'adviser', task: 'Advise workflow', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'implementation-coder', task: 'Implement original plan', dependsOn: ['step-2'] },
+      ],
+    };
+    const agents = new Map([
+      ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
+      ['adviser', makeAgent('adviser')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+    ]);
+    const decisions: Array<{ decision: string; agent: string; reason: string }> = [];
+    const reporter = {
+      dagStepStart: vi.fn(),
+      dagStepOutput: vi.fn(),
+      dagStepComplete: vi.fn(),
+      dagStepRetry: vi.fn(),
+      dagStepFailed: vi.fn(),
+      dagStepSkipped: vi.fn(),
+      agentDecision(event: { decision: string; agent: string; reason: string }) {
+        decisions.push(event);
+      },
+      onChunk: vi.fn(),
+    };
+    const calls: string[] = [];
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Approve spec')) {
+          calls.push('spec');
+          yield 'Spec approved';
+          return;
+        }
+        if (prompt.includes('Advise workflow')) {
+          calls.push('adviser');
+          yield JSON.stringify({
+            kind: 'adviser-workflow',
+            plan: [
+              { id: 'step-3a', agent: 'implementation-engineer', task: 'Implement using invented agent', dependsOn: ['step-2'] },
+            ],
+          });
+          return;
+        }
+        if (prompt.includes('Implement original plan')) {
+          calls.push('implementation-coder');
+          yield 'Original implementation completed';
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      reporter as never,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        adaptiveReplanning: { enabled: true },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual(['spec', 'adviser', 'implementation-coder']);
+    expect(result.steps.map((step) => step.id)).toEqual(['step-1', 'step-2', 'step-3']);
+    expect(result.steps.find((step) => step.id === 'step-3')?.output).toBe('Original implementation completed');
+    expect(decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        decision: 'not-needed',
+        agent: 'additional-agent',
+      }),
+    ]));
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],

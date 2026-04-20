@@ -474,6 +474,7 @@ export async function executeDAG(
                 settled,
                 running,
                 allIds,
+                reporter,
                 refreshAgents: retry.adaptiveReplanning.refreshAgents,
               });
               if (replan) {
@@ -700,6 +701,7 @@ interface AdviserWorkflowOptions {
   running: Set<string>;
   allIds: Set<string>;
   refreshAgents?: () => Promise<Map<string, AgentDefinition>> | Map<string, AgentDefinition>;
+  reporter?: VerboseReporter;
 }
 
 async function maybeApplyAdviserWorkflow(
@@ -714,17 +716,29 @@ async function maybeApplyAdviserWorkflow(
       : null;
   const agentSource = refreshedAgents ?? options.agents;
 
-  const event = applyAdviserWorkflow({
-    adviserStepId: options.adviserStepId,
-    workflow,
-    plan: options.plan,
-    agents: agentSource,
-    completed: options.completed,
-    settled: options.settled,
-    running: options.running,
-    allIds: options.allIds,
-    refreshedAgents: refreshedAgents !== null,
-  });
+  let event: AdviserReplanEvent;
+  try {
+    event = applyAdviserWorkflow({
+      adviserStepId: options.adviserStepId,
+      workflow,
+      plan: options.plan,
+      agents: agentSource,
+      completed: options.completed,
+      settled: options.settled,
+      running: options.running,
+      allIds: options.allIds,
+      refreshedAgents: refreshedAgents !== null,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    options.reporter?.agentDecision?.({
+      by: `${options.adviserStepId} [adviser]`,
+      agent: 'additional-agent',
+      decision: 'not-needed',
+      reason: `adviser workflow ignored because ${reason}`,
+    });
+    return null;
+  }
 
   if (refreshedAgents) {
     options.agents.clear();
