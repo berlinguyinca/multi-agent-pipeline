@@ -106,6 +106,15 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('visualization');
   });
 
+
+  it('tells routers to split large software work into existing implementation slices', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a large data sync tool');
+
+    expect(prompt).toContain('For large software tasks');
+    expect(prompt).toContain('split implementation into bounded slices');
+    expect(prompt).toContain('existing implementation agents');
+  });
+
   it('includes contract mission and capabilities when available', () => {
     const prompt = buildRouterPrompt(agents, 'Build a REST API');
 

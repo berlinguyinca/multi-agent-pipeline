@@ -268,6 +268,9 @@ export async function executeDAG(
             const resolvedThink = agent.think ?? adapterDefaults?.[stepAdapter]?.think;
             const resolvedTemperature = adapterDefaults?.[stepAdapter]?.temperature;
             const resolvedSeed = adapterDefaults?.[stepAdapter]?.seed;
+            const workspaceBefore = agent.output.type === 'files'
+              ? await captureWorkspaceSnapshot(workingDir)
+              : null;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
               const context = injectToolCatalog(fullContext, tools, agent.prompt);
@@ -323,6 +326,9 @@ export async function executeDAG(
               signal?.removeEventListener('abort', abortFromParent);
             }
 
+            const changedFiles = workspaceBefore
+              ? await diffWorkspaceSnapshot(workingDir, workspaceBefore)
+              : [];
             const duration = Date.now() - startedAt;
             if (sawTimeoutBeforeSuccess && currentBaseTimeoutMs > (adaptiveTimeouts.get(step.agent) ?? 0)) {
               adaptiveTimeouts.set(step.agent, currentBaseTimeoutMs);
@@ -349,6 +355,7 @@ export async function executeDAG(
                 : {}),
               ...(scheduledMetadata?.spawnedByAgent ? { spawnedByAgent: scheduledMetadata.spawnedByAgent } : {}),
               ...(scheduledMetadata?.failureKind ? { failureKind: scheduledMetadata.failureKind } : {}),
+              ...(changedFiles.length > 0 ? { filesCreated: changedFiles } : {}),
               ...(consensusSelection ? { consensus: consensusSelection.metadata } : {}),
             };
 
@@ -1520,6 +1527,59 @@ function sliceJsonObjects(text: string): string[] {
   }
 
   return candidates;
+}
+
+
+type WorkspaceSnapshot = Map<string, string>;
+
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', '.map', '.worktrees']);
+const MAX_SNAPSHOT_FILES = 20_000;
+
+async function captureWorkspaceSnapshot(rootDir: string): Promise<WorkspaceSnapshot> {
+  const snapshot: WorkspaceSnapshot = new Map();
+  await visitWorkspaceFiles(rootDir, rootDir, snapshot);
+  return snapshot;
+}
+
+async function diffWorkspaceSnapshot(rootDir: string, before: WorkspaceSnapshot): Promise<string[]> {
+  const after = await captureWorkspaceSnapshot(rootDir);
+  const changed: string[] = [];
+  for (const [file, signature] of after.entries()) {
+    if (before.get(file) !== signature) changed.push(file);
+  }
+  for (const file of before.keys()) {
+    if (!after.has(file)) changed.push(file);
+  }
+  return [...new Set(changed)].sort();
+}
+
+async function visitWorkspaceFiles(rootDir: string, currentDir: string, snapshot: WorkspaceSnapshot): Promise<void> {
+  if (snapshot.size >= MAX_SNAPSHOT_FILES) return;
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (snapshot.size >= MAX_SNAPSHOT_FILES) return;
+    if (entry.name.startsWith('.') && SNAPSHOT_EXCLUDED_DIRS.has(entry.name)) continue;
+    if (SNAPSHOT_EXCLUDED_DIRS.has(entry.name)) continue;
+    const fullPath = path.join(currentDir, entry.name);
+    const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, '/');
+    if (entry.isDirectory()) {
+      await visitWorkspaceFiles(rootDir, fullPath, snapshot);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    try {
+      const stat = await fs.stat(fullPath);
+      snapshot.set(relativePath, `${stat.size}:${Math.trunc(stat.mtimeMs)}`);
+    } catch {
+      continue;
+    }
+  }
 }
 
 function classifyFailure(error?: string): StepResult['failureKind'] {

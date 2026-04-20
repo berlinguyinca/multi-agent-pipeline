@@ -25,6 +25,9 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
   if (options.result.outputType === 'files' && output.length === 0 && (options.result.filesCreated?.length ?? 0) === 0) {
     findings.push(finding('high', 'file-output step completed without usable output or file evidence.', options.step.id));
   }
+  if (requiresWorkspaceChange(options.step.agent) && (options.result.filesCreated?.length ?? 0) === 0) {
+    findings.push(finding('medium', 'file-output implementation step did not produce observed workspace file changes.', options.step.id));
+  }
 
   if (options.step.agent === 'adviser' && output.includes('adviser-workflow')) {
     const workflow = parseAdviserWorkflow(output);
@@ -55,6 +58,18 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     handoffFindings: findings,
     specConformance,
   };
+}
+
+
+function requiresWorkspaceChange(agent: string): boolean {
+  return new Set([
+    'implementation-coder',
+    'software-delivery',
+    'tdd-engineer',
+    'docs-maintainer',
+    'refactor-cleaner',
+    'test-stabilizer',
+  ]).has(agent);
 }
 
 function isOutputRequired(result: StepResult): boolean {

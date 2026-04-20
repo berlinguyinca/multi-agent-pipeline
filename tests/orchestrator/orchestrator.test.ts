@@ -2495,6 +2495,59 @@ describe('executeDAG', () => {
     ]));
   });
 
+
+  it('warns when implementation file-output steps report success without workspace changes', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-file-output-no-change-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const agents = new Map([['implementation-coder', makeAgent('implementation-coder', 'files')]]);
+    const createAdapter = vi.fn(() => mockAdapter('Implementation complete.'));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.handoffFindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'medium',
+        message: expect.stringContaining('workspace file changes'),
+      }),
+    ]));
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('records workspace changes for implementation file-output steps', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-file-output-change-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const agents = new Map([['implementation-coder', makeAgent('implementation-coder', 'files')]]);
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'claude',
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(_prompt: string, options?: { cwd?: string }) {
+        await fs.writeFile(path.join(options?.cwd ?? workingDir, 'created.txt'), 'created\n', 'utf8');
+        yield 'Created created.txt and ran verification.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.filesCreated).toContain('created.txt');
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],
