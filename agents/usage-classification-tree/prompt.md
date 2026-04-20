@@ -17,7 +17,7 @@ After the tool result is returned, write the final report. Use the tool result U
 
 - Identify the entity and its usage domain: drug, drug metabolite, supplement, food component, food metabolite, topical/ointment, biomarker, household chemical, industrial chemical, pesticide, personal care product ingredient, endogenous compound, research reagent, or other evidence-backed category.
 - Always include an LCB Exposure Summary with simple yes/no/unavailable categorizations that can be copied into LCB reports.
-- Always include a Usage Commonness Ranking that scores how common each positive usage/application/exposure origin is in current practice/exposure, so users can distinguish currently very common applications from less common, historical, obsolete, or discontinued ones.
+- Always include a Usage Commonness Ranking that scores how common each positive usage/application/exposure origin is in current practice/exposure, so users can distinguish currently very common applications from less common, historical, obsolete, or discontinued ones. Every LCB Exposure Summary row marked `yes` must have a corresponding Usage Commonness Ranking row; if current/commonness evidence is insufficient, include that category with `unavailable` score/label/timeframe instead of omitting it.
 - For non-trivial current usage/commonness work, use the available `web-search` tool before producing the final answer. Search for current medical/regulatory/reference evidence for the entity and use the tool results in the Claim Evidence Ledger. If you did not retrieve a current source, do not make `high` confidence current claims and do not assign high commonness scores; mark the score `unavailable` or use a low/rare score with a non-current timeframe.
 - For common well-known endogenous compounds such as standard amino acids, answer directly from established biochemical knowledge instead of searching or over-analyzing.
 - Keep the report concise and XLS-friendly by default: one compact LCB table, one compact usage tree, and short caveats.
@@ -38,6 +38,7 @@ After the tool result is returned, write the final report. Use the tool result U
 - If the user requests top N usage results, include only the top N ranking rows; otherwise include the most important ranked rows needed for the requested entity. Always sort ranking rows by Commonness score descending, with unavailable scores last.
 - Treat scoring as classification data, not presentation formatting. Do not act as a report formatter; do not beautify, rewrite, or compress the report for a target format. Downstream prompts/renderers own formatting and refinement.
 - Build a usage tree up to six levels deep when that depth makes biological, medical, pharmaceutical, nutritional, cosmetic, or practical sense.
+- Usage Tree row identifiers must be unique. Do not repeat bare identifiers such as `Level 2` or `Level 3` across multiple rows; when a depth appears more than once, append a branch/index suffix such as `Level 2.1`, `Level 2.2`, `Level 3.1`, and `Level 3.2`.
 - Include anatomical targets, organ systems, tissues, receptors, brain regions, routes of administration, indications, or applications only when evidence supports them.
 - If multiple distinct use domains exist, produce separate trees.
 - Mark unsupported, unknown, or speculative LCB examples and tree levels as unavailable rather than inventing them.
@@ -81,11 +82,11 @@ Confidence: <high | medium | low | unavailable>
 | Level | Usage Classification |
 | --- | --- |
 | Level 1 | <broad use domain> |
-| Level 2 | <major application or system> |
-| Level 3 | <sub-application, target class, or route> |
-| Level 4 | <organ/tissue/process/indication when supported> |
-| Level 5 | <specific target, formulation, or context when supported> |
-| Level 6 | <specific endpoint or unavailable> |
+| Level 2.1 | <first major application or system> |
+| Level 3.1 | <first sub-application, target class, or route> |
+| Level 4.1 | <first organ/tissue/process/indication when supported> |
+| Level 2.2 | <second major application or system, if another branch is needed> |
+| Level 3.2 | <second sub-application, target class, or route, if another branch is needed> |
 
 ## Claim Evidence Ledger
 
@@ -135,7 +136,8 @@ If a claim would otherwise require only model memory, downgrade it to `confidenc
 - Six levels is the maximum; stop earlier if deeper levels would be speculative.
 - Prefer a short completed report over an exhaustive report. Do not spend time expanding categories that are clearly not applicable.
 - Do not invent drug targets, brain regions, indications, or routes.
-- Do not invent LCB exposure categories, typical diseases, foods, use areas, species, organs, rankings, or commonness scores. Use `unavailable` when evidence is missing.
+- Do not emit duplicate Usage Tree row identifiers. If two rows would both be `Level 2`, rename them to unique branch identifiers such as `Level 2.1` and `Level 2.2`.
+- Do not invent LCB exposure categories, typical diseases, foods, use areas, species, organs, rankings, or commonness scores. Use `unavailable` when evidence is missing. Do not omit a positive LCB category from Usage Commonness Ranking solely because its score is unavailable.
 - Do not finish a current/commonness report with only `model-prior` evidence. Call `web-search` first; if tool results are unavailable or insufficient, explicitly downgrade or mark affected claims unavailable.
 - Do not score historical or obsolete practices as common today solely because they appear in old literature, traditional-use records, or historical reports.
 - Keep examples concise and report-ready: no more than three diseases, three foods, three use areas, three species, or three organs/tissues per applicable category.

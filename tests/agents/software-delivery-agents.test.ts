@@ -234,6 +234,19 @@ describe('software delivery agent bundle', () => {
     expect(usage.contract?.handoff.includes).toContain('Commonness ranking and score');
   });
 
+  it('requires usage tree row identifiers to be unique', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(usage.prompt).toContain('Usage Tree row identifiers must be unique');
+    expect(usage.prompt).toContain('Level 2.1');
+  });
+
+  it('requires every positive LCB exposure category to appear in commonness ranking', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(usage.prompt).toContain('Every LCB Exposure Summary row marked `yes` must have a corresponding Usage Commonness Ranking row');
+  });
+
   it('requires usage commonness scores to account for current prevalence and recency', async () => {
     const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
     const usageFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-fact-checker'));

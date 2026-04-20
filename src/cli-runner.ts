@@ -77,6 +77,7 @@ Options:
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
   --verbose, -V          Show detailed progress and stage output on stderr
+  --silent               Suppress non-format status/path output; stdout stays only the requested format
   --v2                   Deprecated compatibility flag; smart routing is the default
 
 Runtime updates:
@@ -139,6 +140,7 @@ Commands:
   const graph = hasFlag(args, '--graph');
   const dagLayout = resolveDagLayout(args);
   const openOutput = hasFlag(args, '--open-output');
+  const silent = hasFlag(args, '--silent');
   if (hasReviewPr && !reviewPrUrl) {
     console.error('Error: --review-pr requires a URL argument (e.g. --review-pr https://github.com/owner/repo/pull/123)');
     process.exit(1);
@@ -148,14 +150,15 @@ Commands:
     const configPath = extractFlag(args, '--config');
     const personality = extractFlag(args, '--personality');
     const result = await runPRReview({ prUrl: reviewPrUrl, configPath, personality });
-    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
     process.exit(result.success ? 0 : 1);
   }
 
   if (args.includes('--headless')) {
     const useV2 = !args.includes('--classic');
     const refineOnly = hasFlag(args, '--refine');
-    const verbose = hasFlag(args, '--verbose') || hasFlag(args, '-V');
+    const silent = hasFlag(args, '--silent');
+    const verbose = !silent && (hasFlag(args, '--verbose') || hasFlag(args, '-V'));
     const prompt = extractPrompt(args);
     const specFileArg = extractFlag(args, '--spec-file');
     const outputDir = extractFlag(args, '--output-dir');
@@ -230,7 +233,7 @@ Commands:
         routerTimeoutMs:
           routerTimeout !== undefined ? parseDuration(routerTimeout, '--router-timeout') : undefined,
       });
-      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
+      await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
       process.exit(result.success ? 0 : 1);
     }
 
@@ -260,7 +263,7 @@ Commands:
       pollIntervalMs:
         pollInterval !== undefined ? parseDuration(pollInterval, '--poll-interval') : undefined,
     });
-    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput);
+    await writeFormattedResult(result, outputFormat, { compact, dagLayout, graph }, openOutput, silent);
     process.exit(result.success ? 0 : 1);
   }
 
@@ -558,6 +561,7 @@ async function writeFormattedResult(
   format: MapOutputFormat,
   formatOptions: FormatMapOutputOptions & { graph?: boolean } = {},
   openOutput = false,
+  silent = false,
 ): Promise<void> {
   const compact = formatOptions.compact ?? false;
   const outputDir = typeof result === 'object' && result !== null && !Array.isArray(result)
@@ -576,22 +580,56 @@ async function writeFormattedResult(
     if (openOutput) {
       await openOutputArtifact(artifact.pdfPath ?? artifact.htmlPath);
     }
-    if (artifact.pdfPath) {
-      process.stdout.write(`PDF written to ${artifact.pdfPath}\nHTML source written to ${artifact.htmlPath}\n`);
-      return;
+    if (!silent) {
+      if (artifact.pdfPath) {
+        process.stdout.write(`PDF written to ${artifact.pdfPath}
+HTML source written to ${artifact.htmlPath}
+`);
+        reportOutputStorage(resultWithGraph, artifact.htmlPath, silent);
+        return;
+      }
+      process.stdout.write(`HTML report written to ${artifact.htmlPath}
+${artifact.warning ?? 'PDF rendering unavailable.'}
+`);
+      reportOutputStorage(resultWithGraph, artifact.htmlPath, silent);
     }
-    process.stdout.write(`HTML report written to ${artifact.htmlPath}\n${artifact.warning ?? 'PDF rendering unavailable.'}\n`);
     return;
   }
 
   if (format === 'html' && openOutput) {
     const artifact = await writeHtmlArtifact(resultWithGraph, { compact, outputDir, dagLayout: formatOptions.dagLayout });
     await openOutputArtifact(artifact.htmlPath);
-    process.stdout.write(`HTML report written to ${artifact.htmlPath}\n`);
+    if (!silent) {
+      process.stdout.write(`HTML report written to ${artifact.htmlPath}
+`);
+      reportOutputStorage(resultWithGraph, artifact.htmlPath, silent);
+    }
     return;
   }
 
+  if (openOutput) {
+    const artifact = await writeHtmlArtifact(resultWithGraph, { compact, outputDir, dagLayout: formatOptions.dagLayout });
+    await openOutputArtifact(artifact.htmlPath);
+  }
+
   process.stdout.write(formatMapOutput(resultWithGraph, format, formatOptions));
+  reportOutputStorage(resultWithGraph, outputDir, silent);
+}
+
+function reportOutputStorage(result: unknown, fallbackPath: string | undefined, silent: boolean): void {
+  if (silent) return;
+  const outputDir = resolveOutputStorageDir(result, fallbackPath);
+  if (!outputDir) return;
+  process.stderr.write(`Output directory: ${outputDir}
+`);
+}
+
+function resolveOutputStorageDir(result: unknown, fallbackPath: string | undefined): string | undefined {
+  if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
+    const maybeOutputDir = (result as Record<string, unknown>)['outputDir'];
+    if (typeof maybeOutputDir === 'string' && maybeOutputDir.trim()) return maybeOutputDir;
+  }
+  return fallbackPath ? path.dirname(fallbackPath) : undefined;
 }
 
 async function attachGraphArtifacts(result: unknown, outputDir: string | undefined): Promise<unknown> {

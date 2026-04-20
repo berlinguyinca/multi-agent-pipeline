@@ -18,7 +18,7 @@ export interface DAGPlan {
 
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export type StepTerminalOutcome = 'success' | 'blocked' | 'failed' | 'cancelled';
-export type DAGEdgeType = 'planned' | 'handoff' | 'recovery' | 'spawned';
+export type DAGEdgeType = 'planned' | 'handoff' | 'recovery' | 'spawned' | 'feedback';
 
 
 export interface HandoffFinding {
@@ -100,7 +100,7 @@ export interface StepResult {
   parentStepId?: string;
   edgeType?: DAGEdgeType;
   spawnedByAgent?: string;
-  failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'timeout' | 'unknown';
+  failureKind?: 'test' | 'compile' | 'build' | 'lint' | 'tooling' | 'runtime' | 'timeout' | 'evidence' | 'unknown';
   blockerKind?: 'credentials' | 'external-service' | 'user-decision' | 'repo-state' | 'no-progress' | 'unknown';
   replacementStepId?: string;
   handoffPassed?: boolean;

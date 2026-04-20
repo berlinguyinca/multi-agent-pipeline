@@ -5,6 +5,7 @@ import { DAG_RENDER_LAYOUTS, buildDAGLayout, formatConsensusHeadline, formatCons
 import type { DAGRenderLayout } from '../dag/graph-renderer.js';
 import type { ConsensusParticipant, DAGNodeConsensus, DAGPlan, DAGResult } from '../types/dag.js';
 import { normalizeScientificNotation } from '../utils/scientific-notation.js';
+import { appendAgentDiscovery, appendPlainAgentDiscovery, renderHtmlAgentDiscovery } from './agent-discovery-format.js';
 
 export type MapOutputFormat = 'json' | 'yaml' | 'markdown' | 'html' | 'text' | 'pdf';
 
@@ -102,6 +103,7 @@ function collectErrors(data: Record<string, unknown>): string[] {
 
   const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
   for (const step of steps) {
+    if (step['status'] === 'recovered') continue;
     const message = typeof step['error'] === 'string' && step['error'].trim()
       ? step['error'].trim()
       : typeof step['reason'] === 'string' && step['reason'].trim()
@@ -187,6 +189,7 @@ function formatMarkdownResult(result: unknown): string {
   appendEvidenceVerification(lines, data);
   appendJudgePanel(lines, data);
   appendRouterRationale(lines, data);
+  appendAgentDiscovery(lines, data);
   appendAgentContributions(lines, data);
   appendAgentComparisons(lines, data);
   appendSelfOptimization(lines, data);
@@ -220,6 +223,7 @@ function formatTextResult(result: unknown): string {
   appendPlainGraph(lines, data);
   appendPlainJudgePanel(lines, data);
   appendPlainRouterRationale(lines, data);
+  appendPlainAgentDiscovery(lines, data);
   appendPlainAgentContributions(lines, data);
   appendPlainAgentComparisons(lines, data);
   appendPlainSelfOptimization(lines, data);
@@ -284,7 +288,7 @@ function buildHtmlDocument(
     '<head>',
     '<meta charset="utf-8">',
     `<title>${escapeHtml(title)}</title>`,
-    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;align-items:start}.agent-stage{border:1px solid #cbd5e1;border-radius:16px;padding:.7rem;background:#f8fafc}.agent-stage.concurrent{background:#eff6ff;border-color:#93c5fd}.agent-stage.sequence{background:#faf5ff;border-color:#c4b5fd}.agent-stage-title{display:flex;justify-content:space-between;gap:.5rem;font-size:.78rem;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}.agent-stage-mode{border-radius:999px;padding:.05rem .45rem;background:rgba(255,255,255,.76);color:#1e40af}.agent-stage.sequence .agent-stage-mode{color:#6d28d9}.agent-stage-nodes{display:grid;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{position:relative;padding:.72rem .8rem .72rem .95rem;border:1px solid #c5d6ea;border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.1);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:14px 0 0 14px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node.running:before{background:#3b82f6}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta,.agent-node-inputs,.agent-node-consensus{font-size:.75rem;color:#475569}.agent-node-inputs{font-family:ui-monospace,monospace}.agent-node-consensus{margin-top:.25rem;font-weight:700;color:#334155}.agent-consensus-runs{margin:.2rem 0 0;padding-left:1rem;font-size:.72rem;color:#475569}.flow-arrow{display:inline-flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:24px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}.agent-edge.planned{border-color:#8db5ec}.agent-edge.handoff{border-color:#a78bfa}.agent-edge.recovery{border-color:#fca5a5}.agent-edge.spawned{border-color:#fbbf24}.agent-matrix-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(180deg,#fbfaff,#fff);box-shadow:0 14px 36px rgba(88,28,135,.08);overflow:auto}.agent-matrix-network table{min-width:760px;font-size:.78rem}.agent-matrix-network th{background:#f5f3ff;color:#4c1d95}.matrix-role{font-weight:800;color:#334155;white-space:nowrap}.matrix-cell{min-width:72px;vertical-align:top;background:#fff}.matrix-chip{display:block;margin:.12rem 0;padding:.18rem .28rem;border-radius:8px;background:#f5f3ff;border:1px solid #ddd6fe;font-family:ui-monospace,monospace;font-size:.68rem;color:#4c1d95}.matrix-chip.completed,.matrix-chip.recovered{border-color:#86efac;background:#f0fdf4;color:#166534}.matrix-chip.failed{border-color:#fecaca;background:#fef2f2;color:#991b1b}.matrix-chip.running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.matrix-chip.skipped{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.matrix-consensus{display:block;font-size:.62rem;color:#475569;margin-top:.1rem}.agent-metro-network,.agent-cluster-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:auto}.pipeline-summary{border:1px solid #cbd5e1;border-radius:12px;padding:.65rem .75rem;background:#f8fafc;margin:.75rem 0 1rem}.pipeline-summary-meta{font-size:.78rem;color:#475569;margin:.1rem 0 .45rem}.pipeline-summary-flow{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center}.pipeline-step-chip{display:inline-flex;gap:.25rem;align-items:center;border:1px solid #cbd5e1;border-radius:999px;background:#fff;padding:.16rem .42rem;font-size:.72rem;line-height:1.2}.pipeline-step-chip.completed,.pipeline-step-chip.recovered{border-color:#86efac;background:#f0fdf4}.pipeline-step-chip.failed{border-color:#fecaca;background:#fef2f2}.pipeline-step-chip.running{border-color:#93c5fd;background:#eff6ff}.pipeline-step-chip.skipped{border-color:#fed7aa;background:#fff7ed}.pipeline-arrow{color:#94a3b8;font-size:.7rem}.pipeline-legend{margin:.45rem 0 0;font-size:.7rem;color:#475569}.pipeline-legend strong{color:#334155}.pipeline-legend span{display:inline-block;margin-right:.65rem}.agent-metro-svg{min-width:760px;width:100%;height:auto;display:block}.metro-stop{filter:drop-shadow(0 2px 4px rgba(15,23,42,.12))}.cluster-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem}.cluster-card{border:1px solid #fed7aa;background:#fff7ed;border-radius:16px;padding:.75rem}.cluster-card h4{margin:.1rem 0 .35rem;color:#9a3412}.cluster-chip{display:inline-block;margin:.12rem;padding:.2rem .38rem;border-radius:999px;background:#fff;border:1px solid #fdba74;font-family:ui-monospace,monospace;font-size:.7rem;color:#7c2d12}</style>',
+    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;align-items:start}.agent-stage{border:1px solid #cbd5e1;border-radius:16px;padding:.7rem;background:#f8fafc}.agent-stage.concurrent{background:#eff6ff;border-color:#93c5fd}.agent-stage.sequence{background:#faf5ff;border-color:#c4b5fd}.agent-stage-title{display:flex;justify-content:space-between;gap:.5rem;font-size:.78rem;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}.agent-stage-mode{border-radius:999px;padding:.05rem .45rem;background:rgba(255,255,255,.76);color:#1e40af}.agent-stage.sequence .agent-stage-mode{color:#6d28d9}.agent-stage-nodes{display:grid;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{position:relative;padding:.72rem .8rem .72rem .95rem;border:1px solid #c5d6ea;border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.1);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:14px 0 0 14px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node.running:before{background:#3b82f6}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta,.agent-node-inputs,.agent-node-consensus{font-size:.75rem;color:#475569}.agent-node-inputs{font-family:ui-monospace,monospace}.agent-node-consensus{margin-top:.25rem;font-weight:700;color:#334155}.agent-consensus-runs{margin:.2rem 0 0;padding-left:1rem;font-size:.72rem;color:#475569}.flow-arrow{display:inline-flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:24px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}.agent-edge.planned{border-color:#8db5ec}.agent-edge.handoff{border-color:#a78bfa}.agent-edge.recovery{border-color:#fca5a5}.agent-edge.spawned{border-color:#fbbf24}.agent-edge.feedback{border-color:#67e8f9}.agent-matrix-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(180deg,#fbfaff,#fff);box-shadow:0 14px 36px rgba(88,28,135,.08);overflow:auto}.agent-matrix-network table{min-width:760px;font-size:.78rem}.agent-matrix-network th{background:#f5f3ff;color:#4c1d95}.matrix-role{font-weight:800;color:#334155;white-space:nowrap}.matrix-cell{min-width:72px;vertical-align:top;background:#fff}.matrix-chip{display:block;margin:.12rem 0;padding:.18rem .28rem;border-radius:8px;background:#f5f3ff;border:1px solid #ddd6fe;font-family:ui-monospace,monospace;font-size:.68rem;color:#4c1d95}.matrix-chip.completed,.matrix-chip.recovered{border-color:#86efac;background:#f0fdf4;color:#166534}.matrix-chip.failed{border-color:#fecaca;background:#fef2f2;color:#991b1b}.matrix-chip.running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.matrix-chip.skipped{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.matrix-consensus{display:block;font-size:.62rem;color:#475569;margin-top:.1rem}.agent-metro-network,.agent-cluster-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:auto}.pipeline-summary{border:1px solid #cbd5e1;border-radius:12px;padding:.65rem .75rem;background:#f8fafc;margin:.75rem 0 1rem}.pipeline-summary-meta{font-size:.78rem;color:#475569;margin:.1rem 0 .45rem}.pipeline-summary-flow{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center}.pipeline-step-chip{display:inline-flex;gap:.25rem;align-items:center;border:1px solid #cbd5e1;border-radius:999px;background:#fff;padding:.16rem .42rem;font-size:.72rem;line-height:1.2}.pipeline-step-chip.completed,.pipeline-step-chip.recovered{border-color:#86efac;background:#f0fdf4}.pipeline-step-chip.failed{border-color:#fecaca;background:#fef2f2}.pipeline-step-chip.running{border-color:#93c5fd;background:#eff6ff}.pipeline-step-chip.skipped{border-color:#fed7aa;background:#fff7ed}.pipeline-arrow{color:#94a3b8;font-size:.7rem}.pipeline-legend{margin:.45rem 0 0;font-size:.7rem;color:#475569}.pipeline-legend strong{color:#334155}.pipeline-legend span{display:inline-block;margin-right:.65rem}.agent-metro-svg{min-width:760px;width:100%;height:auto;display:block}.metro-stop{filter:drop-shadow(0 2px 4px rgba(15,23,42,.12))}.cluster-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem}.cluster-card{border:1px solid #fed7aa;background:#fff7ed;border-radius:16px;padding:.75rem}.cluster-card h4{margin:.1rem 0 .35rem;color:#9a3412}.cluster-chip{display:inline-block;margin:.12rem;padding:.2rem .38rem;border-radius:999px;background:#fff;border:1px solid #fdba74;font-family:ui-monospace,monospace;font-size:.7rem;color:#7c2d12}</style>',
     '</head>',
     '<body>',
     `<h1>${escapeHtml(title)}</h1>`,
@@ -301,6 +305,7 @@ function buildHtmlDocument(
     ...(compact ? [] : [
       renderHtmlJudgePanel(data),
       renderHtmlRouterRationale(data),
+      renderHtmlAgentDiscovery(data),
       renderHtmlAgentContributions(data),
       renderHtmlAgentComparisons(data),
       renderHtmlSelfOptimization(data),
@@ -432,6 +437,10 @@ function renderHtmlVisualArtifacts(data: Record<string, unknown>, suppressArtifa
 function safeArtifactSrc(artifact: Record<string, unknown>): string {
   if (typeof artifact['src'] !== 'string') return '';
   const src = artifact['src'].trim();
+  if (/^[A-Za-z0-9._-]+$/.test(src)) {
+    const artifactPath = typeof artifact['path'] === 'string' ? artifact['path'].trim() : '';
+    return artifactPath && artifactPath.split(/[\/]/).at(-1) === src ? src : '';
+  }
   if (!/^artifacts\/[A-Za-z0-9._/-]+$/.test(src)) return '';
   const segments = src.split('/');
   if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return '';
@@ -528,7 +537,15 @@ function renderHtmlAgentMetroNetwork(dag: DAGResult): string {
     const from = nodePositions.get(edge.from);
     const to = nodePositions.get(edge.to);
     if (!from || !to) return '';
-    const color = edge.type === 'recovery' ? '#ef4444' : edge.type === 'handoff' ? '#8b5cf6' : edge.type === 'spawned' ? '#f59e0b' : '#10b981';
+    const color = edge.type === 'recovery'
+      ? '#ef4444'
+      : edge.type === 'handoff'
+        ? '#8b5cf6'
+        : edge.type === 'spawned'
+          ? '#f59e0b'
+          : edge.type === 'feedback'
+            ? '#06b6d4'
+            : '#10b981';
     return `<path d="M ${from.x} ${from.y} C ${from.x + 45} ${from.y}, ${to.x - 45} ${to.y}, ${to.x} ${to.y}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" opacity=".78"/>`;
   }).join('');
   const stops = dag.nodes.map((node) => {
@@ -777,7 +794,7 @@ function collectEvidenceCoverage(data: Record<string, unknown>): {
   needsReview: number;
   rejected: number;
 } {
-  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const steps = effectiveEvidenceSteps(data);
   let total = 0;
   let rejected = 0;
   let needsReview = 0;
@@ -800,6 +817,30 @@ function collectEvidenceCoverage(data: Record<string, unknown>): {
   };
 }
 
+
+function effectiveEvidenceSteps(data: Record<string, unknown>): Record<string, unknown>[] {
+  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const byId = new Map(steps.map((step) => [String(step['id'] ?? ''), step]));
+  return steps.filter((step) => !isSupersededRecoveredEvidenceStep(step, byId));
+}
+
+function isSupersededRecoveredEvidenceStep(
+  step: Record<string, unknown>,
+  byId: Map<string, Record<string, unknown>>,
+  seen = new Set<string>(),
+): boolean {
+  if (step['status'] !== 'recovered') return false;
+  const replacementId = typeof step['replacementStepId'] === 'string' ? step['replacementStepId'].trim() : '';
+  if (!replacementId || seen.has(replacementId)) return false;
+  const replacement = byId.get(replacementId);
+  if (!replacement) return false;
+  seen.add(replacementId);
+  if (isSupersededRecoveredEvidenceStep(replacement, byId, seen)) return true;
+  if (replacement['status'] !== 'completed' && replacement['status'] !== 'recovered') return false;
+  const replacementGate = isRecord(replacement['evidenceGate']) ? replacement['evidenceGate'] : undefined;
+  return !replacementGate || replacementGate['passed'] === true;
+}
+
 function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
   step: string;
   agent: string;
@@ -809,7 +850,7 @@ function collectEvidenceVerificationRows(data: Record<string, unknown>): Array<{
   message: string;
   sources: string;
 }> {
-  const steps = Array.isArray(data['steps']) ? data['steps'].filter(isRecord) : [];
+  const steps = effectiveEvidenceSteps(data);
   return steps.flatMap((step) => {
     const gate = isRecord(step['evidenceGate']) ? step['evidenceGate'] : undefined;
     if (!gate || gate['checked'] !== true) return [];
@@ -1449,7 +1490,7 @@ function buildRenderableDag(data: Record<string, unknown>): DAGResult {
     edges: edges.map((edge) => ({
       from: String(edge['from'] ?? ''),
       to: String(edge['to'] ?? ''),
-      type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned'
+      type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned' || edge['type'] === 'feedback'
         ? edge['type']
         : 'planned',
     })),
@@ -1572,15 +1613,260 @@ function formatPercent(value: number): string {
 
 function extractDisplayFinalResult(data: Record<string, unknown>): string | null {
   const combined = combineComplementaryReports(data);
-  if (combined) return appendFactCheckVerification(data, combined);
+  if (combined) return appendFactCheckVerification(data, normalizeUsageReportTables(combined));
   const final = extractFinalResult(data);
-  return final ? appendFactCheckVerification(data, final) : null;
+  return final ? appendFactCheckVerification(data, normalizeUsageReportTables(final)) : null;
 }
 
 function appendFactCheckVerification(data: Record<string, unknown>, final: string): string {
   const factChecks = collectFactCheckOutputs(data);
   if (factChecks.length === 0) return final;
   return `${final}\n\n---\n\n## Fact-check Verification\n\n${factChecks.join('\n\n')}`;
+}
+
+function normalizeUsageReportTables(markdown: string): string {
+  return normalizeUsageTreeRowIdentifiers(addMissingLcbRowsToCommonnessRanking(markdown));
+}
+
+interface LcbExposureRow {
+  category: string;
+  examples: string;
+  caveat: string;
+}
+
+function addMissingLcbRowsToCommonnessRanking(markdown: string): string {
+  const lcbRows = extractPositiveLcbExposureRows(markdown);
+  if (lcbRows.length === 0) return markdown;
+
+  const lines = markdown.split('\n');
+  const headingIndex = lines.findIndex((line) => /^##\s+Usage Commonness Ranking\s*$/i.test(line.trim()));
+  if (headingIndex < 0) return markdown;
+
+  const tableStart = findNextTableLine(lines, headingIndex + 1);
+  if (tableStart < 0 || tableStart + 1 >= lines.length) return markdown;
+  const header = parseMarkdownTableCells(lines[tableStart]!);
+  if (header.length === 0 || !isMarkdownSeparatorRow(lines[tableStart + 1]!)) return markdown;
+
+  let tableEnd = tableStart + 2;
+  while (tableEnd < lines.length && parseMarkdownTableCells(lines[tableEnd]!).length > 0) {
+    tableEnd += 1;
+  }
+
+  const bodyRows = lines.slice(tableStart + 2, tableEnd).map(parseMarkdownTableCells).filter((row) => row.length > 0);
+  const categoryIndex = header.findIndex((cell) => /category/i.test(cell));
+  if (categoryIndex < 0) return markdown;
+
+  const representedCategories = new Set(
+    bodyRows
+      .map((row) => normalizeLcbCategory(row[categoryIndex] ?? ''))
+      .filter(Boolean),
+  );
+  const missingRows = lcbRows.filter((row) => !representedCategories.has(normalizeLcbCategory(row.category)));
+  if (missingRows.length === 0) return markdown;
+
+  const rankIndex = header.findIndex((cell) => /^rank$/i.test(cell));
+  const nextRankStart = nextCommonnessRank(bodyRows, rankIndex);
+  const appended = missingRows.map((row, index) =>
+    formatMarkdownTableRow(buildMissingCommonnessCells({
+      header,
+      lcb: row,
+      rank: nextRankStart + index,
+    })),
+  );
+
+  return [
+    ...lines.slice(0, tableEnd),
+    ...appended,
+    ...lines.slice(tableEnd),
+  ].join('\n');
+}
+
+function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
+  const lines = markdown.split('\n');
+  const headingIndex = lines.findIndex((line) => /^##\s+LCB Exposure Summary\s*$/i.test(line.trim()));
+  if (headingIndex < 0) return [];
+  const tableStart = findNextTableLine(lines, headingIndex + 1);
+  if (tableStart < 0 || tableStart + 1 >= lines.length) return [];
+  const header = parseMarkdownTableCells(lines[tableStart]!);
+  if (header.length === 0 || !isMarkdownSeparatorRow(lines[tableStart + 1]!)) return [];
+
+  const categoryIndex = header.findIndex((cell) => /category/i.test(cell));
+  const applicableIndex = header.findIndex((cell) => /applicable|classification|yes/i.test(cell));
+  const examplesIndex = header.findIndex((cell) => /example/i.test(cell));
+  const caveatIndex = header.findIndex((cell) => /evidence|caveat/i.test(cell));
+  if (categoryIndex < 0 || applicableIndex < 0) return [];
+
+  const rows: LcbExposureRow[] = [];
+  for (let index = tableStart + 2; index < lines.length; index += 1) {
+    const cells = parseMarkdownTableCells(lines[index]!);
+    if (cells.length === 0) break;
+    const applicable = (cells[applicableIndex] ?? '').trim().toLowerCase();
+    if (applicable !== 'yes') continue;
+    const category = (cells[categoryIndex] ?? '').trim();
+    if (!category) continue;
+    rows.push({
+      category,
+      examples: examplesIndex >= 0 ? (cells[examplesIndex] ?? '').trim() : '',
+      caveat: caveatIndex >= 0 ? (cells[caveatIndex] ?? '').trim() : '',
+    });
+  }
+  return rows;
+}
+
+function buildMissingCommonnessCells(options: {
+  header: string[];
+  lcb: LcbExposureRow;
+  rank: number;
+}): string[] {
+  const cells = options.header.map(() => 'unavailable');
+  const set = (pattern: RegExp, value: string) => {
+    const index = options.header.findIndex((cell) => pattern.test(cell));
+    if (index >= 0) cells[index] = value;
+  };
+  const origin = meaningfulLcbValue(options.lcb.examples) ? options.lcb.examples : options.lcb.category;
+  const caveat = [
+    meaningfulLcbValue(options.lcb.caveat) ? options.lcb.caveat : '',
+    'represented in LCB Exposure Summary; commonness scoring evidence unavailable',
+  ].filter(Boolean).join('; ');
+
+  set(/^rank$/i, String(options.rank));
+  set(/usage|application|exposure origin/i, origin);
+  set(/category/i, options.lcb.category);
+  set(/commonness score/i, 'unavailable');
+  set(/commonness label/i, 'unavailable');
+  set(/timeframe/i, 'unavailable');
+  set(/recency|currentness/i, 'represented in LCB Exposure Summary; commonness scoring evidence unavailable');
+  set(/evidence|caveat/i, caveat);
+  return cells;
+}
+
+function meaningfulLcbValue(value: string): boolean {
+  return value.trim().length > 0 && !/^unavailable$/i.test(value.trim());
+}
+
+function nextCommonnessRank(rows: string[][], rankIndex: number): number {
+  if (rankIndex < 0) return rows.length + 1;
+  const ranks = rows
+    .map((row) => Number.parseInt(row[rankIndex] ?? '', 10))
+    .filter((rank) => Number.isFinite(rank));
+  return ranks.length === 0 ? rows.length + 1 : Math.max(...ranks) + 1;
+}
+
+function normalizeLcbCategory(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!normalized) return '';
+  if (/\bdrug\b|\bmetabolite\b/.test(normalized) && !/\bfood\b/.test(normalized)) return 'drug-metabolite';
+  if (/\bfood\b/.test(normalized)) return 'food';
+  if (/\bhousehold\b/.test(normalized)) return 'household';
+  if (/\bindustrial\b/.test(normalized)) return 'industrial';
+  if (/\bpesticide\b/.test(normalized)) return 'pesticide';
+  if (/\bpersonal\b|\bcare\b|\bcosmetic\b/.test(normalized)) return 'personal-care';
+  if (/\bother\b|\bexposure\b|\bforensic\b|\bworkplace\b/.test(normalized)) return 'other-exposure';
+  if (/\bcellular\b|\bendogenous\b/.test(normalized)) return 'endogenous';
+  return normalized;
+}
+
+function findNextTableLine(lines: string[], start: number): number {
+  for (let index = start; index < lines.length; index += 1) {
+    if (parseMarkdownTableCells(lines[index]!).length > 0) return index;
+    if (/^##\s+\S/.test(lines[index]!.trim())) return -1;
+  }
+  return -1;
+}
+
+function parseMarkdownTableCells(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return [];
+  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim());
+}
+
+function isMarkdownSeparatorRow(line: string): boolean {
+  const cells = parseMarkdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function formatMarkdownTableRow(cells: string[]): string {
+  return `| ${cells.join(' | ')} |`;
+}
+
+function normalizeUsageTreeRowIdentifiers(markdown: string): string {
+  const lines = markdown.split('\n');
+  const result: string[] = [];
+  let section: string[] = [];
+  let inUsageTree = false;
+
+  const flushSection = () => {
+    if (section.length === 0) return;
+    result.push(...dedupeUsageTreeSectionRows(section));
+    section = [];
+  };
+
+  for (const line of lines) {
+    if (/^##\s+Usage Tree\s*$/i.test(line.trim())) {
+      flushSection();
+      inUsageTree = true;
+      section.push(line);
+      continue;
+    }
+    if (inUsageTree && /^##\s+\S/.test(line.trim())) {
+      flushSection();
+      inUsageTree = false;
+      result.push(line);
+      continue;
+    }
+    if (inUsageTree) {
+      section.push(line);
+    } else {
+      result.push(line);
+    }
+  }
+  flushSection();
+
+  return result.join('\n');
+}
+
+function dedupeUsageTreeSectionRows(lines: string[]): string[] {
+  const identifiers = lines
+    .map((line) => parseUsageTreeRowIdentifier(line)?.identifier)
+    .filter((identifier): identifier is string => Boolean(identifier));
+  const totals = identifiers.reduce((counts, identifier) => {
+    counts.set(identifier, (counts.get(identifier) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  if (![...totals.values()].some((count) => count > 1)) return lines;
+
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const parsed = parseUsageTreeRowIdentifier(line);
+    if (!parsed || (totals.get(parsed.identifier) ?? 0) < 2) return line;
+    const occurrence = (seen.get(parsed.identifier) ?? 0) + 1;
+    seen.set(parsed.identifier, occurrence);
+    const uniqueIdentifier = `${parsed.identifier}.${occurrence}`;
+    const cells = [...parsed.cells];
+    cells[0] = uniqueIdentifier;
+    return `${parsed.leading}| ${cells.join(' | ')} |${parsed.trailing}`;
+  });
+}
+
+function parseUsageTreeRowIdentifier(line: string): {
+  identifier: string;
+  cells: string[];
+  leading: string;
+  trailing: string;
+} | null {
+  const match = /^(\s*)\|(.*)\|(\s*)$/.exec(line);
+  if (!match) return null;
+  const cells = match[2]!
+    .split('|')
+    .map((cell) => cell.trim());
+  const firstCell = cells[0] ?? '';
+  if (!/^Level\s+\d+$/i.test(firstCell)) return null;
+  return {
+    identifier: firstCell,
+    cells,
+    leading: match[1] ?? '',
+    trailing: match[3] ?? '',
+  };
 }
 
 function collectFactCheckOutputs(data: Record<string, unknown>): string[] {

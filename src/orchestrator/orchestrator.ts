@@ -133,26 +133,33 @@ export async function executeDAG(
         break;
       }
 
-      // Mark steps whose dependencies failed as skipped
-      for (const step of mutablePlan.plan) {
-        if (settled.has(step.id) || running.has(step.id)) continue;
-        const depFailed = step.dependsOn.some((dep) => failed.has(dep));
-        if (depFailed) {
-          const failedDeps = step.dependsOn.filter((dep) => failed.has(dep));
-          const reason = `Dependency failed: ${failedDeps.join(', ')}`;
-          results.set(step.id, {
-            id: step.id,
-            agent: step.agent,
-            task: step.task,
-            dependsOn: [...step.dependsOn],
-            status: 'skipped',
-            reason,
-          });
-          failed.add(step.id);
-          settled.add(step.id);
-          reporter?.dagStepSkipped(step.id, reason);
+      // Mark steps whose dependencies failed as skipped. Runtime graph mutations can
+      // insert recovery/retry steps after downstream nodes, so repeat until cascading
+      // dependency failures are fully settled before deciding whether no work is ready.
+      let markedSkipped: boolean;
+      do {
+        markedSkipped = false;
+        for (const step of mutablePlan.plan) {
+          if (settled.has(step.id) || running.has(step.id)) continue;
+          const depFailed = step.dependsOn.some((dep) => failed.has(dep));
+          if (depFailed) {
+            const failedDeps = step.dependsOn.filter((dep) => failed.has(dep));
+            const reason = `Dependency failed: ${failedDeps.join(', ')}`;
+            results.set(step.id, {
+              id: step.id,
+              agent: step.agent,
+              task: step.task,
+              dependsOn: [...step.dependsOn],
+              status: 'skipped',
+              reason,
+            });
+            failed.add(step.id);
+            settled.add(step.id);
+            markedSkipped = true;
+            reporter?.dagStepSkipped(step.id, reason);
+          }
         }
-      }
+      } while (markedSkipped);
 
       const ready = getReadySteps(mutablePlan, completed).filter(
         (s) => !running.has(s.id) && !settled.has(s.id),
@@ -303,6 +310,7 @@ export async function executeDAG(
               adaptiveTimeouts.set(step.agent, currentBaseTimeoutMs);
               await saveAdaptiveTimeouts(workingDir, adaptiveTimeouts);
             }
+            const scheduledMetadata = results.get(step.id);
             const result: StepResult = {
               id: step.id,
               agent: step.agent,
@@ -315,7 +323,14 @@ export async function executeDAG(
               output: normalizeTerminalText(output),
               duration,
               attempts,
-              ...(step.parentStepId ? { parentStepId: step.parentStepId, edgeType: 'handoff' as const } : {}),
+              ...(step.parentStepId
+                ? {
+                    parentStepId: step.parentStepId,
+                    edgeType: scheduledMetadata?.edgeType ?? ('handoff' as const),
+                  }
+                : {}),
+              ...(scheduledMetadata?.spawnedByAgent ? { spawnedByAgent: scheduledMetadata.spawnedByAgent } : {}),
+              ...(scheduledMetadata?.failureKind ? { failureKind: scheduledMetadata.failureKind } : {}),
               ...(consensusSelection ? { consensus: consensusSelection.metadata } : {}),
             };
 
@@ -371,20 +386,36 @@ export async function executeDAG(
             result.evidenceClaims = evidenceGate.claims;
             await writeEvidenceSourceSnapshots(workingDir, step, result);
             if (evidenceGate.checked && !evidenceGate.passed) {
+              const evidenceError = formatEvidenceGateError(evidenceGate);
               if (evidenceRemediationRetries < (retry?.evidence?.remediationMaxRetries ?? 0)) {
                 evidenceRemediationRetries += 1;
+                lastError = evidenceError;
                 evidenceRemediationContext = buildEvidenceRemediationContext(result, evidenceGate);
                 continue;
               }
-              result.status = 'failed';
-              result.error = evidenceGate.findings
-                .filter((finding) => finding.severity === 'high')
-                .map((finding) => finding.claimId ? `${finding.claimId}: ${finding.message}` : finding.message)
-                .join('; ') || 'Evidence gate failed';
-              results.set(step.id, result);
-              failed.add(step.id);
+              const failedResult: StepResult = {
+                ...result,
+                status: 'failed',
+                error: evidenceError,
+                failureKind: 'evidence',
+              };
+              const recoveryCreated = maybeScheduleEvidenceFeedbackRecovery({
+                step,
+                failure: failedResult,
+                plan: mutablePlan,
+                allIds,
+                agents,
+                results,
+                settled,
+                recoveryRounds,
+                reporter,
+              });
+              results.set(step.id, recoveryCreated.result);
               settled.add(step.id);
-              reporter?.dagStepFailed(step.id, step.agent, result.error);
+              if (!recoveryCreated.scheduled) {
+                failed.add(step.id);
+                reporter?.dagStepFailed(step.id, step.agent, evidenceError);
+              }
               break;
             }
 
@@ -427,6 +458,31 @@ export async function executeDAG(
               });
               if (replan) {
                 replans.push(replan);
+                for (const insertedStepId of replan.insertedSteps) {
+                  const insertedStep = mutablePlan.plan.find((candidate) => candidate.id === insertedStepId);
+                  reporter?.agentDecision?.({
+                    by: `${step.id} [${step.agent}]`,
+                    agent: insertedStep?.agent ?? insertedStepId,
+                    decision: 'added',
+                    stepId: insertedStepId,
+                    reason: `adviser replan inserted ${insertedStepId}`,
+                  });
+                }
+                if (replan.insertedSteps.length === 0) {
+                  reporter?.agentDecision?.({
+                    by: `${step.id} [${step.agent}]`,
+                    agent: 'additional-agent',
+                    decision: 'not-needed',
+                    reason: 'adviser replan did not insert any new steps',
+                  });
+                }
+              } else {
+                reporter?.agentDecision?.({
+                  by: `${step.id} [${step.agent}]`,
+                  agent: 'additional-agent',
+                  decision: 'not-needed',
+                  reason: 'adviser output did not request a workflow change',
+                });
               }
             }
             maybeScheduleFactCheck({
@@ -437,6 +493,7 @@ export async function executeDAG(
               agents,
               results,
               settled,
+              reporter,
             });
             maybeScheduleGrammarReview({
               step,
@@ -446,6 +503,7 @@ export async function executeDAG(
               agents,
               results,
               settled,
+              reporter,
             });
             if (step.agent === 'result-judge' && result.output?.trim()) {
               await persistLearningCandidate(step, result.output, knowledgeCwd);
@@ -557,6 +615,15 @@ export async function executeDAG(
     plan: mutablePlan,
     ...(replans.length > 0 ? { replans } : {}),
   };
+}
+
+function formatEvidenceGateError(
+  evidenceGate: NonNullable<StepResult['evidenceGate']>,
+): string {
+  return evidenceGate.findings
+    .filter((finding) => finding.severity === 'high')
+    .map((finding) => finding.claimId ? `${finding.claimId}: ${finding.message}` : finding.message)
+    .join('; ') || 'Evidence gate failed';
 }
 
 function buildEvidenceRemediationContext(
@@ -1030,6 +1097,108 @@ interface RecoveryOptions {
   reporter?: VerboseReporter;
 }
 
+function maybeScheduleEvidenceFeedbackRecovery(options: RecoveryOptions): {
+  scheduled: boolean;
+  result: StepResult;
+} {
+  const rootId = options.step.parentStepId ?? options.step.id;
+  const round = (options.recoveryRounds.get(rootId) ?? 0) + 1;
+  if (round > MAX_RECOVERY_ROUNDS) {
+    options.reporter?.dagRecoveryUnavailable?.({
+      stepId: options.step.id,
+      failureKind: 'evidence',
+      reason: `Recovery round limit (${MAX_RECOVERY_ROUNDS}) was reached for ${rootId}.`,
+    });
+    return {
+      scheduled: false,
+      result: {
+        ...options.failure,
+        blockerKind: 'no-progress',
+      },
+    };
+  }
+
+  const helperAgent = selectEvidenceFeedbackAgent(options.step.agent, options.agents);
+  if (!helperAgent) {
+    options.reporter?.dagRecoveryUnavailable?.({
+      stepId: options.step.id,
+      failureKind: 'evidence',
+      reason: 'No enabled evidence-gathering helper agent is available.',
+    });
+    return { scheduled: false, result: options.failure };
+  }
+
+  options.recoveryRounds.set(rootId, round);
+
+  const helperId = `${rootId}-evidence-feedback-${round}`;
+  const retryId = `${rootId}-retry-${round}`;
+  const retryDependsOn = [...new Set([helperId, ...options.step.dependsOn])];
+  const feedbackTask = buildEvidenceFeedbackTask(options.step, options.failure);
+
+  options.plan.plan.push(
+    {
+      id: helperId,
+      agent: helperAgent,
+      task: feedbackTask,
+      dependsOn: [],
+      parentStepId: rootId,
+    } as DAGPlan['plan'][number],
+    {
+      id: retryId,
+      agent: options.step.agent,
+      task: options.step.task,
+      dependsOn: retryDependsOn,
+      parentStepId: rootId,
+    } as DAGPlan['plan'][number],
+  );
+  options.allIds.add(helperId);
+  options.allIds.add(retryId);
+
+  for (const candidate of options.plan.plan) {
+    if (candidate.id === options.step.id || options.settled.has(candidate.id)) continue;
+    candidate.dependsOn = candidate.dependsOn.map((dep) => (dep === options.step.id ? retryId : dep));
+  }
+
+  options.results.set(helperId, {
+    id: helperId,
+    agent: helperAgent,
+    task: feedbackTask,
+    dependsOn: [],
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    spawnedByAgent: options.step.agent,
+    failureKind: 'evidence',
+  });
+  options.results.set(retryId, {
+    id: retryId,
+    agent: options.step.agent,
+    task: options.step.task,
+    dependsOn: retryDependsOn,
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    failureKind: 'evidence',
+  });
+  options.reporter?.dagStepRetry(options.step.id, helperAgent, round, options.failure.error ?? 'Evidence gate failed');
+  options.reporter?.dagRecoveryScheduled?.({
+    failedStepId: options.step.id,
+    helperStepId: helperId,
+    helperAgent,
+    retryStepId: retryId,
+    failureKind: 'evidence',
+    reason: options.failure.error ?? 'Evidence gate failed',
+  });
+
+  return {
+    scheduled: true,
+    result: {
+      ...options.failure,
+      replacementStepId: retryId,
+    },
+  };
+}
+
 function maybeScheduleRecovery(options: RecoveryOptions): {
   scheduled: boolean;
   result: StepResult;
@@ -1037,6 +1206,11 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
   const rootId = options.step.parentStepId ?? options.step.id;
   const round = (options.recoveryRounds.get(rootId) ?? 0) + 1;
   if (round > MAX_RECOVERY_ROUNDS) {
+    options.reporter?.dagRecoveryUnavailable?.({
+      stepId: options.step.id,
+      failureKind: options.failure.failureKind,
+      reason: `Recovery round limit (${MAX_RECOVERY_ROUNDS}) was reached for ${rootId}.`,
+    });
     return {
       scheduled: false,
       result: {
@@ -1048,6 +1222,11 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
 
   const helperAgent = selectRecoveryAgent(options.failure.failureKind, options.agents);
   if (!helperAgent) {
+    options.reporter?.dagRecoveryUnavailable?.({
+      stepId: options.step.id,
+      failureKind: options.failure.failureKind,
+      reason: 'No enabled recovery helper agent matches this failure type.',
+    });
     return { scheduled: false, result: options.failure };
   }
 
@@ -1103,6 +1282,14 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
     failureKind: options.failure.failureKind,
   });
   options.reporter?.dagStepRetry(options.step.id, helperAgent, round, options.failure.error ?? 'unknown');
+  options.reporter?.dagRecoveryScheduled?.({
+    failedStepId: options.step.id,
+    helperStepId: helperId,
+    helperAgent,
+    retryStepId: retryId,
+    failureKind: options.failure.failureKind,
+    reason: options.failure.error ?? 'unknown',
+  });
 
   return {
     scheduled: true,
@@ -1111,6 +1298,20 @@ function maybeScheduleRecovery(options: RecoveryOptions): {
       replacementStepId: retryId,
     },
   };
+}
+
+function selectEvidenceFeedbackAgent(
+  failedAgent: string,
+  agents: Map<string, AgentDefinition>,
+): string | null {
+  const preferences =
+    failedAgent === 'usage-classification-tree'
+      ? ['researcher', 'bug-debugger']
+      : failedAgent === 'researcher'
+        ? ['bug-debugger']
+        : ['researcher', 'bug-debugger'];
+
+  return preferences.find((name) => name !== failedAgent && agents.has(name)) ?? null;
 }
 
 function selectRecoveryAgent(
@@ -1127,6 +1328,49 @@ function selectRecoveryAgent(
         : ['bug-debugger', 'build-fixer', 'test-stabilizer'];
 
   return preferences.find((name) => agents.has(name)) ?? null;
+}
+
+function buildEvidenceFeedbackTask(step: DAGPlan['plan'][number], failure: StepResult): string {
+  const findings = failure.evidenceGate?.findings ?? [];
+  const rejectedClaimIds = new Set(
+    findings
+      .filter((finding) => finding.severity === 'high' && finding.claimId)
+      .map((finding) => finding.claimId!),
+  );
+  const rejectedClaims = (failure.evidenceGate?.claims ?? [])
+    .filter((claim) => rejectedClaimIds.has(claim.id))
+    .map((claim) => `- ${claim.id}: ${claim.claim}`)
+    .join('\n');
+  const findingLines = findings
+    .map((finding) => `- ${finding.severity}${finding.claimId ? ` ${finding.claimId}` : ''}: ${finding.message}`)
+    .join('\n') || '- Evidence gate failed without detailed findings.';
+  const previousOutput = (failure.output ?? '').slice(0, 4_000);
+
+  return [
+    `Evidence feedback router loop for failed step "${step.id}".`,
+    `Original agent: ${step.agent}`,
+    `Original task: ${step.task}`,
+    `Failure kind: ${failure.failureKind ?? 'evidence'}`,
+    `Error message:\n${failure.error ?? 'Evidence gate failed'}`,
+    '',
+    'The router is re-evaluating this evidence failure and adding the agent/tool evidence needed before retrying the original step.',
+    'Use available tools when freshness, current prevalence, or direct support is required.',
+    'Return concise remediation guidance and source details that the retrying agent can use.',
+    '',
+    'Required output:',
+    '1. Evidence gaps found by the deterministic gate.',
+    '2. Current/recent sources or tool results that directly support the rejected claims, including URL/title/retrievedAt when available.',
+    '3. Claims that must instead be downgraded, lowered in score, marked unavailable, or removed if direct evidence is not available.',
+    '4. A short retry instruction for the original agent.',
+    '',
+    'Evidence findings:',
+    findingLines,
+    '',
+    rejectedClaims ? `Rejected claims:\n${rejectedClaims}` : 'Rejected claims: none parsed.',
+    '',
+    'Previous failed output excerpt:',
+    previousOutput || '_No output captured._',
+  ].join('\n');
 }
 
 function buildRecoveryTask(step: DAGPlan['plan'][number], failure: StepResult): string {

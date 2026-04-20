@@ -127,11 +127,12 @@ async function routeTaskWithConsensus(
   const consensusPlan = buildMajorityPlan(planCandidates.map((candidate) => candidate.decision.plan));
   if (consensusPlan !== null) {
     const rationale = planCandidates.find((candidate) => candidate.decision.rationale)?.decision.rationale;
+    const planAgents = new Set(consensusPlan.plan.map((step) => step.agent));
     return {
       kind: 'plan',
       plan: consensusPlan,
       consensus: buildRouterConsensusDiagnostics(candidates, consensusPlan, 'majority'),
-      ...(rationale ? { rationale } : {}),
+      ...(rationale ? { rationale: cleanRouterRationale(rationale, agents, planAgents) } : {}),
     };
   }
 
@@ -149,10 +150,11 @@ function buildDomainFallbackDecision(
 ): RouterPlanDecision | null {
   const task = userTask.toLowerCase();
   const requestContext = compactStepRequestContext(userTask);
+  const specialistRationaleHint = hasChemicalSpecialistSkipRationale(original);
   const wantsChemicalTaxonomy = /\b(classification|taxonomy|classyfire|chemont)\b/.test(task) &&
-    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
+    (specialistRationaleHint || /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task));
   const wantsUsage = /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(task) &&
-    /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task);
+    (specialistRationaleHint || /\b(compound|chemical|drug|metabolite|cocaine|aspirin|alanine|molecule)\b/.test(task));
   if (!wantsChemicalTaxonomy && !wantsUsage) return null;
 
   const plan: DAGPlan['plan'] = [];
@@ -186,6 +188,11 @@ function buildDomainFallbackDecision(
       rejectedAgents: [],
     },
   };
+}
+
+function hasChemicalSpecialistSkipRationale(decision: RouterDecision): boolean {
+  const entries = decision.rationale?.rejectedAgents ?? [];
+  return entries.some(isResearcherChemicalSpecialistSkip);
 }
 
 function compactStepRequestContext(userTask: string): string {
@@ -724,6 +731,10 @@ function cleanRouterRationale(
   agents: Map<string, AgentDefinition>,
   planAgents?: Set<string>,
 ): RouterRationale {
+  const dropChemicalResearcherSkip =
+    planAgents !== undefined &&
+    planAgents.has('classyfire-taxonomy-classifier') &&
+    planAgents.has('usage-classification-tree');
   return {
     selectedAgents: rationale.selectedAgents.map((entry) => ({
       ...entry,
@@ -732,8 +743,16 @@ function cleanRouterRationale(
     rejectedAgents: rationale.rejectedAgents.map((entry) => ({
       ...entry,
       agent: normalizeRouterAgentName(entry.agent, agents),
-    })),
+    })).filter((entry) => !(dropChemicalResearcherSkip && isResearcherChemicalSpecialistSkip(entry))),
   };
+}
+
+function isResearcherChemicalSpecialistSkip(entry: { agent: string; reason: string }): boolean {
+  if (entry.agent !== 'researcher') return false;
+  const reason = entry.reason.toLowerCase();
+  return /\b(speciali[sz]ed|specialist|structured|domain-specific)\b/.test(reason) &&
+    /\btaxonom\w*\b/.test(reason) &&
+    /\busage\b/.test(reason);
 }
 
 function isFormatterStep(agent: string, task: string): boolean {

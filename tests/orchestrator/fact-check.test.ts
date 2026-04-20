@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { maybeScheduleFactCheck } from '../../src/orchestrator/fact-check.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
 import type { DAGPlan, StepResult } from '../../src/types/dag.js';
@@ -44,4 +44,84 @@ describe('maybeScheduleFactCheck', () => {
     expect(plan.plan).toHaveLength(1);
     expect(results.has('step-1-fact-check-1')).toBe(false);
   });
+  it('reports when it adds a fact-checker helper', () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', agent('usage-classification-tree')],
+      ['usage-classification-fact-checker', agent('usage-classification-fact-checker')],
+    ]);
+    const reporter = { agentDecision: vi.fn() };
+
+    maybeScheduleFactCheck({
+      step: plan.plan[0]!,
+      result: {
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify usage',
+        status: 'completed',
+        outputType: 'answer',
+        output: 'usage report',
+        evidenceGate: { checked: true, passed: true, claims: [], findings: [{ severity: 'medium', message: 'Needs review' }] },
+      },
+      plan,
+      allIds: new Set(['step-1']),
+      agents,
+      results: new Map(),
+      settled: new Set(['step-1']),
+      reporter: reporter as never,
+    });
+
+    expect(reporter.agentDecision).toHaveBeenCalledWith(expect.objectContaining({
+      by: 'step-1 [usage-classification-tree]',
+      agent: 'usage-classification-fact-checker',
+      decision: 'added',
+      stepId: 'step-1-fact-check-1',
+    }));
+  });
+
+  it('reports why it does not add a fact-checker helper', () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', agent('usage-classification-tree')],
+      ['usage-classification-fact-checker', agent('usage-classification-fact-checker')],
+    ]);
+    const reporter = { agentDecision: vi.fn() };
+
+    maybeScheduleFactCheck({
+      step: plan.plan[0]!,
+      result: {
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify usage',
+        status: 'completed',
+        outputType: 'answer',
+        output: 'usage report',
+        evidenceGate: { checked: true, passed: true, claims: [], findings: [] },
+      },
+      plan,
+      allIds: new Set(['step-1']),
+      agents,
+      results: new Map(),
+      settled: new Set(['step-1']),
+      reporter: reporter as never,
+    });
+
+    expect(plan.plan).toHaveLength(1);
+    expect(reporter.agentDecision).toHaveBeenCalledWith(expect.objectContaining({
+      by: 'step-1 [usage-classification-tree]',
+      agent: 'usage-classification-fact-checker',
+      decision: 'not-needed',
+      reason: expect.stringContaining('evidence gate passed cleanly'),
+    }));
+  });
+
+
 });

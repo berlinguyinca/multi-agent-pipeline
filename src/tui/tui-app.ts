@@ -4,7 +4,7 @@ import type { PipelineConfig, AgentAssignment, StageName } from '../types/config
 import type { AgentAdapter, AdapterConfig, DetectionResult } from '../types/adapter.js';
 import type { PipelineContext } from '../types/pipeline.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
-import type { DAGPlan, StepResult } from '../types/dag.js';
+import type { DAGEdgeType, DAGPlan, StepResult } from '../types/dag.js';
 import type { GitHubReportResult } from '../types/github.js';
 import { KeyboardManager } from './keyboard-manager.js';
 import { StatusLine } from './status-line.js';
@@ -339,7 +339,7 @@ function buildExecutionGraph(
   steps: StepResult[],
 ): NonNullable<CompleteScreenData['executionGraph']> {
   const resultMap = new Map(steps.map((step) => [step.id, step]));
-  const incomingEdges = new Map<string, Array<{ from: string; type: 'planned' | 'handoff' | 'recovery' | 'spawned' }>>();
+  const incomingEdges = new Map<string, Array<{ from: string; type: DAGEdgeType }>>();
 
   for (const step of plan.plan) {
     for (const dep of step.dependsOn) {

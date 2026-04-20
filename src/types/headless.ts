@@ -2,6 +2,7 @@ import type { DocumentationResult, QaAssessment } from './spec.js';
 import type { GitHubReportResult } from './github.js';
 import type { ConsensusDiagnostics, DAGResult, RouterRationale, StepResult, StepTerminalOutcome } from './dag.js';
 import type { OllamaConfig } from './config.js';
+import type { AgentDiscoveryDiagnostics } from '../agents/autonomous-discovery.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -135,6 +136,7 @@ export interface HeadlessResultV2 {
   githubReport?: GitHubReportResult;
   consensusDiagnostics?: ConsensusDiagnostics[];
   routerRationale?: RouterRationale;
+  agentDiscovery?: AgentDiscoveryDiagnostics[];
   rerun?: HeadlessRerunHints;
   agentContributions?: HeadlessAgentContribution[];
   agentComparisons?: HeadlessAgentComparison[];

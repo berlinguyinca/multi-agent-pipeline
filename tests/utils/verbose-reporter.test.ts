@@ -145,6 +145,41 @@ describe('VerboseReporter', () => {
     expect(line).toContain('5 steps');
   });
 
+  it('logs agent routing and helper decisions', () => {
+    reporter.agentDecision({
+      by: 'router',
+      agent: 'usage-classification-tree',
+      decision: 'selected',
+      reason: 'specialized usage evidence is needed',
+    });
+    reporter.agentDecision({
+      by: 'router',
+      agent: 'researcher',
+      decision: 'skipped',
+      reason: 'specialized taxonomy and usage agents cover this request',
+    });
+    reporter.agentDecision({
+      by: 'step-2 [usage-classification-tree]',
+      agent: 'usage-classification-fact-checker',
+      decision: 'added',
+      stepId: 'step-2-fact-check-1',
+      reason: 'medium evidence warning requires independent review',
+    });
+    reporter.agentDecision({
+      by: 'step-3 [writer]',
+      agent: 'grammar-spelling-specialist',
+      decision: 'not-needed',
+      reason: 'output is structured data',
+    });
+
+    expect(writer.output.find((s) => s.includes('selected usage-classification-tree'))).toContain('specialized usage evidence');
+    expect(writer.output.find((s) => s.includes('skipped researcher'))).toContain('specialized taxonomy');
+    const addedLine = writer.output.find((s) => s.includes('usage-classification-fact-checker') && s.includes('step-2-fact-check-1'));
+    expect(addedLine).toMatch(/medium\s+evidence\s+warning/);
+    const notNeededLine = writer.output.find((s) => s.includes('grammar-spelling-specialist') && s.includes('did not add'));
+    expect(notNeededLine).toContain('structured data');
+  });
+
   it('logs DAG routing complete singular step', () => {
     reporter.dagRoutingComplete(1, 1000);
     const line = writer.output.find((s) => s.includes('Router complete'));

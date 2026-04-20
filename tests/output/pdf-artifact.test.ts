@@ -64,9 +64,9 @@ describe('writePdfArtifact', () => {
 
     const html = await fs.readFile(result.htmlPath, 'utf8');
     expect(html).toContain('Visual Artifacts');
-    expect(html).toContain('artifacts/usage-commonness-ranking.svg');
-    expect(await fs.stat(path.join(outputDir, 'artifacts', 'usage-commonness-ranking.svg'))).toBeTruthy();
-    expect(await fs.stat(path.join(outputDir, 'artifacts', 'manifest.json'))).toBeTruthy();
+    expect(html).toContain('usage-commonness-ranking.svg');
+    expect(await fs.stat(path.join(outputDir, 'usage-commonness-ranking.svg'))).toBeTruthy();
+    expect(await fs.stat(path.join(outputDir, 'manifest.json'))).toBeTruthy();
   });
 
 
@@ -106,7 +106,7 @@ describe('writePdfArtifact', () => {
     expect(html).not.toContain('class="agent-stage sequence"');
     expect(html).not.toContain('<h2>Steps</h2>');
     expect(html).not.toContain('artifacts/agent-network.svg');
-    expect(await fs.stat(path.join(outputDir, 'artifacts', 'agent-network.svg'))).toBeTruthy();
+    expect(await fs.stat(path.join(outputDir, 'agent-network.svg'))).toBeTruthy();
   });
 
 

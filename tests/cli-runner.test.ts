@@ -23,10 +23,10 @@ const writeHtmlArtifactMock = vi.fn(async () => ({
   htmlPath: '/tmp/map-result.html',
 }));
 const writeGraphPngArtifactsMock = vi.fn(async () => ({
-  manifestPath: '/tmp/out/artifacts/agent-graph-manifest.json',
+  manifestPath: '/tmp/out/agent-graph-manifest.json',
   artifacts: [
-    { id: 'agent-network-auto', src: 'artifacts/agent-network-auto.png', path: '/tmp/out/artifacts/agent-network-auto.png' },
-    { id: 'agent-network-stage', src: 'artifacts/agent-network-stage.png', path: '/tmp/out/artifacts/agent-network-stage.png' },
+    { id: 'agent-network-auto', src: 'agent-network-auto.png', path: '/tmp/out/agent-network-auto.png' },
+    { id: 'agent-network-stage', src: 'agent-network-stage.png', path: '/tmp/out/agent-network-stage.png' },
   ],
   warnings: [],
 }));
@@ -77,6 +77,7 @@ describe('runCli', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let stderrWriteSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -86,6 +87,7 @@ describe('runCli', () => {
     }) as never);
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    stderrWriteSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -274,6 +276,87 @@ describe('runCli', () => {
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('HTML report written to /tmp/map-result.html'));
   });
 
+  it('opens a companion HTML artifact when --open-output is used with default JSON output', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--open-output', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writeHtmlArtifactMock).toHaveBeenCalledWith(expect.objectContaining({ outputDir: '/tmp/out' }), {
+      compact: false,
+      outputDir: '/tmp/out',
+      dagLayout: 'auto',
+    });
+    expect(openOutputArtifactMock).toHaveBeenCalledWith('/tmp/map-result.html');
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('"success": true'));
+  });
+
+
+  it('reports the output directory on stderr after a normal headless run', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('"success": true'));
+    expect(stderrWriteSpy).toHaveBeenCalledWith(expect.stringContaining('Output directory: /tmp/out'));
+  });
+
+  it('keeps silent headless JSON output free of extra stderr chatter', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--silent', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({ verbose: false }));
+    expect(stdoutSpy).toHaveBeenCalledTimes(1);
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('"success": true'));
+    expect(stderrWriteSpy).not.toHaveBeenCalled();
+  });
+
+  it('suppresses artifact path chatter for silent PDF runs', async () => {
+    runHeadlessV2Mock.mockResolvedValueOnce({
+      version: 2,
+      success: true,
+      outputDir: '/tmp/out',
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--silent', '--output-format', 'pdf', 'Build a tested Node CLI with docs and error handling']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(writePdfArtifactMock).toHaveBeenCalled();
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrWriteSpy).not.toHaveBeenCalled();
+  });
+
 
   it('passes forced dag layout to html artifact output', async () => {
     runHeadlessV2Mock.mockResolvedValueOnce({
@@ -380,7 +463,7 @@ describe('runCli', () => {
       'agent-network-auto',
       'agent-network-stage',
     ]);
-    expect(parsed.graphArtifactManifestPath).toBe('/tmp/out/artifacts/agent-graph-manifest.json');
+    expect(parsed.graphArtifactManifestPath).toBe('/tmp/out/agent-graph-manifest.json');
   });
 
   it('runs headless classic mode when --classic is provided', async () => {

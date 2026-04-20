@@ -2,6 +2,7 @@ import blessed from 'neo-blessed';
 import { BaseScreen } from './base-screen.js';
 import type { QaAssessment, DocumentationResult } from '../../types/spec.js';
 import type { GitHubReportResult } from '../../types/github.js';
+import type { DAGEdgeType } from '../../types/dag.js';
 import { getTheme, fgTag } from '../theme.js';
 import { renderModelOutput } from '../output-renderer.js';
 
@@ -33,7 +34,7 @@ export interface CompleteScreenData {
     dependsOn: string[];
     edges?: Array<{
       from: string;
-      type: 'planned' | 'handoff' | 'recovery' | 'spawned';
+      type: DAGEdgeType;
     }>;
   }>;
   markdownFiles?: string[];

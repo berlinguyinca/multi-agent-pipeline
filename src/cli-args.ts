@@ -44,6 +44,7 @@ const booleanFlags = new Set([
   '--classic',
   '--verbose',
   '-V',
+  '--silent',
   '--compact',
   '--graph',
   '--open-output',
