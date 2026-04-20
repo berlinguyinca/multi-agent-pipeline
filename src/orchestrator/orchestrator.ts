@@ -33,6 +33,7 @@ import {
   selectCrossReviewJudgeSelection,
   selectCrossReviewReviewerAgent,
   shouldCrossReviewStep,
+  isCrossReviewHelperStep,
 } from './cross-review.js';
 
 export interface DAGExecutionResult {
@@ -351,7 +352,7 @@ export async function executeDAG(
               ...(consensusSelection ? { consensus: consensusSelection.metadata } : {}),
             };
 
-            if (security && shouldGateStep(agent) && result.output) {
+            if (security && shouldGateStep(agent) && !isCrossReviewHelperStep(step) && result.output) {
               reporter?.securityGateStart(step.id, step.agent);
               const securityStartedAt = Date.now();
               const securityResult = await runSecurityGate({
@@ -398,7 +399,9 @@ export async function executeDAG(
               reporter?.securityGatePassed(step.id, Date.now() - securityStartedAt);
             }
 
-            const evidenceGate = runEvidenceGate({ step, result, config: retry?.evidence });
+            const evidenceGate = isCrossReviewHelperStep(step)
+              ? { checked: false, passed: true, claims: [], findings: [] }
+              : runEvidenceGate({ step, result, config: retry?.evidence });
             result.evidenceGate = evidenceGate;
             result.evidenceClaims = evidenceGate.claims;
             await writeEvidenceSourceSnapshots(workingDir, step, result);
