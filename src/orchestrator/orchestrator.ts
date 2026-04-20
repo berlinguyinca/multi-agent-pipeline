@@ -389,7 +389,7 @@ export async function executeDAG(
                   securityResult.findings,
                   output,
                 );
-                reporter?.securityGateFailed(step.id, securityResult.findings.length);
+                reporter?.securityGateFailed(step.id, securityResult.findings.length, securityResult.findings);
 
                 if (securityRemediationRetries < security.config.maxRemediationRetries) {
                   securityRemediationRetries += 1;

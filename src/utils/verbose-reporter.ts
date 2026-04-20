@@ -1,4 +1,5 @@
 import type { StageName } from '../types/config.js';
+import type { SecurityFinding } from '../security/types.js';
 import { normalizeTerminalText, truncateText, wrapWithPrefix } from './terminal-text.js';
 
 const STAGE_LABELS: Record<StageName, string> = {
@@ -82,6 +83,19 @@ function firstReasonLine(reason: string): string {
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line.length > 0) ?? 'unknown';
+}
+
+function formatSecurityFinding(finding: SecurityFinding): string {
+  const parts = [
+    `[${finding.severity}]`,
+    finding.rule,
+    finding.message,
+    finding.line !== undefined ? `(line ${finding.line})` : '',
+  ].filter(Boolean);
+  const snippet = finding.snippet?.trim()
+    ? ` — ${truncateText(normalizeTerminalText(finding.snippet).replace(/\s+/g, ' ').trim(), 120)}`
+    : '';
+  return `${parts.join(' ')}${snippet}`;
 }
 
 export class VerboseReporter {
@@ -418,10 +432,19 @@ export class VerboseReporter {
     this.log('◊', `Security gate passed for ${stepId} (${formatElapsed(duration)})`);
   }
 
-  securityGateFailed(stepId: string, findingCount: number): void {
+  securityGateFailed(stepId: string, findingCount: number, findings: SecurityFinding[] = []): void {
+    const findingLines = findings.slice(0, 5).map((finding, index) =>
+      `  ${this.color(`↳ Finding ${index + 1}:`, 'yellow')} ${this.color(formatSecurityFinding(finding), 'red')}`,
+    );
+    if (findings.length > 5) {
+      findingLines.push(`  ${this.color('↳ More:', 'yellow')} ${this.color(`${findings.length - 5} additional finding${findings.length - 5 === 1 ? '' : 's'} hidden`, 'red')}`);
+    }
     this.log(
       this.color('✘', 'red'),
-      `${this.color('Security gate failed', 'red')} for ${this.stepLabel(stepId)} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+      [
+        `${this.color('Security gate failed', 'red')} for ${this.stepLabel(stepId)} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+        ...findingLines,
+      ].join('\n'),
       { preserveAnsi: true },
     );
   }
