@@ -108,8 +108,65 @@ describe('result formatting', () => {
       }],
     }, 'pdf');
 
-    expect(output).toMatch(/<td>2<\/td>\s*<td>forensic toxicology; workplace testing<\/td>\s*<td>other exposure origins<\/td>\s*<td>unavailable<\/td>/);
-    expect(output).toContain('represented in LCB Exposure Summary; commonness scoring evidence unavailable');
+    expect(output).toMatch(/<td>2<\/td>\s*<td>forensic toxicology<\/td>\s*<td>other exposure origins<\/td>\s*<td>unavailable<\/td>/);
+    expect(output).toMatch(/<td>3<\/td>\s*<td>workplace testing<\/td>\s*<td>other exposure origins<\/td>\s*<td>unavailable<\/td>/);
+    expect(output).toContain('reported usage scenario; commonness scoring evidence unavailable');
+  });
+
+  it('adds a commonness ranking row for each reported usage scenario', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: { nodes: [{ id: 'step-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 }], edges: [] },
+      steps: [{
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify cocaine usage',
+        status: 'completed',
+        output: [
+          '# Usage Classification Tree',
+          '',
+          '## LCB Exposure Summary',
+          '',
+          '| Category | Is this category applicable? | Typical examples when applicable | Evidence/caveat |',
+          '| --- | --- | --- | --- |',
+          '| drug / drug metabolite | yes | local anesthesia; otorhinolaryngological surgery; diagnostic procedures | cocaine hydrochloride used as local anesthetic and vasoconstrictor |',
+          '| other exposure origins | yes | forensic toxicology; drug abuse monitoring; urine drug screening | detection of metabolites like benzoylecgonine in urine |',
+          '',
+          '## Usage Commonness Ranking',
+          '',
+          '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Recency/currentness evidence | Evidence/caveat |',
+          '| --- | --- | --- | --- | --- | --- | --- | --- |',
+          '| 1 | Forensic toxicology/drug monitoring | other exposure origins | 60 | less common | current | widespread use in drug screening/metabolomics | used for identifying exposure via metabolites |',
+          '| 2 | Local anesthesia (ENT/Ophthalmology) | drug / drug metabolite | 45 | less common | current | documented decline in US medical use | usage is specialized and declining |',
+          '',
+          '## Usage Tree',
+          '',
+          '| Level | Usage Classification |',
+          '| --- | --- |',
+          '| Level 1 | Medical and Forensic Applications |',
+          '| Level 2.1 | Clinical Pharmacology |',
+          '| Level 3.1 | Local Anesthesia |',
+          '| Level 4.1 | Otorhinolaryngological surgery |',
+          '| Level 4.2 | Diagnostic procedures |',
+          '| Level 2.2 | Clinical Toxicology |',
+          '| Level 3.2 | Biomarker Identification |',
+          '| Level 4.3 | Metabolite detection (e.g., benzoylecgonine) |',
+        ].join('\n'),
+      }],
+    }, 'pdf');
+
+    for (const scenario of [
+      'otorhinolaryngological surgery',
+      'diagnostic procedures',
+      'drug abuse monitoring',
+      'urine drug screening',
+      'Biomarker Identification',
+      'Metabolite detection (e.g., benzoylecgonine)',
+    ]) {
+      expect(output).toContain(`<td>${scenario}</td>`);
+    }
+    expect(output).toContain('reported usage scenario; commonness scoring evidence unavailable');
   });
 
   it('deduplicates repeated Usage Tree row identifiers in customer-facing output', () => {
