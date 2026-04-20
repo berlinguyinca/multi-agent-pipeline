@@ -737,6 +737,28 @@ describe('runCli', () => {
     );
   });
 
+  it('passes cross-review overrides to headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        '--headless',
+        '--disable-cross-review',
+        '--cross-review-max-rounds',
+        '4',
+        '--cross-review-judge-models',
+        'ollama/gemma4:26b,ollama/qwen3.6',
+        'Implement autonomous cross review with enough detail for the validation gate',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      crossReviewEnabled: false,
+      crossReviewMaxRounds: 4,
+      crossReviewJudgeModels: ['ollama/gemma4:26b', 'ollama/qwen3.6'],
+    }));
+  });
+
   it('passes Ollama server overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

@@ -129,6 +129,30 @@ function applyHeadlessDisabledAgentOverrides(config: PipelineConfig, options: He
   };
 }
 
+function applyHeadlessCrossReviewOverrides(config: PipelineConfig, options: HeadlessOptions): void {
+  if (
+    options.crossReviewEnabled === undefined &&
+    options.crossReviewMaxRounds === undefined &&
+    options.crossReviewJudgeModels === undefined
+  ) {
+    return;
+  }
+  const next = {
+    ...config.crossReview,
+    judge: { ...config.crossReview.judge },
+  };
+  if (options.crossReviewEnabled !== undefined) next.enabled = options.crossReviewEnabled;
+  if (options.crossReviewMaxRounds !== undefined) {
+    if (options.crossReviewMaxRounds > next.maxRoundsUpperBound) {
+      throw new Error(`--cross-review-max-rounds must be at most ${next.maxRoundsUpperBound}`);
+    }
+    next.maxRounds = options.crossReviewMaxRounds;
+  }
+  if (options.crossReviewJudgeModels !== undefined) {
+    next.judge.models = [...options.crossReviewJudgeModels];
+  }
+  config.crossReview = next;
+}
 
 function logRouterAgentDecisions(
   reporter: Pick<VerboseReporter, 'agentDecision'>,
@@ -178,6 +202,13 @@ function buildRerunHints(options: HeadlessOptions): HeadlessResultV2['rerun'] {
   }
   if (options.disabledAgents && options.disabledAgents.length > 0) {
     args.push('--disable-agent', quoteShellArg(options.disabledAgents.join(',')));
+  }
+  if (options.crossReviewEnabled === false) args.push('--disable-cross-review');
+  if (options.crossReviewMaxRounds !== undefined) {
+    args.push('--cross-review-max-rounds', String(options.crossReviewMaxRounds));
+  }
+  if (options.crossReviewJudgeModels && options.crossReviewJudgeModels.length > 0) {
+    args.push('--cross-review-judge-models', quoteShellArg(options.crossReviewJudgeModels.join(',')));
   }
   const promptTail = options.specFilePath ? options.rerunPrompt?.trim() : options.prompt;
   if (promptTail) {
@@ -444,6 +475,7 @@ async function runHeadlessLive(
     applyHeadlessOllamaOverrides(config, options);
     applyHeadlessRouterOverrides(config, options);
     applyHeadlessDisabledAgentOverrides(config, options);
+    applyHeadlessCrossReviewOverrides(config, options);
     const detection = await dependencies.detectAllAdaptersFn(config.ollama.host);
     await fs.mkdir(outputDir, { recursive: true });
     const prompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
@@ -1196,6 +1228,7 @@ export async function runHeadlessV2(
     applyHeadlessOllamaOverrides(config, options);
     applyHeadlessRouterOverrides(config, options);
     applyHeadlessDisabledAgentOverrides(config, options);
+    applyHeadlessCrossReviewOverrides(config, options);
     workspaceDir = path.resolve(options.workspaceDir ?? config.workspaceDir ?? outputDir);
     await fs.mkdir(workspaceDir, { recursive: true });
     const securityConfig = resolveSecurityConfig(config);

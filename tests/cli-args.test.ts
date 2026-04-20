@@ -133,6 +133,18 @@ describe('cli argument parsing', () => {
     expect(prompt).toBe('Build a tiny pantry CLI');
   });
 
+  it('excludes cross-review flag values from the prompt', () => {
+    expect(extractPrompt([
+      '--headless',
+      '--cross-review-max-rounds',
+      '4',
+      '--cross-review-judge-models',
+      'ollama/gemma4:26b,ollama/qwen3.6',
+      '--disable-cross-review',
+      'Implement cross review',
+    ])).toBe('Implement cross review');
+  });
+
   it('does not treat --classic as prompt text', () => {
     const prompt = extractPrompt([
       '--headless',
