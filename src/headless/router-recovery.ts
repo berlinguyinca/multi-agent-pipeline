@@ -203,9 +203,6 @@ function buildSoftwareLifecycleFallbackPlan(
   if (!required.every((name) => agents.has(name))) return null;
 
   const plan: DAGPlan['plan'] = [];
-  const pubChemProof = /\bpubchem\b/i.test(userTask)
-    ? ' Completion proof for this PubChem request must include a command that downloads or fixture-simulates 1000 PubChem records into an isolated output folder, converts them to Markdown, and reports the record count plus any live-network/rate-limit blocker.'
-    : '';
   const add = (agent: string, task: string, dependsOn: string[]): void => {
     if (!agents.has(agent)) return;
     plan.push({ id: `step-${plan.length + 1}`, agent, task, dependsOn });
@@ -213,14 +210,14 @@ function buildSoftwareLifecycleFallbackPlan(
 
   add(
     'spec-writer',
-    `Create an implementation-ready specification from the original request. Router recovery reason: ${decision.reason}.${pubChemProof} Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
+    `Create an implementation-ready specification from the original request. Router recovery reason: ${decision.reason}.Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
     [],
   );
   add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria.', ['step-1']);
   add('adviser', 'Create an executable adviser workflow from the reviewed and QA-approved spec using exact registered agents and adviser-workflow JSON when changing the DAG.', ['step-2']);
-  add('tdd-engineer', `Write focused failing tests before implementation. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.${pubChemProof}`, ['step-3']);
-  add('implementation-coder', `Implement the smallest coherent change satisfying the reviewed spec and tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.${pubChemProof}`, ['step-4']);
-  add('code-qa-analyst', `Review implementation correctness, test adequacy, isolated service usage, and spec conformance.${pubChemProof} End with the Structured QA Verdict JSON.`, ['step-5']);
+  add('tdd-engineer', `Write focused failing tests before implementation. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.`, ['step-3']);
+  add('implementation-coder', `Implement the smallest coherent change satisfying the reviewed spec and tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.`, ['step-4']);
+  add('code-qa-analyst', `Review implementation correctness, test adequacy, isolated service usage, and spec conformance.End with the Structured QA Verdict JSON.`, ['step-5']);
   add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', ['step-6']);
   add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [agents.has('legal-license-advisor') ? 'step-7' : 'step-6']);
   const readinessDependency = agents.has('docs-maintainer')

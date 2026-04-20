@@ -148,15 +148,6 @@ describe('buildRouterPrompt', () => {
   });
 
 
-  it('tells routers to require a 1000-record PubChem Markdown verification proof', () => {
-    const prompt = buildRouterPrompt(agents, 'Build a PubChem downloader that converts records to Markdown');
-
-    expect(prompt).toContain('For PubChem downloader/synchronizer software requests');
-    expect(prompt).toContain('1000 PubChem records');
-    expect(prompt).toContain('converting them to Markdown');
-    expect(prompt).toContain('record count');
-  });
-
   it('tells routers to require isolated test services for software workflows with databases', () => {
     const prompt = buildRouterPrompt(agents, 'Build a web app with Postgres-backed tests');
 

@@ -24,8 +24,6 @@ Code QA can also drive an autonomous repair loop. `code-qa-analyst` ends impleme
 
 Software-development workflows are expected to run verification tests in isolated environments. When a feature needs databases or service dependencies, agents should use Docker-backed project test services (`docker compose`, Testcontainers, devcontainers, or equivalent project scripts), disposable volumes, random/free ports, and test-only credentials. Agents must not point tests at host databases, shared developer services, production endpoints, or main-system state; if Docker or the project test service setup is unavailable, they should report that blocker instead of silently testing against the host.
 
-The PubChem downloader prompt is the canonical software-delivery acceptance example: MAP should not consider that workflow complete until the generated local tool is verified by downloading or fixture-simulating 1000 PubChem records into an isolated output folder, converting them to Markdown, and reporting the exact command, record count, Markdown evidence, and any live-network or rate-limit blocker.
-
 ## Quick Start
 
 Install the `map` command:

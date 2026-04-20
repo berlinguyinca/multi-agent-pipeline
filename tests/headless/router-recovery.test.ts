@@ -55,8 +55,8 @@ describe('routeWithAutonomousRecovery', () => {
     });
 
     const result = await routeWithAutonomousRecovery({
-      resolvedPrompt: 'Build a local PubChem software tool that syncs files and converts records to Markdown',
-      basePrompt: 'Build a local PubChem software tool that syncs files and converts records to Markdown',
+      resolvedPrompt: 'Build a local software tool that syncs files',
+      basePrompt: 'Build a local software tool that syncs files',
       agents,
       agentsDir,
       config: {
@@ -96,9 +96,7 @@ describe('routeWithAutonomousRecovery', () => {
     expect(result.decision.plan.plan[1]).toMatchObject({ id: 'step-2', agent: 'spec-qa-reviewer', dependsOn: ['step-1'] });
     expect(result.decision.plan.plan[3]?.task).toContain('Docker');
     expect(result.decision.plan.plan[3]?.task).toContain('test command');
-    expect(result.decision.plan.plan[3]?.task).toContain('1000 PubChem records');
     expect(result.decision.plan.plan[4]?.task).toContain('Do not return a protocol acknowledgment');
-    expect(result.decision.plan.plan[4]?.task).toContain('converts them to Markdown');
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 

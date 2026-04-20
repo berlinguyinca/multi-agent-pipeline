@@ -408,22 +408,6 @@ describe('software delivery agent bundle', () => {
   });
 
 
-  it('locks the PubChem downloader acceptance example to 1000 records and Markdown conversion', async () => {
-    const agents = await Promise.all([
-      'tdd-engineer',
-      'implementation-coder',
-      'software-delivery',
-      'code-qa-analyst',
-      'adviser',
-    ].map((name) => loadAgentFromDirectory(path.join(AGENTS_DIR, name))));
-
-    for (const agent of agents) {
-      expect(agent.prompt, `${agent.name} missing PubChem acceptance example`).toContain('PubChem Downloader Acceptance Example');
-      expect(agent.prompt, `${agent.name} missing 1000 record proof`).toContain('1000 PubChem records');
-      expect(agent.prompt, `${agent.name} missing Markdown conversion proof`).toContain('Markdown conversion evidence');
-    }
-  });
-
   it('requires software development agents to run tests in isolated Docker-backed service environments when databases are needed', async () => {
     const agents = await Promise.all([
       'tdd-engineer',
