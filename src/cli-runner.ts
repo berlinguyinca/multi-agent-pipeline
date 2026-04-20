@@ -47,7 +47,7 @@ Options:
   --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
   --graph                Write PNG agent-network graphs for all DAG layouts
-  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, or cluster
+  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster, or circular
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m

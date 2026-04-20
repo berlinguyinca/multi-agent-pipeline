@@ -127,7 +127,7 @@ describe('visual report artifacts', () => {
 
 
 
-  it('can force metro and cluster SVG agent-network layouts', async () => {
+  it('can force metro, cluster, and circular SVG agent-network layouts', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-visual-layouts-'));
     const result = {
       version: 2,
@@ -155,6 +155,12 @@ describe('visual report artifacts', () => {
     const clusterGraph = cluster.artifacts.find((artifact) => artifact.id === 'agent-network');
     const clusterSvg = await fs.readFile(path.join(outputDir, clusterGraph!.src), 'utf8');
     expect(clusterSvg).toContain('Agent Clusters');
+
+    const circular = await createReportVisualArtifacts(result, { outputDir, dagLayout: 'circular' });
+    const circularGraph = circular.artifacts.find((artifact) => artifact.id === 'agent-network');
+    const circularSvg = await fs.readFile(path.join(outputDir, circularGraph!.src), 'utf8');
+    expect(circularSvg).toContain('Agent Circular Route');
+    expect(circularSvg).toContain('circular-edge');
   });
 
 
@@ -214,6 +220,7 @@ describe('visual report artifacts', () => {
       'agent-network-metro',
       'agent-network-matrix',
       'agent-network-cluster',
+      'agent-network-circular',
     ]);
     expect(manifest.warnings).toEqual([
       'PNG rendering disabled; wrote SVG graph artifacts instead.',

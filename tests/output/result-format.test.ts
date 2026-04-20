@@ -377,9 +377,10 @@ describe('result formatting', () => {
 
 
 
-  it('can force metro and cluster HTML DAG layouts', () => {
+  it('can force metro, cluster, and circular HTML DAG layouts', () => {
     const metro = formatMapOutput(result, 'html', { dagLayout: 'metro' });
     const cluster = formatMapOutput(result, 'html', { dagLayout: 'cluster' });
+    const circular = formatMapOutput(result, 'html', { dagLayout: 'circular' });
 
     expect(metro).toContain('class="agent-metro-network"');
     expect(metro).toContain('Agent Metro');
@@ -387,6 +388,10 @@ describe('result formatting', () => {
     expect(cluster).toContain('class="agent-cluster-network"');
     expect(cluster).toContain('Agent Clusters');
     expect(cluster).toContain('cluster-chip');
+    expect(circular).toContain('class="agent-circular-network"');
+    expect(circular).toContain('Agent Circular Route');
+    expect(circular).toContain('circular-node');
+    expect(circular).toContain('circular-edge');
   });
 
 

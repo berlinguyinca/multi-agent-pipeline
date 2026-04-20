@@ -281,6 +281,7 @@ function buildAgentNetworkSvg(data: Record<string, unknown>, requestedLayout: DA
   if (resolvedLayout === 'matrix') return buildAgentMatrixSvg(dag);
   if (resolvedLayout === 'metro') return buildAgentMetroSvg(dag);
   if (resolvedLayout === 'cluster') return buildAgentClusterSvg(dag);
+  if (resolvedLayout === 'circular') return buildAgentCircularSvg(dag);
 
   const layout = buildDAGLayout(dag);
   if (layout.layers.length === 0) return null;
@@ -507,6 +508,115 @@ function buildAgentClusterSvg(dag: DAGResult): { svg: string; sourceStepIds: str
   };
 }
 
+function buildAgentCircularSvg(dag: DAGResult): { svg: string; sourceStepIds: string[] } | null {
+  const layout = buildDAGLayout(dag);
+  if (layout.layers.length === 0) return null;
+  const width = 900;
+  const height = 760;
+  const centerX = width / 2;
+  const centerY = height / 2 + 24;
+  const radius = Math.min(290, 130 + dag.nodes.length * 14);
+  const nodeRadius = 30;
+  const orderedNodes = layout.layers.flatMap((layer) => layer.nodes.map((entry) => entry.node));
+  const positions = new Map<string, { x: number; y: number; angle: number }>();
+  orderedNodes.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, orderedNodes.length)) * Math.PI * 2;
+    positions.set(node.id, {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      angle,
+    });
+  });
+  const statusColor = (status: string) => ({
+    completed: '#22c55e',
+    recovered: '#16a34a',
+    failed: '#ef4444',
+    skipped: '#f59e0b',
+    pending: '#94a3b8',
+    running: '#3b82f6',
+  }[status] ?? '#64748b');
+  const edgeColor = (type: string) => ({
+    planned: '#60a5fa',
+    handoff: '#a78bfa',
+    recovery: '#ef4444',
+    spawned: '#f59e0b',
+    feedback: '#06b6d4',
+    review: '#14b8a6',
+    judge: '#7c3aed',
+  }[type] ?? '#60a5fa');
+  const rings = layout.layers.map((layer, index) => {
+    const ringRadius = Math.max(72, radius - (layout.layers.length - 1 - index) * 38);
+    return `<circle cx="${centerX}" cy="${centerY}" r="${ringRadius}" fill="none" stroke="${layer.mode === 'concurrent' ? '#bfdbfe' : '#ddd6fe'}" stroke-width="1.4" stroke-dasharray="6 8" opacity=".75"/>`;
+  }).join('');
+  const arrows = dag.edges.map((edge, index) => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return '';
+    const color = edgeColor(edge.type);
+    const markerId = `circular-arrow-${index}`;
+    const midX = (from.x + to.x) / 2;
+    const midY = (from.y + to.y) / 2;
+    const controlX = centerX + (midX - centerX) * 0.34;
+    const controlY = centerY + (midY - centerY) * 0.34;
+    return [
+      `<defs><marker id="${markerId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker></defs>`,
+      `<path class="circular-edge" d="M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}" fill="none" stroke="${color}" stroke-width="2.7" stroke-linecap="round" opacity=".74" marker-end="url(#${markerId})"><title>${escapeXml(`${edge.from} to ${edge.to} (${edge.type})`)}</title></path>`,
+    ].join('');
+  }).join('');
+  const nodes = orderedNodes.map((node, index) => {
+    const pos = positions.get(node.id);
+    if (!pos) return '';
+    const status = String(node.status ?? 'pending').toLowerCase();
+    const labelAnchor = Math.cos(pos.angle) >= 0 ? 'start' : 'end';
+    const labelX = pos.x + Math.cos(pos.angle) * 43;
+    const labelY = pos.y + Math.sin(pos.angle) * 43;
+    const consensus = node.consensus ? `<text x="${labelX}" y="${labelY + 25}" font-size="9" text-anchor="${labelAnchor}" fill="#475569">${escapeXml(formatConsensusHeadline(node.consensus))}</text>` : '';
+    return [
+      `<g class="circular-node" transform="translate(${pos.x} ${pos.y})">`,
+      `<circle r="${nodeRadius + 7}" fill="#ffffff" opacity=".84"/>`,
+      `<circle r="${nodeRadius}" fill="#ffffff" stroke="${statusColor(status)}" stroke-width="5"/>`,
+      `<text y="-3" font-size="10" text-anchor="middle" font-weight="800" fill="#1e293b">${escapeXml(String(index + 1))}</text>`,
+      `<text y="11" font-size="8.5" text-anchor="middle" fill="#64748b">${escapeXml(truncate(node.id, 10))}</text>`,
+      `</g>`,
+      `<text x="${labelX}" y="${labelY}" font-size="11" text-anchor="${labelAnchor}" font-weight="800" fill="#1e293b">${escapeXml(truncate(node.agent || 'unknown', 24))}</text>`,
+      `<text x="${labelX}" y="${labelY + 13}" font-size="9" text-anchor="${labelAnchor}" fill="#64748b">${escapeXml(`${node.id} | ${status}`)}</text>`,
+      consensus,
+    ].join('');
+  }).join('');
+  const legend = [
+    ['planned', '#60a5fa'],
+    ['feedback', '#06b6d4'],
+    ['review', '#14b8a6'],
+    ['judge', '#7c3aed'],
+    ['recovery', '#ef4444'],
+  ].map(([label, color], index) =>
+    `<g transform="translate(${24 + index * 116} ${height - 42})"><line x1="0" y1="0" x2="26" y2="0" stroke="${color}" stroke-width="4" stroke-linecap="round"/><text x="34" y="4" font-size="10" fill="#475569">${label}</text></g>`,
+  ).join('');
+  return {
+    sourceStepIds: dag.nodes.map((node) => node.id).filter(Boolean),
+    svg: svgShell(width, height, 'Agent Circular Route', `
+      <rect width="100%" height="100%" rx="24" fill="#f8fbff"/>
+      <circle cx="${centerX}" cy="${centerY}" r="${radius + 62}" fill="url(#circular-bg)" opacity=".82"/>
+      <defs>
+        <radialGradient id="circular-bg" cx="50%" cy="50%" r="55%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="58%" stop-color="#eff6ff"/>
+          <stop offset="100%" stop-color="#f5f3ff"/>
+        </radialGradient>
+      </defs>
+      <text x="24" y="30" font-size="18" font-weight="800" fill="#1f3658">Agent Circular Route</text>
+      <text x="24" y="50" font-size="11" fill="#64748b">Circular mode: dependency routes wrap around the agent ring; colors distinguish review, feedback, and recovery paths.</text>
+      ${rings}
+      <circle cx="${centerX}" cy="${centerY}" r="56" fill="#ffffff" stroke="#bfdbfe" stroke-width="2"/>
+      <text x="${centerX}" y="${centerY - 4}" text-anchor="middle" font-size="12" font-weight="800" fill="#1f3658">MAP</text>
+      <text x="${centerX}" y="${centerY + 14}" text-anchor="middle" font-size="10" fill="#64748b">${dag.nodes.length} agents</text>
+      ${arrows}
+      ${nodes}
+      ${legend}
+    `),
+  };
+}
+
 
 function buildUsageCommonnessSvg(data: Record<string, unknown>): { svg: string; sourceStepIds: string[]; producerStepId?: string; producerAgent?: string } | null {
   const source = findStepOutput(data, (step, output) => /Usage Commonness Ranking/i.test(output));
@@ -605,13 +715,16 @@ function buildRenderableDag(data: Record<string, unknown>): DAGResult {
         ...(consensus ? { consensus } : {}),
       };
     }),
-    edges: edges.map((edge) => ({
-      from: String(edge['from'] ?? ''),
-      to: String(edge['to'] ?? ''),
-      type: edge['type'] === 'handoff' || edge['type'] === 'recovery' || edge['type'] === 'spawned'
-        ? edge['type']
-        : 'planned',
-    })),
+    edges: edges.map((edge) => {
+      const type = String(edge['type'] ?? 'planned');
+      return {
+        from: String(edge['from'] ?? ''),
+        to: String(edge['to'] ?? ''),
+        type: type === 'handoff' || type === 'recovery' || type === 'spawned' || type === 'feedback' || type === 'review' || type === 'judge'
+          ? type
+          : 'planned',
+      };
+    }),
   };
 }
 
