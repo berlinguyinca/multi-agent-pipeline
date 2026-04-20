@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { DEFAULT_CROSS_REVIEW_CONFIG } from '../../src/config/defaults.js';
 import { executeDAG } from '../../src/orchestrator/orchestrator.js';
 import type { DAGPlan } from '../../src/types/dag.js';
 import type { AgentDefinition } from '../../src/types/agent-definition.js';
@@ -23,6 +24,18 @@ function mockAdapter(output: string): AgentAdapter {
       yield output;
     },
   };
+}
+
+function createQueueAdapter(outputs: string[]) {
+  return vi.fn((): AgentAdapter => ({
+    type: 'ollama',
+    model: 'test-model',
+    detect: vi.fn(),
+    cancel: vi.fn(),
+    async *run() {
+      yield outputs.shift() ?? '';
+    },
+  }));
 }
 
 function makeAgent(name: string, outputType: 'answer' | 'data' | 'files' = 'answer'): AgentDefinition {
@@ -2410,5 +2423,85 @@ describe('executeDAG', () => {
     expect(result.success).toBe(true);
     expect(result.steps[0].output).toBe('Final synthesized answer');
     expect(runCount).toBe(2);
+  });
+
+  it('routes file-output disagreement through visible review, judge, and revision nodes without user blocking', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-1'] },
+      ],
+    };
+    const implementationCoder = makeAgent('implementation-coder', 'files');
+    const codeQaAnalyst = makeAgent('code-qa-analyst', 'answer');
+    const releaseReadinessReviewer = makeAgent('release-readiness-reviewer', 'answer');
+    implementationCoder.adapter = 'ollama';
+    implementationCoder.model = 'implementation-model';
+    codeQaAnalyst.adapter = 'ollama';
+    codeQaAnalyst.model = 'reviewer-model';
+    releaseReadinessReviewer.adapter = 'ollama';
+    releaseReadinessReviewer.model = 'judge-model';
+    const agents = new Map([
+      ['implementation-coder', implementationCoder],
+      ['code-qa-analyst', codeQaAnalyst],
+      ['release-readiness-reviewer', releaseReadinessReviewer],
+    ]);
+    const createAdapter = createQueueAdapter([
+      'source output',
+      'review output: needs revision',
+      '{"decision":"revise","rationale":"file output needs a regression test","remediation":["add regression test"],"residualRisks":["coverage gap"]}',
+      'revision output',
+      'readiness output',
+      'readiness review output',
+      '{"decision":"accept","rationale":"readiness accepted","remediation":[],"residualRisks":[]}',
+    ]);
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        crossReview: { ...DEFAULT_CROSS_REVIEW_CONFIG, maxRounds: 2 },
+        localModelConcurrency: 1,
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      'step-1',
+      'step-1-peer-review-1',
+      'step-1-judge-1',
+      'step-1-revision-1',
+      'step-2',
+    ]));
+    expect(result.steps.find((step) => step.id === 'step-1-peer-review-1')).toMatchObject({
+      edgeType: 'review',
+      parentStepId: 'step-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-1-judge-1')).toMatchObject({
+      edgeType: 'judge',
+      parentStepId: 'step-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-1-revision-1')).toMatchObject({
+      edgeType: 'feedback',
+      parentStepId: 'step-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-1')?.crossReview).toMatchObject({
+      status: 'revision-requested',
+      judgeDecision: 'revise',
+      revisionStepId: 'step-1-revision-1',
+      reviewStepId: 'step-1-peer-review-1',
+      judgeStepId: 'step-1-judge-1',
+      residualRisks: ['coverage gap'],
+      budgetExhausted: false,
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toContain('step-1-revision-1');
+    expect(createAdapter).toHaveBeenCalledTimes(7);
   });
 });

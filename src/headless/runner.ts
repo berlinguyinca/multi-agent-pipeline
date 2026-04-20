@@ -1344,6 +1344,7 @@ export async function runHeadlessV2(
       adapterDefaults: config.adapterDefaults,
       agentConsensus: config.agentConsensus,
       evidence: config.evidence,
+      crossReview: config.crossReview,
       localModelConcurrency: ollamaConcurrency.maxParallel,
       workingDir: workspaceDir,
       knowledgeCwd: workspaceDir,

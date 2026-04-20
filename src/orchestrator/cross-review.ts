@@ -18,6 +18,8 @@ export interface CrossReviewJudgeDecision {
 
 const PLANNING_AGENTS = new Set(['adviser', 'spec-writer', 'spec-qa-reviewer']);
 const CROSS_REVIEW_HELPER_ID_PATTERN = /-(peer-review|judge|revision)-\d+$/;
+const REVIEWER_AGENT_PREFERENCES = ['code-qa-analyst', 'release-readiness-reviewer', 'spec-qa-reviewer'];
+const JUDGE_AGENT_PREFERENCES = ['release-readiness-reviewer', 'adviser', 'code-qa-analyst', 'spec-qa-reviewer'];
 const VALID_JUDGE_DECISIONS = new Set<CrossReviewJudgeDecision['decision']>([
   'accept',
   'revise',
@@ -70,6 +72,21 @@ export function shouldCrossReviewStep(options: {
 
 export function isCrossReviewHelperStep(step: Pick<DAGStep, 'id'>): boolean {
   return CROSS_REVIEW_HELPER_ID_PATTERN.test(step.id);
+}
+
+export function selectCrossReviewReviewerAgent(
+  sourceAgent: string,
+  agents: Map<string, AgentDefinition>,
+): string | null {
+  return selectPreferredAgent(REVIEWER_AGENT_PREFERENCES, sourceAgent, agents);
+}
+
+export function selectCrossReviewJudgeAgent(
+  sourceAgent: string,
+  reviewerAgent: string,
+  agents: Map<string, AgentDefinition>,
+): string {
+  return selectPreferredAgent(JUDGE_AGENT_PREFERENCES, sourceAgent, agents) ?? reviewerAgent;
 }
 
 export function buildCrossReviewReviewStep(options: {
@@ -272,4 +289,12 @@ function degradedDecision(rationale: string): CrossReviewJudgeDecision {
     remediation: [],
     residualRisks: [],
   };
+}
+
+function selectPreferredAgent(
+  preferences: string[],
+  sourceAgent: string,
+  agents: Map<string, AgentDefinition>,
+): string | null {
+  return preferences.find((candidate) => candidate !== sourceAgent && agents.has(candidate)) ?? null;
 }
