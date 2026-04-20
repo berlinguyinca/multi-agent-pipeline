@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add autonomous cross-model review loops for high-impact MAP planning, routing, release, and file-changing software-delivery tasks.
+**Goal:** Add autonomous cross-model review loops for high-impact MAP planning, release, security-sensitive, and file-changing software-delivery tasks while leaving routing protected by router consensus.
 
 **Architecture:** Add a small typed cross-review surface, a gate planner, and a loop scheduler that reuses existing DAG mutation patterns. Cross-review creates visible peer-review, judge, and revision nodes, never asks the user to choose between model opinions, and records a decision ledger in step results plus final output metadata.
 
@@ -54,13 +54,13 @@ it('enables autonomous cross-review for high-impact gates by default', () => {
   expect(DEFAULT_CONFIG.crossReview.judge.preferSeparatePanel).toBe(true);
   expect(DEFAULT_CONFIG.crossReview.gates).toMatchObject({
     planning: true,
-    routing: true,
-    architecture: true,
-    apiContract: true,
+    routing: false,
+    architecture: false,
+    apiContract: false,
     fileOutputs: true,
     security: true,
     releaseReadiness: true,
-    verificationFailure: true,
+    verificationFailure: false,
   });
 });
 ```
@@ -144,7 +144,7 @@ export interface CrossReviewLedger {
   status: 'pending' | 'accepted' | 'revision-requested' | 'revised' | 'budget-exhausted' | 'degraded';
   participants: CrossReviewParticipant[];
   critiqueSummary?: string;
-  judgeDecision?: 'accept' | 'revise' | 'run-verification' | 'combine' | 'degraded';
+  judgeDecision?: 'accept' | 'revise' | 'combine' | 'degraded';
   judgeRationale?: string;
   requestedRemediation?: string[];
   reviewStepId?: string;
@@ -317,13 +317,13 @@ export const DEFAULT_CROSS_REVIEW_CONFIG: CrossReviewConfig = {
   },
   gates: {
     planning: true,
-    routing: true,
-    architecture: true,
-    apiContract: true,
+    routing: false,
+    architecture: false,
+    apiContract: false,
     fileOutputs: true,
     security: true,
     releaseReadiness: true,
-    verificationFailure: true,
+    verificationFailure: false,
   },
   roleModels: {},
 };
@@ -837,7 +837,7 @@ export interface CrossReviewDecision {
 }
 
 export interface CrossReviewJudgeDecision {
-  decision: 'accept' | 'revise' | 'run-verification' | 'combine' | 'degraded';
+  decision: 'accept' | 'revise' | 'combine' | 'degraded';
   rationale: string;
   remediation: string[];
   residualRisks: string[];
@@ -922,7 +922,7 @@ export function buildCrossReviewJudgeStep(options: {
       'Synthesize the source output and peer critique into the next autonomous action.',
       'Never ask the user to choose between models. Prefer a concrete remediation path when risks are actionable.',
       'Return ONLY JSON with this shape:',
-      '{"decision":"accept|revise|run-verification|combine","rationale":"brief reason","remediation":["specific action"],"residualRisks":["risk"]}',
+      '{"decision":"accept|revise|combine","rationale":"brief reason","remediation":["specific action"],"residualRisks":["risk"]}',
       `Cross-review gate: ${options.gate}`,
       `Round: ${options.round}`,
       `Source step: ${options.step.id}`,
@@ -955,7 +955,7 @@ export function buildCrossReviewRevisionStep(options: {
 export function parseCrossReviewJudgeDecision(output: string): CrossReviewJudgeDecision {
   const parsed = parseFirstJsonObject(output);
   const rawDecision = parsed?.['decision'];
-  const decision = rawDecision === 'accept' || rawDecision === 'revise' || rawDecision === 'run-verification' || rawDecision === 'combine'
+  const decision = rawDecision === 'accept' || rawDecision === 'revise' || rawDecision === 'combine'
     ? rawDecision
     : 'degraded';
   return {
@@ -1706,7 +1706,7 @@ In `README.md`, add this section near existing consensus and judge-panel documen
 
 MAP enables cross-model review for high-impact software-delivery gates by default. A proposing model can plan or change files, a different model critiques the result, and a hybrid judge chooses the next autonomous action. Disagreement does not ask the user to pick a model opinion; it creates bounded remediation work and records the decision in the run output.
 
-Default high-impact gates include routing/planning decisions, spec QA, architecture or API-contract decisions, file-changing agents, security-sensitive outputs, release-readiness review, and verification-failure recovery. The default remediation budget is two judge-steered rounds, capped at five.
+Default runtime-enforced high-impact gates include planning/spec/adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness review. Routing remains protected by router consensus; architecture, API-contract, and verification-failure cross-review gates are reserved for future expansion and default off. The default remediation budget is two judge-steered rounds, capped at five.
 
 ```yaml
 crossReview:
@@ -1719,13 +1719,13 @@ crossReview:
     models: []
   gates:
     planning: true
-    routing: true
-    architecture: true
-    apiContract: true
+    routing: false
+    architecture: false
+    apiContract: false
     fileOutputs: true
     security: true
     releaseReadiness: true
-    verificationFailure: true
+    verificationFailure: false
 ```
 
 Use `--disable-cross-review` for a single run, `--cross-review-max-rounds <n>` to tune remediation depth, and `--cross-review-judge-models <csv>` to choose hybrid judges such as `ollama/gemma4:26b,ollama/qwen3.6`.
@@ -1746,7 +1746,7 @@ In the README CLI options table, add:
 Add this bullet under repeatability and anti-hallucination controls in `AGENTS.md`:
 
 ```markdown
-7. **Autonomous cross-model review** runs on high-impact planning, routing, release, and file-changing software-delivery gates by default. Model disagreement must not ask the user to pick a winner; MAP should send critique through hybrid judge arbitration, create bounded remediation work, run verification, and report residual risk when the budget is exhausted.
+7. **Autonomous cross-model review** runs on high-impact planning, release, security-sensitive, and file-changing software-delivery gates by default. Model disagreement must not ask the user to pick a winner; MAP should send critique through hybrid judge arbitration, create bounded remediation work, request verification through remediation when needed, and report residual risk when the budget is exhausted. Routing remains protected by router consensus unless cross-review routing is implemented.
 ```
 
 Add this sentence near the documentation rule:

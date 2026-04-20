@@ -6,7 +6,7 @@ MAP should add a **cross-review DAG layer** that uses different models for diffe
 
 This feature covers both major MAP decision layers:
 
-1. **Planning, routing, and release decisions** — route selection, DAG plans, spec QA, adviser replans, architecture/API choices, security-sensitive decisions, release-readiness review, and final outcome evaluation.
+1. **Planning and release decisions** — DAG plans, spec QA, adviser replans, security-sensitive decisions, release-readiness review, and final outcome evaluation. Routing remains covered by router consensus in this implementation.
 2. **File-changing software-delivery tasks** — TDD, implementation, build fixes, refactors, docs updates, and file-output consensus selection.
 
 The selected design is **Approach B: Cross-review DAG layer**. It reuses existing MAP primitives such as router consensus, agent-output consensus, file-output worktree consensus, evidence feedback loops, judge panels, graph rendering, verbose reporting, and JSON/YAML result metadata.
@@ -18,7 +18,7 @@ The selected design is **Approach B: Cross-review DAG layer**. It reuses existin
 - Keep MAP autonomous: do not ask users to pick between model opinions.
 - Prefer a best verified working solution over terminal failure when recovery paths remain.
 - Preserve transparent diagnostics about which models proposed, reviewed, judged, revised, and verified each decision.
-- Apply the feature to both planning/routing/release decisions and file-changing delivery tasks.
+- Apply the feature to both planning/release decisions and file-changing delivery tasks.
 - Keep runtime bounded with a default remediation budget.
 
 ## Non-goals
@@ -66,7 +66,7 @@ A task-suited model creates the initial artifact. Examples:
 
 A different model reviews the artifact using a structured rubric. The rubric depends on the step type:
 
-- Planning/routing: missing agents, wrong dependencies, ignored constraints, excessive complexity.
+- Planning/release: missing agents, wrong dependencies, ignored constraints, excessive complexity. Routing remains protected by router consensus until cross-review routing is implemented.
 - Architecture/API: compatibility, boundary clarity, migration risk, testability.
 - Code/files: correctness, maintainability, spec conformance, test adequacy, build risk.
 - Security: trust boundaries, data exposure, unsafe operations.
@@ -127,13 +127,13 @@ crossReview:
     models: []
   gates:
     planning: true
-    routing: true
-    architecture: true
-    apiContract: true
+    routing: false
+    architecture: false
+    apiContract: false
     fileOutputs: true
     security: true
     releaseReadiness: true
-    verificationFailure: true
+    verificationFailure: false
   roleModels:
     implementation:
       proposer: ollama/qwen3.6
