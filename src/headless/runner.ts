@@ -1348,7 +1348,7 @@ export async function runHeadlessV2(
       localModelConcurrency: ollamaConcurrency.maxParallel,
       workingDir: workspaceDir,
       knowledgeCwd: workspaceDir,
-      workspaceInstruction: buildWorkspaceInstruction(workspaceDir, outputDir),
+      workspaceInstruction: buildWorkspaceInstruction(workspaceDir, outputDir, baseResolvedPrompt),
       adaptiveReplanning: {
         enabled: true,
         refreshAgents: () => loadEnabledAgentRegistry(agentsDir, config),
@@ -1970,17 +1970,46 @@ function appendWorkspaceContext(prompt: string, workspaceDir: string, outputDir:
     `Report/output directory: ${outputDir}`,
     'Agents must inspect and modify the workspace directory when implementing or extending existing code/data.',
     'Prefer reading existing source files, tests, configuration, and collected artifacts before proposing or applying changes.',
+    'When creating or modifying relative paths, resolve them under the workspace directory.',
+    ...formatWorkspacePathHints(prompt, workspaceDir),
+    'Do not write requested workspace files into the report/output directory unless the user explicitly asks for report artifacts.',
     'Do not treat the report/output directory as the target application unless it is the same path as the workspace directory.',
   ].join('\n');
 }
 
-function buildWorkspaceInstruction(workspaceDir: string, outputDir: string): string {
+function buildWorkspaceInstruction(workspaceDir: string, outputDir: string, prompt = ''): string {
   return [
     `Workspace directory: ${workspaceDir}`,
     `Report/output directory: ${outputDir}`,
     'Inspect existing workspace sources, tests, configuration, and collected data before creating or modifying files.',
     'Integrate changes into the existing workspace instead of generating isolated code unless the task explicitly asks for a separate artifact.',
+    'When creating or modifying relative paths, resolve them under the workspace directory.',
+    ...formatWorkspacePathHints(prompt, workspaceDir),
+    'Do not write requested workspace files into the report/output directory unless the user explicitly asks for report artifacts.',
   ].join('\n');
+}
+
+function formatWorkspacePathHints(prompt: string, workspaceDir: string): string[] {
+  const paths = extractWorkspaceRelativePaths(prompt);
+  if (paths.length === 0) return [];
+  return [
+    'Workspace-relative path examples from the request:',
+    ...paths.map((entry) => `- ${entry} => ${path.join(workspaceDir, entry)}`),
+  ];
+}
+
+function extractWorkspaceRelativePaths(prompt: string): string[] {
+  const matches = prompt.match(/(?:^|[\s`'"])((?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]+)(?=$|[\s`'".,;:)])/g) ?? [];
+  const paths = matches
+    .map((match) => match.trim().replace(/^[`'"]|[`'".,;:)]+$/g, ''))
+    .filter((entry) =>
+      entry.includes('/') &&
+      !entry.startsWith('/') &&
+      !entry.startsWith('../') &&
+      !entry.includes('://') &&
+      !entry.split('/').some((segment) => segment === '..' || segment === ''),
+    );
+  return [...new Set(paths)].slice(0, 8);
 }
 
 async function loadEnabledAgentRegistry(
