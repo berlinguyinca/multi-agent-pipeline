@@ -295,8 +295,11 @@ Commands:
       const refined = answers.length > 0
         ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers })
         : questioned;
+      const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
       if (silent || !process.stdin.isTTY) {
-        process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}\n` : formatRefineQuestions(refined));
+        process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}
+` : `${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
+`);
         process.exit(0);
       }
 
@@ -306,12 +309,13 @@ Commands:
         return;
       }
       if (choice === 'save') {
-        const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
-        process.stdout.write(`${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}\n`);
+        process.stdout.write(`${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
+`);
         process.exit(0);
       }
 
-      process.stdout.write(formatRefineQuestions(refined));
+      process.stdout.write(`${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
+`);
       process.exit(0);
     };
 

@@ -753,6 +753,9 @@ describe('runCli', () => {
     ).rejects.toThrow('process.exit:0');
 
     expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).toHaveBeenCalledWith(expect.stringMatching(/pubchem$/), expect.objectContaining({
+      refinedPrompt: expect.stringContaining('Build a PubChem sync tool with markdown conversion'),
+    }));
     expect(writePdfArtifactMock).not.toHaveBeenCalled();
     expect(writeGraphPngArtifactsMock).not.toHaveBeenCalled();
     const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
@@ -803,6 +806,7 @@ describe('runCli', () => {
     ).rejects.toThrow('process.exit:0');
 
     expect(runHeadlessV2Mock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).toHaveBeenCalled();
     const output = String(stdoutSpy.mock.calls.at(-1)?.[0] ?? '');
     expect(output).toContain('"mode": "refine"');
     expect(output).toContain('"questionsAsked"');
@@ -858,7 +862,9 @@ describe('runCli', () => {
       ]),
     ).rejects.toThrow('process.exit:0');
 
-    expect(saveRefineHandoffMock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).toHaveBeenCalledWith(expect.stringMatching(/pubchem$/), expect.objectContaining({
+      refinedPrompt: expect.stringContaining('Use FTP bulk downloads'),
+    }));
     expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
       outputDir: 'pubchem',
       prompt: expect.stringContaining('Use FTP bulk downloads'),
