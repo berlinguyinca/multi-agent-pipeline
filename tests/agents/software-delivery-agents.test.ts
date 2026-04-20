@@ -308,6 +308,20 @@ describe('software delivery agent bundle', () => {
     expect(tdd.prompt).toContain('Do not return an empty response');
   });
 
+
+  it('requires every file-output agent to have editing tools and a file-output contract', async () => {
+    const agents = await loadAgentRegistry(AGENTS_DIR);
+    const fileAgents = [...agents.values()].filter((agent) => agent.output.type === 'files');
+
+    expect(fileAgents.length).toBeGreaterThan(0);
+    for (const agent of fileAgents) {
+      expect(agent.tools.some((tool) => tool.type === 'builtin' && tool.name === 'shell'), `${agent.name} missing shell tool`).toBe(true);
+      expect(agent.prompt, `${agent.name} missing file-output contract`).toContain('File-Output Contract');
+      expect(agent.prompt, `${agent.name} missing workspace edit instruction`).toContain('create or modify the requested files in the workspace');
+      expect(agent.prompt, `${agent.name} missing verification instruction`).toContain('verification command/result');
+    }
+  });
+
   it('requires implementation file-output agents to edit workspace files and report verification', async () => {
     const tdd = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'tdd-engineer'));
     const delivery = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'software-delivery'));

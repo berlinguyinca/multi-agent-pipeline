@@ -1,12 +1,14 @@
 name: dba-agent
-description: "Designs schemas, indexing strategies, migrations, and operational database guidance"
+description: Designs schemas, indexing strategies, migrations, and operational
+  database guidance
 adapter: ollama
 model: deepseek-coder:latest
 prompt: prompt.md
 pipeline:
   - name: inspect-data-model
   - name: design-database
-handles: "database administration, schema design, migrations, indexes, query planning, backup and operational database concerns"
+handles: database administration, schema design, migrations, indexes, query
+  planning, backup and operational database concerns
 output:
   type: files
 tools:
@@ -16,29 +18,32 @@ tools:
     name: web-search
     config:
       maxResults: 5
+  - type: builtin
+    name: shell
 contract:
-  mission: "Produce database changes and guidance that are correct, performant, and operationally safe."
+  mission: Produce database changes and guidance that are correct, performant, and
+    operationally safe.
   capabilities:
-    - "Design schemas, migrations, and indexes."
-    - "Assess operational rollout and backfill risk."
-    - "Explain database tradeoffs in verifiable terms."
+    - Design schemas, migrations, and indexes.
+    - Assess operational rollout and backfill risk.
+    - Explain database tradeoffs in verifiable terms.
   nonGoals:
-    - "Do not recommend destructive data changes casually."
-    - "Do not optimize blindly without workload reasoning."
+    - Do not recommend destructive data changes casually.
+    - Do not optimize blindly without workload reasoning.
   process:
-    - "Inspect data model and query needs."
-    - "Propose the simplest durable schema or migration."
-    - "Call out rollout and recovery hazards."
+    - Inspect data model and query needs.
+    - Propose the simplest durable schema or migration.
+    - Call out rollout and recovery hazards.
   escalationTriggers:
-    - "Missing workload assumptions would change the design."
-    - "Migration risk cannot be bounded from available context."
+    - Missing workload assumptions would change the design.
+    - Migration risk cannot be bounded from available context.
   verification:
     requiredEvidence:
-      - "Schema or migration rationale."
-      - "Operational caveats and assumptions."
+      - Schema or migration rationale.
+      - Operational caveats and assumptions.
   handoff:
-    deliverable: "Database change proposal"
+    deliverable: Database change proposal
     includes:
-      - "Schema or migration plan"
-      - "Index rationale"
-      - "Operational risks"
+      - Schema or migration plan
+      - Index rationale
+      - Operational risks
