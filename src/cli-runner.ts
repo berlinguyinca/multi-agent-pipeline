@@ -127,9 +127,20 @@ Commands:
     if (subcommand.subArgs.includes('--run')) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
       const { runHeadlessV2 } = await import('./headless/runner.js');
-      const roughPrompt = subcommand.subArgs.filter((arg) => arg !== '--run' && !arg.startsWith('--')).join(' ');
+      const roughPrompt = extractPrompt(subcommand.subArgs);
+      const crossReviewEnabled = hasFlag(subcommand.subArgs, '--disable-cross-review') ? false : undefined;
+      const crossReviewMaxRounds = parsePositiveIntegerFlag(
+        extractFlag(subcommand.subArgs, '--cross-review-max-rounds'),
+        '--cross-review-max-rounds',
+      );
+      const crossReviewJudgeModels = parseCsvFlag(subcommand.subArgs, '--cross-review-judge-models');
       const refined = refinePromptHeadless({ prompt: roughPrompt, headless: true });
-      const result = await runHeadlessV2({ prompt: refined.refinedPrompt });
+      const result = await runHeadlessV2({
+        prompt: refined.refinedPrompt,
+        crossReviewEnabled,
+        crossReviewMaxRounds,
+        crossReviewJudgeModels,
+      });
       process.stdout.write(formatMapOutput(result, 'json'));
     } else {
       const { handleRefineCommand } = await import('./cli/refine-commands.js');

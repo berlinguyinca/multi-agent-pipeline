@@ -160,6 +160,30 @@ describe('runCli', () => {
     }));
   });
 
+  it('passes cross-review overrides through refine --run smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli([
+        'refine',
+        '--run',
+        '--disable-cross-review',
+        '--cross-review-max-rounds',
+        '4',
+        '--cross-review-judge-models',
+        'ollama/gemma4:26b,ollama/qwen3.6',
+        'Build something useful with enough detail',
+      ]),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      crossReviewEnabled: false,
+      crossReviewMaxRounds: 4,
+      crossReviewJudgeModels: ['ollama/gemma4:26b', 'ollama/qwen3.6'],
+    }));
+    expect(runHeadlessV2Mock.mock.calls[0]?.[0].prompt).not.toContain('ollama/gemma4:26b');
+  });
+
   it('pretty-prints default headless smart routing JSON to stdout', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 
