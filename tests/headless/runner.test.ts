@@ -918,7 +918,14 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
         void options;
         if (prompt.includes('You are a task router')) {
-          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Research the task","dependsOn":[]}]}';
+          yield JSON.stringify({
+            kind: 'plan',
+            plan: [{ id: 'step-1', agent: 'researcher', task: 'Research the task', dependsOn: [] }],
+            rationale: {
+              selectedAgents: [{ agent: 'researcher', reason: 'researcher can gather evidence' }],
+              rejectedAgents: [{ agent: 'writer', reason: 'writer is not needed for research-only output' }],
+            },
+          });
           return;
         }
         if (prompt.includes('Fact-check the researcher report')) {
@@ -932,10 +939,12 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       cancel() {}
     }
 
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const result = await runHeadlessV2(
       {
         prompt: 'Research this task',
         outputDir,
+        verbose: true,
         routerModel: 'qwen3:latest',
         routerConsensusModels: ['qwen3:latest', 'llama3.1:8b'],
         ollama: {
@@ -991,6 +1000,11 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     );
 
     expect(result.success).toBe(true);
+    const verboseOutput = stderrWrite.mock.calls.map((call) => String(call[0])).join('');
+    expect(verboseOutput).toContain('Agent decision');
+    expect(verboseOutput).toContain('selected researcher');
+    expect(verboseOutput).toContain('skipped writer');
+    stderrWrite.mockRestore();
     expect(probeCalls[0]).toMatchObject({
       host: 'http://127.0.0.1:11435',
       contextLength: 64000,
@@ -1021,6 +1035,171 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     );
 
     await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
+  it('autonomously creates a suggested agent with consensus and reroutes instead of failing no-match', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-discovery-output-'));
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-discovery-agents-'));
+    await fs.mkdir(path.join(agentsDir, 'researcher'), { recursive: true });
+    await fs.writeFile(path.join(agentsDir, 'researcher', 'agent.yaml'), [
+      'name: researcher',
+      'description: "General researcher"',
+      'adapter: ollama',
+      'model: qwen2.5:7b',
+      'prompt: prompt.md',
+      'pipeline:',
+      '  - name: research',
+      'handles: "general research"',
+      'output:',
+      '  type: answer',
+      'tools: []',
+      '',
+    ].join('\n'));
+    await fs.writeFile(path.join(agentsDir, 'researcher', 'prompt.md'), 'You research.');
+
+    const pulledModels: string[] = [];
+    let routerCalls = 0;
+    const candidateOutputs = [
+      `---AGENT_YAML---
+name: invoice-generalist
+description: "Broad invoice helper"
+adapter: ollama
+model: placeholder
+prompt: prompt.md
+pipeline:
+  - name: analyze
+handles: "invoice helper"
+output:
+  type: answer
+tools: []
+---PROMPT_MD---
+# Invoice Generalist
+Do not use emoji. Use a professional engineering tone.
+Generate code and text output in a human-readable form.
+Exceptions are allowed only for explicitly requested binary or media artifacts.`,
+      `---AGENT_YAML---
+name: invoice-analysis-specialist
+description: "Analyze invoice anomalies"
+adapter: ollama
+model: placeholder
+prompt: prompt.md
+pipeline:
+  - name: analyze
+handles: "invoice anomaly analysis"
+output:
+  type: answer
+tools: []
+---PROMPT_MD---
+# Invoice Analysis Specialist
+Do not use emoji. Use a professional engineering tone.
+Generate code and text output in a human-readable form.
+Exceptions are allowed only for explicitly requested binary or media artifacts.`,
+      'bad candidate',
+    ];
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a task router')) {
+          routerCalls += 1;
+          if (routerCalls === 1) {
+            yield JSON.stringify({
+              kind: 'no-match',
+              reason: 'No enabled invoice specialist exists.',
+              suggestedAgent: {
+                name: 'invoice-analysis-specialist',
+                description: 'Analyze invoice anomalies and vendor payment risks',
+              },
+            });
+            return;
+          }
+          yield JSON.stringify({
+            kind: 'plan',
+            plan: [{ id: 'step-1', agent: 'invoice-analysis-specialist', task: 'Analyze invoice anomalies', dependsOn: [] }],
+          });
+          return;
+        }
+        if (prompt.includes('Generate two files')) {
+          yield candidateOutputs.shift() ?? 'bad candidate';
+          return;
+        }
+        yield 'Invoice anomaly report';
+      }
+
+      cancel() {}
+    }
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const result = await runHeadlessV2(
+      { prompt: 'Analyze invoice anomalies', outputDir, verbose: true },
+      {
+        agentsDir,
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          ollama: { host: 'http://localhost:11434', contextLength: 32000, numParallel: 1, maxLoadedModels: 1 },
+          router: {
+            adapter: 'ollama',
+            model: 'qwen2.5:7b',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+            consensus: { enabled: false, models: [], scope: 'router', mode: 'majority' },
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: { adapter: 'ollama', model: 'qwen2.5:7b' },
+          agentConsensus: {
+            enabled: false,
+            runs: 3,
+            outputTypes: ['answer'],
+            minSimilarity: 0.35,
+            perAgent: {},
+            fileOutputs: { enabled: false, runs: 3, isolation: 'git-worktree', keepWorktreesOnFailure: true, verificationCommands: [], selection: 'best-passing-minimal-diff' },
+          },
+          evidence: { enabled: true, mode: 'strict', requiredAgents: [], currentClaimMaxSourceAgeDays: 730, freshnessProfiles: {}, requireRetrievedAtForWebClaims: true, blockUnsupportedCurrentClaims: true, remediationMaxRetries: 0 },
+          security: { enabled: false, maxRemediationRetries: 0, adapter: 'ollama', model: 'qwen2.5:7b', staticPatternsEnabled: false, llmReviewEnabled: false },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: ['qwen2.5:7b'] },
+          hermes: { installed: true },
+          metadata: { installed: true },
+          huggingface: { installed: true },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+        ensureOllamaModelReadyFn: async (model) => {
+          pulledModels.push(model);
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.agent).toBe('invoice-analysis-specialist');
+    expect(result.agentDiscovery?.[0]).toMatchObject({
+      status: 'created',
+      suggestedAgent: { name: 'invoice-analysis-specialist' },
+      consensus: { selectedCandidate: 2 },
+    });
+    expect(pulledModels).toEqual(['qwen2.5:7b']);
+    const verboseLog = stderrWrite.mock.calls.map((call) => String(call[0])).join('');
+    expect(verboseLog).toContain('Router recovery attempt 1/3');
+    expect(verboseLog).toContain('Preparing Ollama model "qwen2.5:7b"');
+    expect(verboseLog).toContain('sent the original prompt back through the router');
+    stderrWrite.mockRestore();
+    expect(await fs.readdir(agentsDir)).toEqual(expect.arrayContaining(['invoice-analysis-specialist']));
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+    await fs.rm(agentsDir, { recursive: true, force: true });
   });
 
   it('runs v2 agents in workspaceDir while keeping reports in outputDir', async () => {
@@ -1299,10 +1478,12 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       cancel() {}
     }
 
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const result = await runHeadlessV2(
       {
         prompt: 'Research this task',
         outputDir,
+        verbose: true,
         compareAgents: ['researcher'],
         semanticJudge: true,
       },

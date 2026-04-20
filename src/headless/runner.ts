@@ -8,7 +8,6 @@ import { createPipelineContext } from '../pipeline/context.js';
 import type { PipelineContext } from '../types/pipeline.js';
 import type { HeadlessAgentComparison, HeadlessJudgePanel, HeadlessJudgePanelVote, HeadlessOptions, HeadlessResult, HeadlessResultV2 } from '../types/headless.js';
 import { loadAgentRegistry, getEnabledAgents, mergeWithOverrides } from '../agents/registry.js';
-import { routeTask } from '../router/router.js';
 import { executeDAG } from '../orchestrator/orchestrator.js';
 import { buildHeadlessResultV2 } from './result-builder.js';
 import type {
@@ -41,6 +40,7 @@ import type {
   StageName,
 } from '../types/config.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
+import type { DAGPlan, RouterRationale } from '../types/dag.js';
 import type { AdapterType, DetectionResult, AgentAdapter } from '../types/adapter.js';
 import type { GitHubIssueContext } from '../types/github.js';
 
@@ -67,7 +67,9 @@ import type { SecurityConfig } from '../security/types.js';
 import { isAbortError } from '../utils/error.js';
 import { DEFAULT_ROUTER_CONSENSUS_CONFIG } from '../config/defaults.js';
 import { probeOllamaConcurrencyCapacity } from '../adapters/ollama-capabilities.js';
+import { ensureOllamaReady } from '../adapters/ollama-runtime.js';
 import { selectFinalCompletedStep } from '../dag/final-step.js';
+import { formatRouterNoMatch, routeWithAutonomousRecovery } from './router-recovery.js';
 import {
   generateAgentSummary,
   saveFinalReportMarkdown,
@@ -77,31 +79,6 @@ import {
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
-
-function buildRouterAdapters(config: PipelineConfig, createAdapterFn: AdapterFactory): AgentAdapter[] {
-  const consensus = config.router.consensus ?? {
-    ...DEFAULT_ROUTER_CONSENSUS_CONFIG,
-  };
-  const models =
-    config.router.adapter === 'ollama' && consensus.enabled
-      ? (consensus.models.length > 0 ? consensus.models : [config.router.model, config.router.model, config.router.model])
-      : [config.router.model];
-
-  return models.slice(0, 3).map((model) =>
-    createAdapterFn(
-      config.router.adapter === 'ollama'
-        ? {
-            type: config.router.adapter,
-            model,
-            ...config.ollama,
-          }
-        : {
-            type: config.router.adapter,
-            model,
-          },
-    ),
-  );
-}
 
 function applyHeadlessRouterOverrides(config: PipelineConfig, options: HeadlessOptions): void {
   if (options.routerModel !== undefined) {
@@ -152,6 +129,43 @@ function applyHeadlessDisabledAgentOverrides(config: PipelineConfig, options: He
   };
 }
 
+
+function logRouterAgentDecisions(
+  reporter: Pick<VerboseReporter, 'agentDecision'>,
+  rationale: RouterRationale | undefined,
+  plan: DAGPlan,
+): void {
+  const selected = new Set<string>();
+  for (const entry of rationale?.selectedAgents ?? []) {
+    selected.add(entry.agent);
+    reporter.agentDecision({
+      by: 'router',
+      agent: entry.agent,
+      decision: 'selected',
+      reason: entry.reason,
+    });
+  }
+
+  for (const agent of new Set(plan.plan.map((step) => step.agent))) {
+    if (selected.has(agent)) continue;
+    reporter.agentDecision({
+      by: 'router',
+      agent,
+      decision: 'selected',
+      reason: 'planned in the execution DAG',
+    });
+  }
+
+  for (const entry of rationale?.rejectedAgents ?? []) {
+    reporter.agentDecision({
+      by: 'router',
+      agent: entry.agent,
+      decision: 'skipped',
+      reason: entry.reason,
+    });
+  }
+}
+
 function buildRerunHints(options: HeadlessOptions): HeadlessResultV2['rerun'] {
   const args = ['map', '--headless'];
   if (options.configPath) args.push('--config', quoteShellArg(options.configPath));
@@ -188,6 +202,8 @@ interface HeadlessDependencies {
   detectAllAdaptersFn: typeof detectAllAdapters;
   createAdapterFn: AdapterFactory;
   probeOllamaConcurrencyCapacityFn?: typeof probeOllamaConcurrencyCapacity;
+  ensureOllamaModelReadyFn?: typeof ensureOllamaReady;
+  agentsDir?: string;
   fetchFn?: typeof fetch;
   env?: NodeJS.ProcessEnv;
 }
@@ -197,6 +213,7 @@ const defaultDependencies: HeadlessDependencies = {
   detectAllAdaptersFn: detectAllAdapters,
   createAdapterFn: createAdapter,
   probeOllamaConcurrencyCapacityFn: probeOllamaConcurrencyCapacity,
+  ensureOllamaModelReadyFn: ensureOllamaReady,
 };
 
 class HeadlessTimeoutError extends Error {
@@ -1188,8 +1205,8 @@ export async function runHeadlessV2(
     });
     const resolvedPrompt = appendWorkspaceContext(baseResolvedPrompt, workspaceDir, outputDir);
 
-    const agentsDir = path.join(process.cwd(), 'agents');
-    const agents = await loadEnabledAgentRegistry(agentsDir, config);
+    const agentsDir = dependencies.agentsDir ?? path.join(process.cwd(), 'agents');
+    let agents = await loadEnabledAgentRegistry(agentsDir, config);
 
     if (agents.size === 0) {
       const finalResult = buildHeadlessResultV2(
@@ -1227,8 +1244,24 @@ export async function runHeadlessV2(
       timeoutMs: options.routerTimeoutMs ?? config.router.timeoutMs,
       ollamaConcurrency: ollamaConcurrency.maxParallel,
     };
-    const routerAdapters = buildRouterAdapters(config, dependencies.createAdapterFn);
-    const decision = await routeTask(resolvedPrompt, agents, routerAdapters, routerConfig);
+    const routing = await routeWithAutonomousRecovery({
+      resolvedPrompt,
+      basePrompt: baseResolvedPrompt,
+      agents,
+      agentsDir,
+      config,
+      routerConfig,
+      reloadAgents: () => loadEnabledAgentRegistry(agentsDir, config),
+      reporter,
+      dependencies: {
+        createAdapterFn: dependencies.createAdapterFn,
+        detectAllAdaptersFn: dependencies.detectAllAdaptersFn,
+        ensureOllamaModelReadyFn: dependencies.ensureOllamaModelReadyFn,
+      },
+    });
+    agents = routing.agents;
+    const decision = routing.decision;
+    const agentDiscovery = routing.agentDiscovery;
     if (decision.kind === 'no-match') {
       const finalResult = buildHeadlessResultV2(
         { plan: [] },
@@ -1241,6 +1274,7 @@ export async function runHeadlessV2(
           markdownFiles,
           rerun: buildRerunHints(options),
           routerRationale: decision.rationale,
+          agentDiscovery,
           semanticJudge: buildSemanticJudge(options, null),
         },
       );
@@ -1249,6 +1283,7 @@ export async function runHeadlessV2(
     }
 
     const plan = decision.plan;
+    logRouterAgentDecisions(reporter, decision.rationale, plan);
     markdownFiles.push(
       await saveStageMarkdown({
         outputRoot: outputDir,
@@ -1356,6 +1391,7 @@ export async function runHeadlessV2(
       consensusDiagnostics: decision.consensus ? [decision.consensus] : [],
       rerun: buildRerunHints(options),
       routerRationale: decision.rationale,
+      agentDiscovery,
       semanticJudge: buildSemanticJudge(options, null),
     });
     finalResult = await maybeApplyJudgePanel({
@@ -1927,16 +1963,4 @@ async function loadEnabledAgentRegistry(
   }
 
   return getEnabledAgents(rawAgents);
-}
-
-
-function formatRouterNoMatch(decision: {
-  reason: string;
-  suggestedAgent?: { name: string; description: string };
-}): string {
-  const reason = decision.reason.trim().replace(/[.]+$/, '');
-  const suggestion = decision.suggestedAgent
-    ? ` Suggested agent: ${decision.suggestedAgent.name} — ${decision.suggestedAgent.description}.`
-    : '';
-  return `No suitable agent available. ${reason}.${suggestion} Create one with: map agent create`;
 }

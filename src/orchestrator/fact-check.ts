@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '../types/agent-definition.js';
+import type { VerboseReporter } from '../utils/verbose-reporter.js';
 import type { DAGPlan, StepResult } from '../types/dag.js';
 
 export interface FactCheckOptions {
@@ -9,6 +10,7 @@ export interface FactCheckOptions {
   agents: Map<string, AgentDefinition>;
   results: Map<string, StepResult>;
   settled: Set<string>;
+  reporter?: Pick<VerboseReporter, 'agentDecision'>;
 }
 
 const FACT_CHECKERS: Record<string, string> = {
@@ -18,7 +20,17 @@ const FACT_CHECKERS: Record<string, string> = {
 
 export function maybeScheduleFactCheck(options: FactCheckOptions): void {
   const factChecker = FACT_CHECKERS[options.step.agent];
-  if (!factChecker || !shouldFactCheck(options, factChecker)) return;
+  if (!factChecker) return;
+  const decision = explainFactCheckDecision(options, factChecker);
+  if (!decision.shouldAdd) {
+    options.reporter?.agentDecision?.({
+      by: `${options.step.id} [${options.step.agent}]`,
+      agent: factChecker,
+      decision: 'not-needed',
+      reason: decision.reason,
+    });
+    return;
+  }
 
   const factCheckId = nextAvailableId(`${options.step.id}-fact-check`, options.allIds);
   const task = buildFactCheckTask(options.step, options.result.output ?? '');
@@ -60,20 +72,33 @@ export function maybeScheduleFactCheck(options: FactCheckOptions): void {
     edgeType: 'handoff',
     spawnedByAgent: options.step.agent,
   });
+  options.reporter?.agentDecision?.({
+    by: `${options.step.id} [${options.step.agent}]`,
+    agent: factChecker,
+    decision: 'added',
+    stepId: factCheckId,
+    reason: decision.reason,
+  });
 }
 
 export function isFactCheckerAgent(agent: string): boolean {
   return Object.values(FACT_CHECKERS).includes(agent);
 }
 
-function shouldFactCheck(options: FactCheckOptions, factChecker: string): boolean {
-  if (!options.agents.has(factChecker)) return false;
-  if (options.step.agent === factChecker) return false;
-  if (options.result.outputType !== 'answer' && options.result.outputType !== 'data') return false;
-  if (options.result.evidenceGate?.checked && options.result.evidenceGate.passed && options.result.evidenceGate.findings.length === 0) {
-    return false;
+function explainFactCheckDecision(options: FactCheckOptions, factChecker: string): { shouldAdd: boolean; reason: string } {
+  if (!options.agents.has(factChecker)) return { shouldAdd: false, reason: `${factChecker} is not enabled` };
+  if (options.step.agent === factChecker) return { shouldAdd: false, reason: 'step is already the fact-checker' };
+  if (options.result.outputType !== 'answer' && options.result.outputType !== 'data') {
+    return { shouldAdd: false, reason: `output type ${options.result.outputType ?? 'unknown'} is not fact-checkable` };
   }
-  return Boolean(options.result.output?.trim());
+  if (options.result.evidenceGate?.checked && options.result.evidenceGate.passed && options.result.evidenceGate.findings.length === 0) {
+    return { shouldAdd: false, reason: 'evidence gate passed cleanly' };
+  }
+  if (!options.result.output?.trim()) return { shouldAdd: false, reason: 'source step produced no output to verify' };
+  if (options.result.evidenceGate?.findings?.length) {
+    return { shouldAdd: true, reason: 'evidence findings require independent fact-check review' };
+  }
+  return { shouldAdd: true, reason: 'fact-critical answer needs independent verification' };
 }
 
 function replaceDependencyWithPair(dependsOn: string[], original: string, factCheckId: string): string[] {

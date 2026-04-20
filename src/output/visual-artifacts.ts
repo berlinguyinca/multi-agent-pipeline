@@ -40,7 +40,7 @@ export async function createReportVisualArtifacts(
   options: { outputDir: string; dagLayout?: DAGRenderLayout },
 ): Promise<ReportArtifactManifest> {
   const outputDir = path.resolve(options.outputDir);
-  const artifactsDir = path.join(outputDir, 'artifacts');
+  const artifactsDir = outputDir;
   await fs.mkdir(artifactsDir, { recursive: true });
 
   const data = isRecord(result) ? result : { result };
@@ -103,7 +103,7 @@ export async function createAgentGraphPngArtifacts(
   options: { outputDir: string; renderPng?: boolean } ,
 ): Promise<GraphPngArtifactManifest> {
   const outputDir = path.resolve(options.outputDir);
-  const artifactsDir = path.join(outputDir, 'artifacts');
+  const artifactsDir = outputDir;
   await fs.mkdir(artifactsDir, { recursive: true });
 
   const data = isRecord(result) ? result : { result };
@@ -134,7 +134,7 @@ export async function createAgentGraphPngArtifacts(
           id,
           kind: 'flowchart',
           path: pngPath,
-          src: path.posix.join('artifacts', `${id}.png`),
+          src: `${id}.png`,
           mimeType: 'image/png',
           format: 'png',
           title: `Agent Network (${layout})`,
@@ -152,7 +152,7 @@ export async function createAgentGraphPngArtifacts(
       id,
       kind: 'flowchart',
       path: svgPath,
-      src: path.posix.join('artifacts', `${id}.svg`),
+      src: `${id}.svg`,
       mimeType: 'image/svg+xml',
       format: 'svg',
       title: `Agent Network (${layout})`,
@@ -261,7 +261,7 @@ async function writeSvgArtifact(options: {
     id: options.id,
     kind: options.kind,
     path: filePath,
-    src: path.posix.join('artifacts', filename),
+    src: filename,
     mimeType: 'image/svg+xml',
     format: 'svg',
     title: options.title,

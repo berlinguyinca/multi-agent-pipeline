@@ -69,6 +69,86 @@ describe('result formatting', () => {
     expect(output).toContain('map --headless "Build a report" --disable-agent researcher');
   });
 
+  it('adds missing positive LCB exposure categories to Usage Commonness Ranking', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 }],
+        edges: [],
+      },
+      steps: [{
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify usage',
+        status: 'completed',
+        output: [
+          '# Usage Classification Tree',
+          '',
+          '## LCB Exposure Summary',
+          '',
+          '| Category | Is this category applicable? | Typical examples when applicable | Evidence/caveat |',
+          '| --- | --- | --- | --- |',
+          '| drug / drug metabolite | yes | topical anesthesia | supported medical use |',
+          '| other exposure origins | yes | forensic toxicology; workplace testing | supported exposure-origin reporting |',
+          '| pesticide | no | unavailable | unavailable |',
+          '',
+          '## Usage Commonness Ranking',
+          '',
+          '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Recency/currentness evidence | Evidence/caveat |',
+          '| --- | --- | --- | --- | --- | --- | --- | --- |',
+          '| 1 | topical anesthesia | drug / drug metabolite | 30 | less common | current | restricted current use | supported medical use |',
+          '',
+          '## Usage Tree',
+          '',
+          '| Level | Usage Classification |',
+          '| --- | --- |',
+          '| Level 1 | Medical and analytical applications |',
+        ].join('\n'),
+      }],
+    }, 'pdf');
+
+    expect(output).toMatch(/<td>2<\/td>\s*<td>forensic toxicology; workplace testing<\/td>\s*<td>other exposure origins<\/td>\s*<td>unavailable<\/td>/);
+    expect(output).toContain('represented in LCB Exposure Summary; commonness scoring evidence unavailable');
+  });
+
+  it('deduplicates repeated Usage Tree row identifiers in customer-facing output', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 }],
+        edges: [],
+      },
+      steps: [{
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify usage',
+        status: 'completed',
+        output: [
+          '# Usage Classification Tree',
+          '',
+          '## Usage Tree',
+          '',
+          '| Level | Usage Classification |',
+          '| --- | --- |',
+          '| Level 1 | Medical applications |',
+          '| Level 2 | Local anesthesia |',
+          '| Level 3 | Nasal mucosa |',
+          '| Level 2 | Analytical use |',
+          '| Level 3 | Toxicology biomarker |',
+        ].join('\n'),
+      }],
+    }, 'pdf');
+
+    expect(output).toMatch(/<td>Level 2\.1<\/td>\s*<td>Local anesthesia<\/td>/);
+    expect(output).toMatch(/<td>Level 2\.2<\/td>\s*<td>Analytical use<\/td>/);
+    expect(output).toMatch(/<td>Level 3\.1<\/td>\s*<td>Nasal mucosa<\/td>/);
+    expect(output).toMatch(/<td>Level 3\.2<\/td>\s*<td>Toxicology biomarker<\/td>/);
+    expect(output).not.toMatch(/<td>Level 2<\/td>\s*<td>Local anesthesia<\/td>/);
+    expect(output).not.toMatch(/<td>Level 2<\/td>\s*<td>Analytical use<\/td>/);
+  });
+
   it('accepts pdf as a print-oriented HTML output format', () => {
     const output = formatMapOutput(result, 'pdf');
 
@@ -354,6 +434,101 @@ describe('result formatting', () => {
     expect(output).toContain('| step-1 | usage-classification-tree | fail | claim-1 | high | High commonness scores require current/recent prevalence evidence. | Old source (published 1820) |');
   });
 
+  it('hides superseded evidence failures once an automatic retry passes', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'usage-classification-tree', status: 'recovered', duration: 1 },
+          { id: 'step-1-evidence-feedback-1', agent: 'researcher', status: 'completed', duration: 1 },
+          { id: 'step-1-retry-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-1-evidence-feedback-1', type: 'feedback' },
+          { from: 'step-1-evidence-feedback-1', to: 'step-1-retry-1', type: 'planned' },
+          { from: 'step-1', to: 'step-1-retry-1', type: 'recovery' },
+        ],
+      },
+      steps: [
+        {
+          id: 'step-1',
+          agent: 'usage-classification-tree',
+          task: 'Classify usage',
+          status: 'recovered',
+          error: 'claim-1: High commonness scores require current/recent prevalence evidence.',
+          replacementStepId: 'step-1-retry-1',
+          evidenceGate: {
+            checked: true,
+            passed: false,
+            claims: [{
+              id: 'claim-1',
+              claim: 'Unsupported high commonness.',
+              claimType: 'commonness-score',
+              confidence: 'high',
+              evidence: [{ sourceType: 'model-prior', title: 'model prior', summary: 'memory only', supports: 'unsupported commonness' }],
+            }],
+            findings: [{ severity: 'high', claimId: 'claim-1', message: 'High commonness scores require current/recent prevalence evidence.' }],
+          },
+        },
+        { id: 'step-1-evidence-feedback-1', agent: 'researcher', task: 'Gather evidence', status: 'completed', output: 'Evidence feedback' },
+        {
+          id: 'step-1-retry-1',
+          agent: 'usage-classification-tree',
+          task: 'Classify usage',
+          status: 'completed',
+          output: 'Verified usage',
+          evidenceGate: {
+            checked: true,
+            passed: true,
+            claims: [{
+              id: 'claim-1',
+              claim: 'Verified restricted current usage.',
+              claimType: 'commonness-score',
+              confidence: 'medium',
+              evidence: [{ sourceType: 'url', title: 'current source', retrievedAt: '2026-04-19', summary: 'current restricted use', supports: 'current restricted use' }],
+            }],
+            findings: [],
+          },
+        },
+      ],
+    }, 'pdf');
+
+    expect(output).toContain('<h2>Evidence Verification</h2>');
+    expect(output).toContain('1 supported / 1 total claims');
+    expect(output).toContain('<td>step-1-retry-1</td><td>usage-classification-tree</td><td>pass</td>');
+    expect(output).not.toContain('High commonness scores require current/recent prevalence evidence.');
+    expect(output).not.toContain('<td>step-1</td><td>usage-classification-tree</td><td>fail</td><td>claim-1</td>');
+  });
+
+  it('renders feedback-loop edges in the pipeline graph', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [
+          { id: 'step-1', agent: 'usage-classification-tree', status: 'recovered', duration: 1 },
+          { id: 'step-1-evidence-feedback-1', agent: 'researcher', status: 'completed', duration: 1 },
+          { id: 'step-1-retry-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 },
+        ],
+        edges: [
+          { from: 'step-1', to: 'step-1-evidence-feedback-1', type: 'feedback' },
+          { from: 'step-1-evidence-feedback-1', to: 'step-1-retry-1', type: 'planned' },
+          { from: 'step-1', to: 'step-1-retry-1', type: 'recovery' },
+        ],
+      },
+      steps: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', status: 'recovered', error: 'Evidence gate failed' },
+        { id: 'step-1-evidence-feedback-1', agent: 'researcher', task: 'Gather evidence', status: 'completed', output: 'Evidence feedback' },
+        { id: 'step-1-retry-1', agent: 'usage-classification-tree', task: 'Classify usage', status: 'completed', output: 'Verified usage' },
+      ],
+    }, 'markdown');
+
+    expect(output).toContain('step-1 [usage-classification-tree] recovered');
+    expect(output).toContain('step-1 --feedback--> step-1-evidence-feedback-1');
+    expect(output).toContain('step-1 --recovery--> step-1-retry-1');
+  });
+
   it('does not render rejected-agent rationale when fallback selected specialized agents', () => {
     const output = formatMapOutput({
       version: 2,
@@ -372,6 +547,40 @@ describe('result formatting', () => {
     expect(output).toContain('## Router Rationale');
     expect(output).not.toContain('Rejected or skipped agents');
     expect(output).not.toContain('researcher: While capable of research');
+  });
+
+  it('renders autonomous agent discovery diagnostics', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      agentDiscovery: [{
+        status: 'created',
+        suggestedAgent: { name: 'invoice-analysis-specialist', description: 'Analyze invoice anomalies' },
+        reason: 'No enabled invoice specialist exists.',
+        generatedPath: '/repo/agents/invoice-analysis-specialist',
+        model: {
+          selected: { model: 'qwen2.5:7b', reason: 'estimated 5.0GB fits within 16.0GB per loaded model' },
+          candidates: [],
+          rejected: [{ model: 'giant:70b', reason: 'estimated 49.0GB exceeds 16.0GB per loaded model' }],
+          hardware: { totalMemoryGb: 32, usableMemoryGb: 16, maxLoadedModels: 2, numParallel: 1 },
+        },
+        consensus: {
+          method: 'three-candidates-local-judge',
+          selectedCandidate: 2,
+          candidates: [
+            { run: 1, name: 'invoice-generalist', status: 'valid', score: 10, reason: 'lower overlap' },
+            { run: 2, name: 'invoice-analysis-specialist', status: 'valid', score: 70, reason: 'best overlap' },
+          ],
+        },
+        warnings: [],
+      }],
+      dag: { nodes: [], edges: [] },
+      steps: [],
+    }, 'markdown');
+
+    expect(output).toContain('## Autonomous Agent Discovery');
+    expect(output).toContain('| invoice-analysis-specialist | created | qwen2.5:7b | 2 | /repo/agents/invoice-analysis-specialist |');
+    expect(output).toContain('giant:70b');
   });
 
   it('selects the final result from terminal DAG sinks instead of incidental later branch output', () => {

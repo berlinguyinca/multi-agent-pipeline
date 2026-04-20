@@ -183,6 +183,49 @@ export class VerboseReporter {
     this.log('✔', `Router complete — ${stepCount} step${stepCount === 1 ? '' : 's'} planned (${formatElapsed(duration)})`);
   }
 
+  agentDecision(event: {
+    by: string;
+    agent: string;
+    decision: 'selected' | 'skipped' | 'added' | 'not-needed';
+    reason: string;
+    stepId?: string;
+  }): void {
+    const action =
+      event.decision === 'not-needed'
+        ? `did not add ${event.agent}`
+        : `${event.decision} ${event.agent}`;
+    const step = event.stepId ? ` as ${event.stepId}` : '';
+    this.log('◊', `Agent decision — ${event.by} ${action}${step}. Why: ${event.reason}`);
+  }
+
+  routerRecoveryStart(event: {
+    attempt: number;
+    maxAttempts: number;
+    suggestedAgent: string;
+    reason: string;
+  }): void {
+    this.log(
+      '↻',
+      `Router recovery attempt ${event.attempt}/${event.maxAttempts}: no matching agent yet. Suggested agent "${event.suggestedAgent}". Why: ${event.reason}`,
+    );
+  }
+
+  modelPreparationStart(model: string): void {
+    this.log('↓', `Preparing Ollama model "${model}" for retry/recovery. If missing, MAP will run ollama pull before rerouting.`);
+  }
+
+  modelPreparationComplete(model: string): void {
+    this.log('✔', `Ollama model "${model}" is available for retry/recovery.`);
+  }
+
+  modelPreparationFailed(model: string, error: string): void {
+    this.log('✘', `Could not prepare Ollama model "${model}". Why MAP cannot recover automatically: ${error}`);
+  }
+
+  routerRecoveryComplete(event: { status: string; detail: string }): void {
+    this.log('◊', `Router recovery ${event.status}: ${event.detail}`);
+  }
+
   dagStepStart(stepId: string, agent: string, task: string): void {
     this.stageStartedAt = Date.now();
     this.stageBytes = 0;
@@ -217,11 +260,45 @@ export class VerboseReporter {
   }
 
   dagStepRetry(stepId: string, agent: string, attempt: number, error: string): void {
-    this.log('↻', `Step ${stepId} [${agent}] retry ${attempt} (was: ${error})`);
+    this.log('↻', `Step ${stepId} [${agent}] retry ${attempt}. Why: ${error}`);
   }
 
   dagStepSkipped(stepId: string, reason: string): void {
     this.log('⊘', `Step ${stepId} skipped: ${reason}`);
+  }
+
+  dagRecoveryScheduled(event: {
+    failedStepId: string;
+    helperStepId: string;
+    helperAgent: string;
+    retryStepId: string;
+    failureKind?: string;
+    reason: string;
+  }): void {
+    this.log(
+      '↻',
+      [
+        `Recovery loop scheduled for ${event.failedStepId}.`,
+        `Why it failed: ${event.reason}`,
+        `Recovery type: ${event.failureKind ?? 'unknown'}.`,
+        `Next: ${event.helperStepId} [${event.helperAgent}] will gather/fix what is missing, then ${event.retryStepId} reruns the original step.`,
+      ].join(' '),
+    );
+  }
+
+  dagRecoveryUnavailable(event: {
+    stepId: string;
+    failureKind?: string;
+    reason: string;
+  }): void {
+    this.log(
+      '✘',
+      [
+        `Cannot recover ${event.stepId} automatically.`,
+        `Failure type: ${event.failureKind ?? 'unknown'}.`,
+        `Why: ${event.reason}`,
+      ].join(' '),
+    );
   }
 
   securityGateStart(stepId: string, agent: string): void {
@@ -269,12 +346,20 @@ export class SilentReporter extends VerboseReporter {
   override adapterFailover(): void {}
   override dagRoutingStart(): void {}
   override dagRoutingComplete(): void {}
+  override agentDecision(): void {}
+  override routerRecoveryStart(): void {}
+  override modelPreparationStart(): void {}
+  override modelPreparationComplete(): void {}
+  override modelPreparationFailed(): void {}
+  override routerRecoveryComplete(): void {}
   override dagStepStart(): void {}
   override dagStepComplete(): void {}
   override dagStepOutput(): void {}
   override dagStepFailed(): void {}
   override dagStepRetry(): void {}
   override dagStepSkipped(): void {}
+  override dagRecoveryScheduled(): void {}
+  override dagRecoveryUnavailable(): void {}
   override securityGateStart(): void {}
   override securityGatePassed(): void {}
   override securityGateFailed(): void {}

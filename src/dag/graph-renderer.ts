@@ -10,6 +10,7 @@ const EDGE_LABELS: Record<DAGEdgeType, string> = {
   handoff: '--handoff-->',
   recovery: '--recovery-->',
   spawned: '--spawned-->',
+  feedback: '--feedback-->',
 };
 
 export interface DAGLayoutNode {

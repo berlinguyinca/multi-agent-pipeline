@@ -15,6 +15,7 @@ export function buildHeadlessResultV2(
     consensusDiagnostics?: ConsensusDiagnostics[];
     rerun?: HeadlessResultV2['rerun'];
     routerRationale?: HeadlessResultV2['routerRationale'];
+    agentDiscovery?: HeadlessResultV2['agentDiscovery'];
     agentComparisons?: HeadlessAgentComparison[];
     semanticJudge?: HeadlessResultV2['semanticJudge'];
     judgePanel?: HeadlessResultV2['judgePanel'];
@@ -48,6 +49,7 @@ export function buildHeadlessResultV2(
     ...(artifacts.rerun ? { rerun: artifacts.rerun } : {}),
     ...(agentContributions.length > 0 ? { agentContributions } : {}),
     ...(artifacts.routerRationale ? { routerRationale: artifacts.routerRationale } : {}),
+    ...(artifacts.agentDiscovery && artifacts.agentDiscovery.length > 0 ? { agentDiscovery: artifacts.agentDiscovery } : {}),
     ...(artifacts.agentComparisons ? { agentComparisons: artifacts.agentComparisons } : {}),
     ...(artifacts.semanticJudge ? { semanticJudge: artifacts.semanticJudge } : {}),
     ...(artifacts.judgePanel ? { judgePanel: artifacts.judgePanel } : {}),

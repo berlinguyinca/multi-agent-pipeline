@@ -664,6 +664,112 @@ describe('routeTask', () => {
     expect(result.rationale?.rejectedAgents).toEqual([]);
   });
 
+  it('uses chemical fallback when the router only explains that researcher was skipped for specialist agents', async () => {
+    const rationaleOnly = JSON.stringify({
+      agent: 'researcher',
+      reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output for this chemical task.',
+    });
+
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+
+    const result = await routeTask('classification taxonomy and usage report for benzene', localAgents, mockAdapter(rationaleOnly), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected fallback plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+    expect(result.rationale?.rejectedAgents).toEqual([]);
+  });
+
+  it('drops researcher skip rationale when consensus selects taxonomy and usage specialists', async () => {
+    const planWithSkipRationale = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Generate benzene taxonomy', dependsOn: [] },
+        { id: 'step-2', agent: 'usage-classification-tree', task: 'Generate benzene usage', dependsOn: ['step-1'] },
+      ],
+      rationale: {
+        selectedAgents: [
+          { agent: 'classyfire-taxonomy-classifier', reason: 'taxonomy specialist' },
+          { agent: 'usage-classification-tree', reason: 'usage specialist' },
+        ],
+        rejectedAgents: [
+          { agent: 'researcher', reason: 'While capable of research, specialized taxonomy and usage agents provide more structured output for this chemical task.' },
+        ],
+      },
+    });
+
+    const localAgents = new Map(agents);
+    localAgents.set('classyfire-taxonomy-classifier', {
+      name: 'classyfire-taxonomy-classifier',
+      description: 'Taxonomy',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'taxonomy',
+      pipeline: [{ name: 'classify' }],
+      handles: 'chemical taxonomy',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('usage-classification-tree', {
+      name: 'usage-classification-tree',
+      description: 'Usage',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'usage',
+      pipeline: [{ name: 'classify' }],
+      handles: 'usage classification',
+      output: { type: 'answer' },
+      tools: [],
+    });
+
+    const result = await routeTask('classification taxonomy and usage report for benzene', localAgents, [
+      mockAdapter(planWithSkipRationale, 'gemma4:26b'),
+      mockAdapter(planWithSkipRationale, 'gemma4:26b'),
+      mockAdapter(planWithSkipRationale, 'gemma4:26b'),
+    ], {
+      ...routerConfig,
+      consensus: {
+        enabled: true,
+        models: ['gemma4:26b', 'gemma4:26b', 'gemma4:26b'],
+        scope: 'router',
+        mode: 'majority',
+      },
+    });
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected consensus plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]);
+    expect(result.rationale?.rejectedAgents).toEqual([]);
+  });
+
   it('runs router consensus candidates sequentially to avoid concurrent Ollama requests', async () => {
     const agreed = JSON.stringify({
       kind: 'plan',

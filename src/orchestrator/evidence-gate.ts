@@ -14,6 +14,9 @@ export function runEvidenceGate(options: {
   if (options.config?.enabled === false || options.config?.mode === 'off') {
     return { checked: false, passed: true, claims: [], findings: [] };
   }
+  if (options.result.edgeType === 'feedback' && options.result.spawnedByAgent) {
+    return { checked: false, passed: true, claims: [], findings: [] };
+  }
   const requiredAgents = options.config
     ? new Set(options.config.requiredAgents)
     : DEFAULT_REQUIRED_AGENTS;
@@ -281,7 +284,14 @@ function normalizeClaimEvidence(value: Record<string, unknown>): ClaimEvidence {
 }
 
 function normalizeEvidenceSource(value: Record<string, unknown>): EvidenceSource {
-  const retrievedAt = firstString(value, ['retrievedAt', 'retrieved_at', 'retrieved', 'retrophiedAt']);
+  const retrievedAt = firstString(value, [
+    'retrievedAt',
+    'retrieved_at',
+    'retrieved',
+    'retrophiedAt',
+    'retrieredAt',
+    'retrivedAt',
+  ]);
   return {
     sourceType: normalizeSourceType(value['sourceType']),
     ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),

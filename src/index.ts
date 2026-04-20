@@ -62,7 +62,8 @@ export {
 export { isActiveStage, isTerminalStage, ACTIVE_STAGES } from './types/pipeline.js';
 export { STAGE_NAMES } from './types/config.js';
 
-export type { HeadlessOptions, HeadlessResult } from './types/headless.js';
+export type { HeadlessOptions, HeadlessResult, HeadlessResultV2 } from './types/headless.js';
+export type { AgentDiscoveryDiagnostics, HardwareModelSelection } from './agents/autonomous-discovery.js';
 
 export { runHeadless } from './headless/runner.js';
 

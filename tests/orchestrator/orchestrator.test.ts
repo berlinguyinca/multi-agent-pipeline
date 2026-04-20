@@ -848,6 +848,410 @@ describe('executeDAG', () => {
     expect(result.steps.find((step) => step.id === 'step-2')?.status).toBe('completed');
   });
 
+  it('explains evidence remediation retries instead of reporting unknown', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'classyfire-taxonomy-classifier', task: 'Classify taxonomy', dependsOn: [] }],
+    };
+    const agent = makeAgent('classyfire-taxonomy-classifier', 'answer');
+    const agents = new Map([
+      ['classyfire-taxonomy-classifier', agent],
+    ]);
+    const reporter = {
+      dagStepStart: vi.fn(),
+      dagStepComplete: vi.fn(),
+      dagStepOutput: vi.fn(),
+      dagStepRetry: vi.fn(),
+      onChunk: vi.fn(),
+    };
+    const createAdapter = vi.fn(() => ({
+      type: 'claude' as const,
+      model: undefined,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        const remediated = prompt.includes('Evidence Gate Remediation');
+        yield [
+          '# ClassyFire / ChemOnt Taxonomic Classification',
+          remediated ? 'Medium-confidence taxonomy.' : 'High-confidence taxonomy.',
+          '',
+          '## Claim Evidence Ledger',
+          '```json',
+          JSON.stringify({
+            claims: [{
+              id: 'tax-1',
+              claim: remediated ? 'Medium-confidence taxonomy.' : 'High-confidence taxonomy.',
+              claimType: 'chemical-taxonomy',
+              confidence: remediated ? 'medium' : 'high',
+              evidence: [{
+                sourceType: 'model-prior',
+                summary: 'model memory only',
+                supports: 'taxonomy',
+              }],
+            }],
+          }),
+          '```',
+        ].join('\n');
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      reporter as never,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        evidence: {
+          enabled: true,
+          mode: 'strict',
+          requiredAgents: ['classyfire-taxonomy-classifier'],
+          currentClaimMaxSourceAgeDays: 730,
+          freshnessProfiles: {},
+          requireRetrievedAtForWebClaims: true,
+          blockUnsupportedCurrentClaims: true,
+          remediationMaxRetries: 1,
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(reporter.dagStepRetry).toHaveBeenCalledWith(
+      'step-1',
+      'classyfire-taxonomy-classifier',
+      1,
+      expect.stringContaining('tax-1: High-confidence claims cannot be supported only by model-prior evidence.'),
+    );
+    expect(reporter.dagStepRetry).not.toHaveBeenCalledWith(
+      'step-1',
+      'classyfire-taxonomy-classifier',
+      1,
+      'unknown',
+    );
+  });
+
+  it('routes persistent evidence-gate failures through an evidence feedback step before retrying downstream work', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify current usage commonness', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const usageAgent = makeAgent('usage-classification-tree', 'answer');
+    usageAgent.model = 'usage-model';
+    const researcher = makeAgent('researcher', 'answer');
+    researcher.model = 'research-model';
+    const writer = makeAgent('writer', 'answer');
+    writer.model = 'writer-model';
+    const agents = new Map([
+      ['usage-classification-tree', usageAgent],
+      ['researcher', researcher],
+      ['writer', writer],
+    ]);
+    let usageRuns = 0;
+    let researcherRuns = 0;
+
+    const createAdapter = vi.fn((config?: { model?: string }) => ({
+      type: 'claude' as const,
+      model: config?.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (config?.model === 'research-model') {
+          researcherRuns += 1;
+          expect(prompt).toContain('Evidence feedback router loop');
+          yield [
+            '# Evidence Feedback',
+            '- Current/recent prevalence evidence found for the requested usage context.',
+            '- Use `sourceType: "url"`, `retrievedAt: "2026-04-18"`, and supports text that mentions current prevalence.',
+          ].join('\n');
+          return;
+        }
+        if (config?.model === 'writer-model') {
+          expect(prompt).toContain('[step-1-retry-1: usage-classification-tree]');
+          yield 'writer used verified usage';
+          return;
+        }
+        usageRuns += 1;
+        const sawEvidenceFeedback = prompt.includes('[step-1-evidence-feedback-1: researcher]');
+        yield [
+          '# Usage Classification Tree',
+          sawEvidenceFeedback ? 'Current supported commonness.' : 'Unsupported high commonness.',
+          '',
+          '## Claim Evidence Ledger',
+          '```json',
+          JSON.stringify({
+            claims: [{
+              id: 'claim-1',
+              claim: sawEvidenceFeedback ? 'Current supported commonness.' : 'Unsupported high commonness.',
+              claimType: 'commonness-score',
+              confidence: sawEvidenceFeedback ? 'medium' : 'high',
+              timeframe: 'current',
+              recencyStatus: 'current',
+              commonnessScore: 80,
+              evidence: sawEvidenceFeedback ? [{
+                sourceType: 'url',
+                retrievedAt: '2026-04-18',
+                summary: 'current prevalence evidence',
+                supports: 'current prevalence for the requested usage context',
+              }] : [{
+                sourceType: 'model-prior',
+                summary: 'model memory only',
+                supports: 'unsupported broad commonness',
+              }],
+            }],
+          }),
+          '```',
+        ].join('\n');
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        evidence: {
+          enabled: true,
+          mode: 'strict',
+          requiredAgents: ['usage-classification-tree'],
+          currentClaimMaxSourceAgeDays: 730,
+          freshnessProfiles: {},
+          requireRetrievedAtForWebClaims: true,
+          blockUnsupportedCurrentClaims: true,
+          remediationMaxRetries: 1,
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(usageRuns).toBe(3);
+    expect(researcherRuns).toBe(1);
+    expect(result.steps.map((step) => step.id)).toEqual(
+      expect.arrayContaining(['step-1', 'step-1-evidence-feedback-1', 'step-1-retry-1', 'step-2']),
+    );
+    expect(result.steps.find((step) => step.id === 'step-1')).toMatchObject({
+      status: 'recovered',
+      failureKind: 'evidence',
+      replacementStepId: 'step-1-retry-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-1-evidence-feedback-1')).toMatchObject({
+      agent: 'researcher',
+      status: 'completed',
+      edgeType: 'feedback',
+      spawnedByAgent: 'usage-classification-tree',
+    });
+    expect(result.steps.find((step) => step.id === 'step-1-retry-1')).toMatchObject({
+      status: 'completed',
+      dependsOn: ['step-1-evidence-feedback-1'],
+      edgeType: 'feedback',
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1-retry-1']);
+  });
+
+  it('does not evidence-gate feedback helper output before retry validation', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify current usage commonness', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const usageAgent = makeAgent('usage-classification-tree', 'answer');
+    usageAgent.model = 'usage-model';
+    const researcher = makeAgent('researcher', 'answer');
+    researcher.model = 'research-model';
+    const writer = makeAgent('writer', 'answer');
+    writer.model = 'writer-model';
+    const agents = new Map([
+      ['usage-classification-tree', usageAgent],
+      ['researcher', researcher],
+      ['writer', writer],
+    ]);
+
+    const createAdapter = vi.fn((config?: { model?: string }) => ({
+      type: 'claude' as const,
+      model: config?.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (config?.model === 'research-model') {
+          yield 'Found current source: use sourceType url with retrievedAt 2026-04-18 and supports current prevalence.';
+          return;
+        }
+        if (config?.model === 'writer-model') {
+          yield 'writer used verified usage';
+          return;
+        }
+        const sawEvidenceFeedback = prompt.includes('[step-1-evidence-feedback-1: researcher]');
+        yield [
+          '# Usage Classification Tree',
+          sawEvidenceFeedback ? 'Current supported commonness.' : 'Unsupported high commonness.',
+          '',
+          '## Claim Evidence Ledger',
+          '```json',
+          JSON.stringify({
+            claims: [{
+              id: 'claim-1',
+              claim: sawEvidenceFeedback ? 'Current supported commonness.' : 'Unsupported high commonness.',
+              claimType: 'commonness-score',
+              confidence: sawEvidenceFeedback ? 'medium' : 'high',
+              timeframe: 'current',
+              recencyStatus: 'current',
+              commonnessScore: 80,
+              evidence: sawEvidenceFeedback ? [{
+                sourceType: 'url',
+                retrievedAt: '2026-04-18',
+                summary: 'current prevalence evidence',
+                supports: 'current prevalence for the requested usage context',
+              }] : [{
+                sourceType: 'model-prior',
+                summary: 'model memory only',
+                supports: 'unsupported broad commonness',
+              }],
+            }],
+          }),
+          '```',
+        ].join('\n');
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        evidence: {
+          enabled: true,
+          mode: 'strict',
+          requiredAgents: ['usage-classification-tree', 'researcher'],
+          currentClaimMaxSourceAgeDays: 730,
+          freshnessProfiles: {},
+          requireRetrievedAtForWebClaims: true,
+          blockUnsupportedCurrentClaims: true,
+          remediationMaxRetries: 1,
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.find((step) => step.id === 'step-1-evidence-feedback-1')).toMatchObject({
+      agent: 'researcher',
+      status: 'completed',
+      edgeType: 'feedback',
+      evidenceGate: expect.objectContaining({ checked: false, passed: true }),
+    });
+    expect(result.steps.find((step) => step.id === 'step-1-retry-1')?.status).toBe('completed');
+    expect(result.steps.find((step) => step.id === 'step-2')?.status).toBe('completed');
+  });
+
+  it('reports evidence feedback recovery scheduling to verbose reporter', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] }],
+    };
+    const usageAgent = makeAgent('usage-classification-tree', 'answer');
+    usageAgent.model = 'usage-model';
+    const researcher = makeAgent('researcher', 'answer');
+    researcher.model = 'research-model';
+    const agents = new Map([
+      ['usage-classification-tree', usageAgent],
+      ['researcher', researcher],
+    ]);
+    const reporter = {
+      dagStepStart: vi.fn(),
+      dagStepComplete: vi.fn(),
+      dagStepOutput: vi.fn(),
+      dagStepRetry: vi.fn(),
+      dagRecoveryScheduled: vi.fn(),
+      onChunk: vi.fn(),
+    };
+    const createAdapter = vi.fn((config?: { model?: string }) => ({
+      type: 'claude' as const,
+      model: config?.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (config?.model === 'research-model') {
+          yield 'Evidence helper output';
+          return;
+        }
+        const sawEvidenceFeedback = prompt.includes('Evidence helper output');
+        yield [
+          '# Usage Classification Tree',
+          '',
+          '## Claim Evidence Ledger',
+          '```json',
+          JSON.stringify({
+            claims: [{
+              id: 'claim-1',
+              claim: 'Usage claim.',
+              claimType: 'usage-classification',
+              confidence: sawEvidenceFeedback ? 'medium' : 'high',
+              timeframe: 'current',
+              recencyStatus: 'current',
+              evidence: sawEvidenceFeedback ? [{
+                sourceType: 'url',
+                retrievedAt: '2026-04-18',
+                summary: 'current evidence',
+                supports: 'current usage',
+              }] : [],
+            }],
+          }),
+          '```',
+        ].join('\n');
+      },
+    }));
+
+    await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      reporter as never,
+      undefined,
+      undefined,
+      undefined,
+      {
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+        evidence: {
+          enabled: true,
+          mode: 'strict',
+          requiredAgents: ['usage-classification-tree'],
+          currentClaimMaxSourceAgeDays: 730,
+          freshnessProfiles: {},
+          requireRetrievedAtForWebClaims: true,
+          blockUnsupportedCurrentClaims: true,
+          remediationMaxRetries: 1,
+        },
+      },
+    );
+
+    expect(reporter.dagRecoveryScheduled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedStepId: 'step-1',
+        helperStepId: 'step-1-evidence-feedback-1',
+        helperAgent: 'researcher',
+        retryStepId: 'step-1-retry-1',
+        failureKind: 'evidence',
+        reason: expect.stringContaining('Supported claims must include'),
+      }),
+    );
+  });
+
   it('automatically fact-checks researcher output before downstream use', async () => {
     const plan: DAGPlan = {
       plan: [

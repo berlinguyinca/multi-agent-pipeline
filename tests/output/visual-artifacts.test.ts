@@ -55,11 +55,11 @@ describe('visual report artifacts', () => {
       'usage-commonness-ranking',
       'taxonomy-tree',
     ]);
-    expect(manifest.manifestPath).toBe(path.join(outputDir, 'artifacts', 'manifest.json'));
+    expect(manifest.manifestPath).toBe(path.join(outputDir, 'manifest.json'));
 
     const usage = manifest.artifacts.find((artifact) => artifact.id === 'usage-commonness-ranking');
     expect(usage).toMatchObject({ kind: 'plot', mimeType: 'image/svg+xml', deterministic: true });
-    expect(usage?.src).toBe('artifacts/usage-commonness-ranking.svg');
+    expect(usage?.src).toBe('usage-commonness-ranking.svg');
 
     const usageSvg = await fs.readFile(path.join(outputDir, usage!.src), 'utf8');
     expect(usageSvg).toContain('<svg');
@@ -218,9 +218,12 @@ describe('visual report artifacts', () => {
     expect(manifest.warnings).toEqual([
       'PNG rendering disabled; wrote SVG graph artifacts instead.',
     ]);
+    expect(manifest.manifestPath).toBe(path.join(outputDir, 'agent-graph-manifest.json'));
     for (const artifact of manifest.artifacts) {
       expect(artifact.kind).toBe('flowchart');
       expect(artifact.format).toBe('svg');
+      expect(path.dirname(artifact.path)).toBe(outputDir);
+      expect(artifact.src).not.toContain('/');
       const svg = await fs.readFile(artifact.path, 'utf8');
       expect(svg).toContain('<svg');
       expect(svg).toContain('Agent');
