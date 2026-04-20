@@ -399,7 +399,9 @@ export async function executeDAG(
               reporter?.securityGatePassed(step.id, Date.now() - securityStartedAt);
             }
 
-            const evidenceGate = runEvidenceGate({ step, result, config: retry?.evidence });
+            const evidenceGate = isCrossReviewHelperStep(step)
+              ? { checked: false, passed: true, claims: [], findings: [] }
+              : runEvidenceGate({ step, result, config: retry?.evidence });
             result.evidenceGate = evidenceGate;
             result.evidenceClaims = evidenceGate.claims;
             await writeEvidenceSourceSnapshots(workingDir, step, result);
