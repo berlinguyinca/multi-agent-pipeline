@@ -72,7 +72,8 @@ export interface DAGRetryOptions {
   localModelConcurrency?: number;
 }
 
-const MAX_TOOL_CALLS = 4;
+const DEFAULT_MAX_TOOL_CALLS = 4;
+const FILE_OUTPUT_MAX_TOOL_CALLS = 12;
 const MAX_RECOVERY_ROUNDS = 2;
 const DEFAULT_QA_REPAIR_ROUNDS = 3;
 const DEFAULT_STEP_TIMEOUT_MS = 300_000;
@@ -284,6 +285,7 @@ export async function executeDAG(
               return runStepWithTools({
                 context,
                 tools,
+                maxToolCalls: agent.output.type === 'files' ? FILE_OUTPUT_MAX_TOOL_CALLS : DEFAULT_MAX_TOOL_CALLS,
                 configs,
                 createAdapter,
                 stepId: step.id,
@@ -1743,6 +1745,7 @@ async function saveAdaptiveTimeouts(workingDir: string, timeouts: Map<string, nu
 interface RunStepWithToolsOptions {
   context: string;
   tools: ReturnType<typeof createToolRegistry>;
+  maxToolCalls: number;
   configs: AdapterConfig[];
   createAdapter: AdapterFactory;
   stepId: string;
@@ -1762,7 +1765,7 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
   let prompt = options.context;
   const successfulToolResults = new Map<string, string>();
 
-  for (let toolRound = 0; toolRound <= MAX_TOOL_CALLS; toolRound += 1) {
+  for (let toolRound = 0; toolRound <= options.maxToolCalls; toolRound += 1) {
     const output = await runWithFailover(options.configs, options.createAdapter, async (adapter) => {
       options.activeAdapters.add(adapter);
       try {
@@ -1834,7 +1837,7 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
     ].join('\n');
   }
 
-  throw new Error(`Tool loop exceeded ${MAX_TOOL_CALLS} rounds`);
+  throw new Error(`Tool loop exceeded ${options.maxToolCalls} rounds`);
 }
 
 
