@@ -2667,6 +2667,76 @@ describe('executeDAG', () => {
     expect(createAdapter).toHaveBeenCalledTimes(4);
   });
 
+
+  it('does not security-gate cross-review control outputs before judge decisions are parsed', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-1'] },
+      ],
+    };
+    const implementationCoder = makeAgent('implementation-coder', 'files');
+    const codeQaAnalyst = makeAgent('code-qa-analyst', 'answer');
+    codeQaAnalyst.tools = [{ type: 'builtin', name: 'shell' }];
+    const releaseReadinessReviewer = makeAgent('release-readiness-reviewer', 'answer');
+    releaseReadinessReviewer.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([
+      ['implementation-coder', implementationCoder],
+      ['code-qa-analyst', codeQaAnalyst],
+      ['release-readiness-reviewer', releaseReadinessReviewer],
+    ]);
+    const createAdapter = createQueueAdapter([
+      'source output',
+      'review output',
+      '{"decision":"accept","rationale":"accepted","remediation":[],"residualRisks":[]}',
+      'readiness output',
+    ]);
+    const securityPrompts: string[] = [];
+    const createReviewAdapter = () => ({
+      type: 'ollama' as const,
+      model: 'security-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        securityPrompts.push(prompt);
+        if (prompt.includes('Task: Judge the original step output')) {
+          yield 'SECURITY_PASSED: false';
+          return;
+        }
+        yield 'SECURITY_PASSED: true';
+      },
+    });
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      {
+        config: { ...securityConfig, llmReviewEnabled: true },
+        createReviewAdapter,
+      },
+      undefined,
+      undefined,
+      {
+        crossReview: {
+          ...DEFAULT_CROSS_REVIEW_CONFIG,
+          gates: { ...DEFAULT_CROSS_REVIEW_CONFIG.gates, releaseReadiness: false },
+        },
+        localModelConcurrency: 1,
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    const judgeResult = result.steps.find((step) => step.id === 'step-1-judge-1');
+    expect(judgeResult).toMatchObject({ status: 'completed' });
+    expect(judgeResult).not.toHaveProperty('securityPassed');
+    expect(result.steps.find((step) => step.id === 'step-1')?.securityPassed).toBe(true);
+    expect(securityPrompts.some((prompt) => prompt.includes('Task: Judge the original step output'))).toBe(false);
+  });
+
   it('uses configured cross-review judge models for review and judge helper execution', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
