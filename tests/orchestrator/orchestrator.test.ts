@@ -2839,6 +2839,87 @@ describe('executeDAG', () => {
     expect(createAdapter).toHaveBeenCalledTimes(7);
   });
 
+  it('routes structured code QA revise verdicts back to the developer and re-runs QA', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-2'] },
+      ],
+    };
+    const agents = new Map([
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+      ['release-readiness-reviewer', makeAgent('release-readiness-reviewer', 'answer')],
+    ]);
+    const prompts: string[] = [];
+    const createAdapter = createCapturingQueueAdapter([
+      'initial implementation',
+      JSON.stringify({
+        verdict: 'revise',
+        blockingFindings: [
+          {
+            severity: 'high',
+            file: 'src/sync.ts',
+            issue: 'Resume path drops partial downloads',
+            requiredFix: 'Persist byte offsets and verify checksum after resume',
+          },
+        ],
+        verificationRequired: ['npm test -- pubchem-sync'],
+      }),
+      'fixed implementation',
+      JSON.stringify({ verdict: 'accept', blockingFindings: [], verificationRequired: [] }),
+      'ready',
+    ], prompts);
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        crossReview: { ...DEFAULT_CROSS_REVIEW_CONFIG, enabled: false },
+        localModelConcurrency: 1,
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      'step-1',
+      'step-2',
+      'step-2-fix-1',
+      'step-2-retry-1',
+      'step-3',
+    ]));
+    expect(result.steps.find((step) => step.id === 'step-2')).toMatchObject({
+      status: 'recovered',
+      replacementStepId: 'step-2-retry-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-2-fix-1')).toMatchObject({
+      agent: 'implementation-coder',
+      parentStepId: 'step-2',
+      edgeType: 'feedback',
+    });
+    expect(result.steps.find((step) => step.id === 'step-2-retry-1')).toMatchObject({
+      agent: 'code-qa-analyst',
+      parentStepId: 'step-2',
+      edgeType: 'feedback',
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-3')?.dependsOn).toEqual(['step-2-retry-1']);
+    const fixPrompt = prompts.find((prompt) => prompt.includes('Your task: Fix implementation issues found by code QA'));
+    expect(fixPrompt).toContain('Resume path drops partial downloads');
+    expect(fixPrompt).toContain('Persist byte offsets and verify checksum after resume');
+    expect(fixPrompt).toContain('npm test -- pubchem-sync');
+    const readinessPrompt = prompts.find((prompt) => prompt.includes('Your task: Assess readiness'));
+    expect(readinessPrompt).toContain('[step-2-retry-1: code-qa-analyst]');
+    expect(readinessPrompt).toContain('"verdict":"accept"');
+  });
+
   it('passes both accepted source output and terminal judge decision to downstream steps', async () => {
     const plan: DAGPlan = {
       plan: [

@@ -68,11 +68,13 @@ export interface DAGRetryOptions {
   agentConsensus?: AgentConsensusConfig;
   evidence?: EvidenceConfig;
   crossReview?: CrossReviewConfig;
+  qaRepairMaxRounds?: number;
   localModelConcurrency?: number;
 }
 
 const MAX_TOOL_CALLS = 4;
 const MAX_RECOVERY_ROUNDS = 2;
+const DEFAULT_QA_REPAIR_ROUNDS = 3;
 const DEFAULT_STEP_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STEP_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
@@ -546,6 +548,18 @@ export async function executeDAG(
               settled,
               crossReview,
               crossReviewRounds,
+              reporter,
+            });
+            maybeScheduleCodeQaRepair({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+              failed,
+              maxRounds: retry?.qaRepairMaxRounds ?? DEFAULT_QA_REPAIR_ROUNDS,
               reporter,
             });
             maybeScheduleNoDiffDecomposition({
@@ -1248,6 +1262,252 @@ function contentDependencyForJudgeStep(
   reviewStepId: string | undefined,
 ): string | null {
   return judgeStep.dependsOn.find((dep) => dep !== reviewStepId) ?? null;
+}
+
+interface CodeQaRepairOptions {
+  step: DAGStep;
+  result: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  failed: Set<string>;
+  maxRounds: number;
+  reporter?: VerboseReporter;
+}
+
+interface CodeQaVerdict {
+  verdict: 'accept' | 'revise' | 'reject';
+  blockingFindings: string[];
+  verificationRequired: string[];
+}
+
+function maybeScheduleCodeQaRepair(options: CodeQaRepairOptions): boolean {
+  if (options.step.agent !== 'code-qa-analyst') return false;
+  if (isCrossReviewHelperStep(options.step)) return false;
+  if (options.result.status !== 'completed') return false;
+
+  const verdict = parseCodeQaVerdict(options.result.output ?? '');
+  if (!verdict || verdict.verdict === 'accept') return false;
+
+  const rootId = options.step.parentStepId ?? options.step.id;
+  const round = nextCodeQaRepairRound(options.plan, rootId);
+  const reason = `Code QA verdict ${verdict.verdict} requires developer repair.`;
+
+  if (round > options.maxRounds) {
+    options.result.status = 'failed';
+    options.result.error = `${reason} QA repair round limit (${options.maxRounds}) was reached.`;
+    options.result.failureKind = 'test';
+    options.results.set(options.step.id, options.result);
+    options.failed.add(options.step.id);
+    options.reporter?.dagStepFailed(options.step.id, options.step.agent, options.result.error);
+    return true;
+  }
+
+  const developerStep = findDeveloperStepForQa(options.step, options.plan, options.agents);
+  if (!developerStep) {
+    options.result.status = 'failed';
+    options.result.error = `${reason} No upstream file-output developer step was found.`;
+    options.result.failureKind = 'test';
+    options.results.set(options.step.id, options.result);
+    options.failed.add(options.step.id);
+    options.reporter?.dagStepFailed(options.step.id, options.step.agent, options.result.error);
+    return true;
+  }
+
+  const fixId = `${rootId}-fix-${round}`;
+  const retryId = `${rootId}-retry-${round}`;
+  if (options.allIds.has(fixId) || options.allIds.has(retryId)) return false;
+
+  const fixTask = buildCodeQaFixTask({
+    qaStep: options.step,
+    developerStep,
+    verdict,
+    qaOutput: options.result.output ?? '',
+  });
+  const retryTask = buildCodeQaRetryTask(options.step, fixId);
+  const fixStep: DAGStep = {
+    id: fixId,
+    agent: developerStep.agent,
+    task: fixTask,
+    dependsOn: [...new Set([options.step.id, ...developerStep.dependsOn])],
+    parentStepId: rootId,
+  };
+  const retryStep: DAGStep = {
+    id: retryId,
+    agent: options.step.agent,
+    task: retryTask,
+    dependsOn: [fixId],
+    parentStepId: rootId,
+  };
+
+  insertAfter(options.plan, options.step.id, [fixStep, retryStep]);
+  options.allIds.add(fixId);
+  options.allIds.add(retryId);
+  for (const candidate of options.plan.plan) {
+    if (candidate.id === options.step.id || candidate.id === fixId || candidate.id === retryId || options.settled.has(candidate.id)) {
+      continue;
+    }
+    candidate.dependsOn = candidate.dependsOn.map((dep) => (dep === options.step.id ? retryId : dep));
+  }
+
+  options.result.status = 'failed';
+  options.result.error = reason;
+  options.result.failureKind = 'test';
+  options.result.replacementStepId = retryId;
+  options.results.set(options.step.id, options.result);
+  options.results.set(fixId, {
+    id: fixId,
+    agent: fixStep.agent,
+    task: fixTask,
+    dependsOn: [...fixStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    spawnedByAgent: options.step.agent,
+    failureKind: 'test',
+  });
+  options.results.set(retryId, {
+    id: retryId,
+    agent: retryStep.agent,
+    task: retryTask,
+    dependsOn: [...retryStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    spawnedByAgent: fixStep.agent,
+    failureKind: 'test',
+  });
+  options.reporter?.dagRecoveryScheduled?.({
+    failedStepId: options.step.id,
+    helperStepId: fixId,
+    helperAgent: fixStep.agent,
+    retryStepId: retryId,
+    failureKind: 'test',
+    reason,
+  });
+  return true;
+}
+
+function parseCodeQaVerdict(output: string): CodeQaVerdict | null {
+  const parsed = parseFirstJsonObjectLocal(output);
+  const rawVerdict = typeof parsed?.['verdict'] === 'string' ? parsed['verdict'].trim().toLowerCase() : '';
+  if (rawVerdict !== 'accept' && rawVerdict !== 'revise' && rawVerdict !== 'reject') {
+    return null;
+  }
+  return {
+    verdict: rawVerdict,
+    blockingFindings: normalizeQaFindingList(parsed?.['blockingFindings']),
+    verificationRequired: normalizeStringArray(parsed?.['verificationRequired']),
+  };
+}
+
+function normalizeQaFindingList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const record = item as Record<string, unknown>;
+      return [
+        record['severity'] ? `Severity: ${String(record['severity'])}` : '',
+        record['file'] ? `File: ${String(record['file'])}` : '',
+        record['issue'] ? `Issue: ${String(record['issue'])}` : '',
+        record['requiredFix'] ? `Required fix: ${String(record['requiredFix'])}` : '',
+      ].filter(Boolean).join(' | ');
+    })
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function parseFirstJsonObjectLocal(output: string): Record<string, unknown> | null {
+  for (let start = output.indexOf('{'); start !== -1; start = output.indexOf('{', start + 1)) {
+    for (let end = output.length; end > start; end -= 1) {
+      const candidate = output.slice(start, end).trim();
+      if (!candidate.endsWith('}')) continue;
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : null;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+function nextCodeQaRepairRound(plan: DAGPlan, rootId: string): number {
+  const prefix = `${rootId}-retry-`;
+  const existing = plan.plan
+    .map((step) => step.id)
+    .filter((id) => id.startsWith(prefix))
+    .map((id) => Number.parseInt(id.slice(prefix.length), 10))
+    .filter((round) => Number.isFinite(round));
+  return existing.length > 0 ? Math.max(...existing) + 1 : 1;
+}
+
+function findDeveloperStepForQa(
+  qaStep: DAGStep,
+  plan: DAGPlan,
+  agents: Map<string, AgentDefinition>,
+): DAGStep | null {
+  for (const depId of [...qaStep.dependsOn].reverse()) {
+    const depStep = plan.plan.find((candidate) => candidate.id === depId);
+    if (!depStep) continue;
+    if (agents.get(depStep.agent)?.output.type === 'files') return depStep;
+  }
+  return null;
+}
+
+function buildCodeQaFixTask(options: {
+  qaStep: DAGStep;
+  developerStep: DAGStep;
+  verdict: CodeQaVerdict;
+  qaOutput: string;
+}): string {
+  const findings = options.verdict.blockingFindings.length > 0
+    ? options.verdict.blockingFindings.map((finding) => `- ${finding}`).join('\n')
+    : '- QA requested revision but did not provide structured blocking findings. Read the QA output and fix the concrete blocker.';
+  const verification = options.verdict.verificationRequired.length > 0
+    ? options.verdict.verificationRequired.map((command) => `- ${command}`).join('\n')
+    : '- Run the most relevant tests/build checks for the files you change.';
+  return [
+    'Fix implementation issues found by code QA.',
+    '',
+    `Original developer step: ${options.developerStep.id} [${options.developerStep.agent}]`,
+    `QA step: ${options.qaStep.id}`,
+    `QA verdict: ${options.verdict.verdict}`,
+    '',
+    'Blocking findings to fix:',
+    findings,
+    '',
+    'Verification required after the fix:',
+    verification,
+    '',
+    'Return changed files and verification evidence. Do not merely explain the fix.',
+    '',
+    'Full QA output:',
+    options.qaOutput.slice(0, 6_000),
+  ].join('\n');
+}
+
+function buildCodeQaRetryTask(step: DAGStep, fixId: string): string {
+  return [
+    'Re-run code QA after the developer repair step.',
+    '',
+    `Original QA step: ${step.id}`,
+    `Developer repair step: ${fixId}`,
+    '',
+    'Review the repaired implementation against the original requirements and previous blocking findings.',
+    'End with the Structured QA Verdict JSON block using verdict accept, revise, or reject.',
+  ].join('\n');
 }
 
 function crossReviewParticipant(

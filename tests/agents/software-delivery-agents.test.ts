@@ -319,6 +319,9 @@ describe('software delivery agent bundle', () => {
     const adviser = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'adviser'));
 
     expect(qa.prompt).toContain('No implementation artifacts means no approval');
+    expect(qa.prompt).toContain('Structured QA Verdict');
+    expect(qa.prompt).toContain('"verdict": "accept|revise|reject"');
+    expect(qa.prompt).toContain('blockingFindings');
     expect(docs.prompt).toContain('Do not edit documentation when implementation artifacts are missing');
     expect(readiness.prompt).toContain('Hard readiness blockers');
     expect(adviser.prompt).toContain('Valid implementation agents');

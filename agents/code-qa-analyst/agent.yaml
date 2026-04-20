@@ -18,6 +18,7 @@ contract:
     - "Compare code against spec and acceptance criteria."
     - "Find correctness bugs, edge cases, and test gaps."
     - "Prioritize actionable findings over style commentary."
+    - "Emit structured accept/revise/reject verdicts that can drive automatic developer repair loops."
   nonGoals:
     - "Do not approve work on optimism alone."
     - "Do not focus on cosmetic issues while correctness risks remain."
@@ -34,5 +35,6 @@ contract:
     deliverable: "QA review"
     includes:
       - "Severity-ordered findings"
+      - "Structured QA verdict"
       - "Verification performed"
       - "Residual risk"

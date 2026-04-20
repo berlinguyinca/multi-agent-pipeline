@@ -1296,6 +1296,7 @@ export function createTuiApp(options: TuiAppOptions): TuiApp {
               retryDelayMs: config.router.retryDelayMs,
               adapterDefaults: config.adapterDefaults,
               agentConsensus: config.agentConsensus,
+              qaRepairMaxRounds: config.quality.maxCodeQaIterations,
               localModelConcurrency: v2OllamaConcurrency,
               workingDir: path.resolve(config.workspaceDir ?? config.outputDir),
               knowledgeCwd: path.resolve(config.workspaceDir ?? config.outputDir),

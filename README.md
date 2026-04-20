@@ -20,6 +20,8 @@ The core idea is the same in both modes: invest in the spec and verification pat
 
 For software builds, smart routing and adviser guidance now treat licensing and post-build documentation as part of delivery: after implementation and QA, `legal-license-advisor` should recommend compatible license options from the utilized languages, libraries, package manifests, and existing license evidence, then `docs-maintainer` should update or create a README that explains what the tool does and how to use it and should document license coverage. If no repository license exists and the requested license is unspecified, the docs agent reports an explicit license-choice blocker instead of inventing legal terms.
 
+Code QA can also drive an autonomous repair loop. `code-qa-analyst` ends implementation reviews with a structured `accept|revise|reject` verdict; when it returns `revise` or `reject`, MAP rewires downstream steps through the upstream file-producing developer agent, reruns QA after the repair, and repeats up to `quality.maxCodeQaIterations`.
+
 ## Quick Start
 
 Install the `map` command:
@@ -514,6 +516,7 @@ Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship mu
 
 Use `--workspace-dir` when MAP should build on an existing project or collected-data directory. The workspace becomes the agent/tool/adaptor working directory, while `--output-dir` remains the location for MAP reports, run Markdown, PDFs, and visual artifacts. If `--workspace-dir` is omitted, smart-routing mode preserves the previous behavior and executes agents in `--output-dir`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `router.stepTimeoutMs` is a per-step no-progress timeout: MAP aborts a step only when no output chunk arrives within that window. When a step times out, MAP retries it and doubles the next step timeout budget. If the retried step succeeds, MAP records the larger per-agent timeout in `.map/adaptive-timeouts.json` and uses it for later runs in the same checkout. The default retry count is intentionally low to avoid hour-scale local-model stalls.
+When `code-qa-analyst` emits a structured `revise` or `reject` verdict for an implementation review, v2 schedules a developer repair step using the upstream file-output agent, reruns code QA, and rewires downstream dependencies to the passing QA retry. The loop budget is `quality.maxCodeQaIterations`.
 
 ### Agent contribution reports and self-optimization
 
