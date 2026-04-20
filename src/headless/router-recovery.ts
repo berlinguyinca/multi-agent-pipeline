@@ -106,7 +106,7 @@ export async function routeWithAutonomousRecovery(
   }
 
   if (decision.kind === 'no-match') {
-    const fallbackPlan = buildBestEffortFallbackPlan(decision, agents, options.config);
+    const fallbackPlan = buildBestEffortFallbackPlan(decision, agents, options.config, options.basePrompt);
     if (fallbackPlan !== null) {
       agentDiscovery.push(buildFallbackDiscoveryDiagnostic(decision, fallbackPlan, agents, options.config));
       options.reporter?.routerRecoveryComplete({
@@ -161,7 +161,11 @@ function buildBestEffortFallbackPlan(
   decision: { reason: string; suggestedAgent?: { name: string; description: string } },
   agents: Map<string, AgentDefinition>,
   config: PipelineConfig,
+  userTask = '',
 ): DAGPlan | null {
+  const softwarePlan = buildSoftwareLifecycleFallbackPlan(decision, agents, userTask);
+  if (softwarePlan) return softwarePlan;
+
   const fallback = selectBestEffortFallbackAgent(decision, agents);
   if (!fallback) return null;
   const requiresLedger = config.evidence.enabled !== false &&
@@ -184,6 +188,49 @@ function buildBestEffortFallbackPlan(
       dependsOn: [],
     }],
   };
+}
+
+function buildSoftwareLifecycleFallbackPlan(
+  decision: { reason: string; suggestedAgent?: { name: string; description: string } },
+  agents: Map<string, AgentDefinition>,
+  userTask: string,
+): DAGPlan | null {
+  const text = `${userTask} ${decision.reason} ${decision.suggestedAgent?.name ?? ''} ${decision.suggestedAgent?.description ?? ''}`.toLowerCase();
+  const softwareSignals = /\b(software|implementation|feature|code|build|test|tdd|docs|developer|lifecycle|tool|cli|app|service)\b/.test(text);
+  if (!softwareSignals) return null;
+
+  const required = ['spec-writer', 'spec-qa-reviewer', 'adviser', 'tdd-engineer', 'implementation-coder', 'code-qa-analyst'];
+  if (!required.every((name) => agents.has(name))) return null;
+
+  const plan: DAGPlan['plan'] = [];
+  const pubChemProof = /\bpubchem\b/i.test(userTask)
+    ? ' Completion proof for this PubChem request must include a command that downloads or fixture-simulates 1000 PubChem records into an isolated output folder, converts them to Markdown, and reports the record count plus any live-network/rate-limit blocker.'
+    : '';
+  const add = (agent: string, task: string, dependsOn: string[]): void => {
+    if (!agents.has(agent)) return;
+    plan.push({ id: `step-${plan.length + 1}`, agent, task, dependsOn });
+  };
+
+  add(
+    'spec-writer',
+    `Create an implementation-ready specification from the original request. Router recovery reason: ${decision.reason}.${pubChemProof} Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
+    [],
+  );
+  add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria.', ['step-1']);
+  add('adviser', 'Create an executable adviser workflow from the reviewed and QA-approved spec using exact registered agents and adviser-workflow JSON when changing the DAG.', ['step-2']);
+  add('tdd-engineer', `Write focused failing tests before implementation. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.${pubChemProof}`, ['step-3']);
+  add('implementation-coder', `Implement the smallest coherent change satisfying the reviewed spec and tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.${pubChemProof}`, ['step-4']);
+  add('code-qa-analyst', `Review implementation correctness, test adequacy, isolated service usage, and spec conformance.${pubChemProof} End with the Structured QA Verdict JSON.`, ['step-5']);
+  add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', ['step-6']);
+  add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [agents.has('legal-license-advisor') ? 'step-7' : 'step-6']);
+  const readinessDependency = agents.has('docs-maintainer')
+    ? `step-${plan.findIndex((step) => step.agent === 'docs-maintainer') + 1}`
+    : agents.has('legal-license-advisor')
+      ? 'step-7'
+      : 'step-6';
+  add('release-readiness-reviewer', 'Assess final readiness, verification evidence, residual risk, and handoff status.', [readinessDependency]);
+
+  return { plan };
 }
 
 function selectBestEffortFallbackAgent(

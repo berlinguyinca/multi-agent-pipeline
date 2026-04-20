@@ -19,6 +19,22 @@ describe('validateStepHandoff', () => {
   });
 
 
+  it('fails ceremonial protocol acknowledgments before downstream handoff', () => {
+    const validation = validateStepHandoff({
+      step: step({ agent: 'software-delivery' }),
+      result: result({
+        agent: 'software-delivery',
+        outputType: 'files',
+        output: 'I am ready to act as the **Software Delivery Agent**. I will follow my role and protocol.',
+        filesCreated: [],
+      }),
+      priorResults: new Map(),
+    });
+
+    expect(validation.handoffPassed).toBe(false);
+    expect(validation.handoffFindings[0]?.message).toContain('protocol acknowledgment');
+  });
+
   it('fails file-output steps that provide no output or file evidence', () => {
     const validation = validateStepHandoff({
       step: step({ agent: 'tdd-engineer' }),

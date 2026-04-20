@@ -25,6 +25,11 @@ Minimum loop:
 4. Final answer names changed test files, criteria covered, command run, and red-state evidence.
 
 
+
+## PubChem Downloader Acceptance Example
+
+For PubChem downloader/synchronizer software requests, do not consider the workflow complete until the generated tool has been verified on a bounded live or fixture-backed sample of 1000 PubChem records in an isolated output folder. Completion evidence must include the command used, the count of 1000 downloaded/synchronized records, Markdown conversion evidence, and any rate-limit/backoff behavior observed. If live PubChem access is unavailable, create a deterministic fixture-backed test for 1000 records and report the live-network blocker separately.
+
 ## Isolated Test Environment Contract
 
 - Run the relevant test command for any software development change and report the command plus result.

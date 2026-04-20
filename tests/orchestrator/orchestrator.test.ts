@@ -2691,6 +2691,7 @@ describe('executeDAG', () => {
       parentStepId: 'step-1',
       edgeType: 'feedback',
     });
+    expect(result.plan.plan.find((step) => step.id === 'step-1-decompose-1')?.task).toContain('Return ONLY adviser-workflow JSON');
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 

@@ -34,10 +34,19 @@ function noMatchAdapter(output: string): AgentAdapter {
 }
 
 describe('routeWithAutonomousRecovery', () => {
-  it('falls back to software-delivery instead of evidence-gated researcher for software build no-matches', async () => {
+  it('falls back to an executable software lifecycle DAG instead of a single protocol-acknowledgment step', async () => {
     const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-agents-'));
     const agents = new Map<string, AgentDefinition>([
       ['researcher', makeAgent('researcher')],
+      ['spec-writer', makeAgent('spec-writer')],
+      ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
+      ['adviser', makeAgent('adviser')],
+      ['tdd-engineer', makeAgent('tdd-engineer', 'files')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst')],
+      ['legal-license-advisor', makeAgent('legal-license-advisor')],
+      ['docs-maintainer', makeAgent('docs-maintainer', 'files')],
+      ['release-readiness-reviewer', makeAgent('release-readiness-reviewer')],
       ['software-delivery', makeAgent('software-delivery', 'files')],
     ]);
     const noMatch = JSON.stringify({
@@ -46,8 +55,8 @@ describe('routeWithAutonomousRecovery', () => {
     });
 
     const result = await routeWithAutonomousRecovery({
-      resolvedPrompt: 'Build a local software tool that syncs files',
-      basePrompt: 'Build a local software tool that syncs files',
+      resolvedPrompt: 'Build a local PubChem software tool that syncs files and converts records to Markdown',
+      basePrompt: 'Build a local PubChem software tool that syncs files and converts records to Markdown',
       agents,
       agentsDir,
       config: {
@@ -72,12 +81,24 @@ describe('routeWithAutonomousRecovery', () => {
 
     expect(result.decision.kind).toBe('plan');
     if (result.decision.kind !== 'plan') throw new Error('expected plan');
-    expect(result.decision.plan.plan[0]).toMatchObject({
-      id: 'step-1',
-      agent: 'software-delivery',
-      dependsOn: [],
-    });
-    expect(result.decision.plan.plan[0]?.task).toContain('software-delivery agent is better suited');
+    expect(result.decision.plan.plan.map((step) => step.agent)).toEqual([
+      'spec-writer',
+      'spec-qa-reviewer',
+      'adviser',
+      'tdd-engineer',
+      'implementation-coder',
+      'code-qa-analyst',
+      'legal-license-advisor',
+      'docs-maintainer',
+      'release-readiness-reviewer',
+    ]);
+    expect(result.decision.plan.plan[0]).toMatchObject({ id: 'step-1', agent: 'spec-writer', dependsOn: [] });
+    expect(result.decision.plan.plan[1]).toMatchObject({ id: 'step-2', agent: 'spec-qa-reviewer', dependsOn: ['step-1'] });
+    expect(result.decision.plan.plan[3]?.task).toContain('Docker');
+    expect(result.decision.plan.plan[3]?.task).toContain('test command');
+    expect(result.decision.plan.plan[3]?.task).toContain('1000 PubChem records');
+    expect(result.decision.plan.plan[4]?.task).toContain('Do not return a protocol acknowledgment');
+    expect(result.decision.plan.plan[4]?.task).toContain('converts them to Markdown');
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 
