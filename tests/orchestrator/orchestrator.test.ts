@@ -2652,6 +2652,47 @@ describe('executeDAG', () => {
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 
+
+  it('inserts an adviser decomposition lane before downstream work when implementation produces no diff', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-diff-decompose-'));
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['adviser', makeAgent('adviser', 'answer')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+    ]);
+    const createAdapter = createQueueAdapter([
+      'Implementation complete but no files changed.',
+      'Decompose into file-scoped slices using implementation-coder and tdd-engineer.',
+      'QA sees decomposition guidance.',
+    ]);
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-decompose-1',
+      'step-2',
+    ]);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1-decompose-1']);
+    expect(result.steps.find((step) => step.id === 'step-1-decompose-1')).toMatchObject({
+      agent: 'adviser',
+      parentStepId: 'step-1',
+      edgeType: 'feedback',
+    });
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],

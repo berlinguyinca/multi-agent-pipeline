@@ -548,6 +548,16 @@ export async function executeDAG(
               crossReviewRounds,
               reporter,
             });
+            maybeScheduleNoDiffDecomposition({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+              reporter,
+            });
             maybeScheduleFactCheck({
               step,
               result,
@@ -812,6 +822,96 @@ async function persistLearningCandidate(
     });
   } catch {
     // Learning writeback is best-effort.
+  }
+}
+
+
+interface NoDiffDecompositionOptions {
+  step: DAGStep;
+  result: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  reporter?: VerboseReporter;
+}
+
+function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): void {
+  if (!options.agents.has('adviser')) return;
+  if (!requiresDecompositionForNoDiff(options.step.agent)) return;
+  const hasNoDiffFinding = options.result.handoffFindings?.some((finding) =>
+    finding.message.includes('workspace file changes'),
+  ) ?? false;
+  if (!hasNoDiffFinding) return;
+  const decomposeId = nextAvailableRuntimeId(`${options.step.id}-decompose`, options.allIds);
+  const decomposeStep: DAGStep = {
+    id: decomposeId,
+    agent: 'adviser',
+    task: buildNoDiffDecompositionTask(options.step, options.result),
+    dependsOn: [options.step.id],
+    parentStepId: options.step.id,
+  };
+  insertAfter(options.plan, options.step.id, [decomposeStep]);
+  options.allIds.add(decomposeId);
+  replaceDownstreamDependency(options.plan, options.step.id, decomposeId, new Set([options.step.id, decomposeId]), options.settled);
+  options.results.set(decomposeId, {
+    id: decomposeId,
+    agent: 'adviser',
+    task: decomposeStep.task,
+    dependsOn: [...decomposeStep.dependsOn],
+    status: 'pending',
+    parentStepId: options.step.id,
+    edgeType: 'feedback',
+    spawnedByAgent: options.step.agent,
+  });
+  options.reporter?.agentDecision?.({
+    by: `${options.step.id} [${options.step.agent}]`,
+    agent: 'adviser',
+    decision: 'added',
+    stepId: decomposeId,
+    reason: 'file-output implementation produced no workspace diff; requesting bounded implementation decomposition',
+  });
+}
+
+function requiresDecompositionForNoDiff(agent: string): boolean {
+  return new Set(['implementation-coder', 'software-delivery', 'tdd-engineer']).has(agent);
+}
+
+function buildNoDiffDecompositionTask(step: DAGStep, result: StepResult): string {
+  return [
+    `The file-output step "${step.id}" completed without observed workspace file changes.`,
+    `Original agent: ${step.agent}`,
+    `Original task: ${step.task}`,
+    '',
+    'Decompose the remaining implementation into bounded file-scoped tasks using only registered agents.',
+    'Prefer test authoring, focused implementation slices, verification, then docs/QA.',
+    'If returning adviser-workflow JSON, use exact registered agent names only.',
+    'Do not invent implementation-engineer or qa-engineer agents.',
+    '',
+    'Previous output:',
+    result.output?.trim() || '(empty)',
+  ].join('\n');
+}
+
+function replaceDownstreamDependency(
+  plan: DAGPlan,
+  fromId: string,
+  toId: string,
+  excludeIds: Set<string>,
+  settled: Set<string>,
+): void {
+  for (const candidate of plan.plan) {
+    if (excludeIds.has(candidate.id) || settled.has(candidate.id)) continue;
+    if (!candidate.dependsOn.includes(fromId)) continue;
+    candidate.dependsOn = candidate.dependsOn.map((dep) => dep === fromId ? toId : dep);
+  }
+}
+
+function nextAvailableRuntimeId(base: string, allIds: Set<string>): string {
+  for (let index = 1; ; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!allIds.has(candidate)) return candidate;
   }
 }
 
