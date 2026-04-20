@@ -334,7 +334,14 @@ export class VerboseReporter {
   }
 
   modelPreparationFailed(model: string, error: string): void {
-    this.log('✘', `Could not prepare Ollama model "${model}". Why MAP cannot recover automatically: ${error}`);
+    this.log(
+      this.color('✘', 'red'),
+      [
+        `${this.color('Could not prepare Ollama model', 'red')} "${model}"`,
+        `  ${this.color('↳ Why:', 'yellow')} ${this.color(firstReasonLine(error), 'red')}`,
+      ].join('\n'),
+      { preserveAnsi: true },
+    );
   }
 
   routerRecoveryComplete(event: { status: string; detail: string }): void {
@@ -418,7 +425,7 @@ export class VerboseReporter {
       [
         `${this.color('Cannot recover', 'red')} ${this.stepLabel(event.stepId)} automatically.`,
         `Failure type: ${event.failureKind ?? 'unknown'}.`,
-        `${this.color('Why:', 'yellow')} ${normalizeTerminalText(event.reason)}`,
+        `\n  ${this.color('↳ Why:', 'yellow')} ${this.color(firstReasonLine(event.reason), 'red')}`,
       ].join(' '),
       { preserveAnsi: true },
     );
@@ -443,6 +450,9 @@ export class VerboseReporter {
       this.color('✘', 'red'),
       [
         `${this.color('Security gate failed', 'red')} for ${this.stepLabel(stepId)} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+        ...(findingLines.length === 0
+          ? [`  ${this.color('↳ Why:', 'yellow')} ${this.color('No finding details were provided by the security gate.', 'red')}`]
+          : []),
         ...findingLines,
       ].join('\n'),
       { preserveAnsi: true },

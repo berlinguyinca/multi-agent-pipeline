@@ -308,6 +308,29 @@ describe('VerboseReporter', () => {
     expect(line).not.toContain('full stack trace');
   });
 
+  it('prints every failure helper as red headline plus indented one-line reason', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.stageFailed('execute', 'adapter crashed\nstack');
+    colorReporter.modelPreparationFailed('gemma4', 'pull failed\nmore detail');
+    colorReporter.dagRecoveryUnavailable({ stepId: 'step-7', failureKind: 'evidence', reason: 'round limit reached\nsecondary' });
+    colorReporter.securityGateFailed('step-8', 0);
+
+    const failures = colorWriter.output.filter((line) => line.includes('\x1b[31m'));
+    expect(failures.join('')).toContain('Execution');
+    expect(failures.join('')).toContain('Could not prepare Ollama model');
+    expect(failures.join('')).toContain('Cannot recover');
+    expect(failures.join('')).toContain('Security gate failed');
+    for (const line of failures) {
+      expect(line).toMatch(/\x1b\[31m/);
+      expect(line).toContain('↳ Why:');
+    }
+    expect(colorWriter.output.join('')).not.toContain('more detail');
+    expect(colorWriter.output.join('')).not.toContain('secondary');
+  });
+
   it('logs security gate findings with red headline and indented details', () => {
     const colorWriter = createTestWriter();
     colorWriter.supportsColor = true;
