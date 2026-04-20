@@ -297,9 +297,10 @@ Commands:
         : questioned;
       const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
       if (silent || !process.stdin.isTTY) {
-        process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}
-` : `${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
-`);
+        const output = silent
+          ? `${JSON.stringify(refined, null, 2)}\n`
+          : `${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}\n`;
+        process.stdout.write(output);
         process.exit(0);
       }
 
@@ -309,17 +310,15 @@ Commands:
         return;
       }
       if (choice === 'save') {
-        process.stdout.write(`${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
-`);
+        process.stdout.write(`${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}\n`);
         process.exit(0);
       }
 
-      process.stdout.write(`${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}
-`);
+      process.stdout.write(`${formatRefineQuestions(refined)}${paint('Saved refined spec:', 'green', 'bold')} ${handoff.refinedPromptPath}\n`);
       process.exit(0);
     };
 
-    if (!refineOnly && !silent && process.stdin.isTTY) {
+    if (!silent && process.stdin.isTTY) {
       const handoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
       if (handoff) {
         const choice = await askSavedRefineHandoffChoice(handoff.refinedPromptPath);
