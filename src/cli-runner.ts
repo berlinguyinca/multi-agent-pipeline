@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import * as readline from 'node:readline/promises';
 import { runHeadless } from './headless/runner.js';
 import { createTuiApp } from './tui/tui-app.js';
 import { loadConfig } from './config/loader.js';
@@ -211,9 +212,12 @@ Commands:
 
     if (refineOnly) {
       const { refinePromptHeadless } = await import('./refine/refiner.js');
-      const refined = refinePromptHeadless({ prompt, headless: true });
-      process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}
-` : formatRefineQuestions(refined));
+      const initial = refinePromptHeadless({ prompt, headless: true });
+      const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(initial.questionsAsked) : [];
+      const refined = answers.length > 0
+        ? refinePromptHeadless({ prompt, headless: true, answers })
+        : initial;
+      process.stdout.write(silent ? `${JSON.stringify(refined, null, 2)}\n` : formatRefineQuestions(refined));
       process.exit(0);
     }
 
@@ -361,14 +365,32 @@ Commands:
 }
 
 
-function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; assumptions: string[]; refinedPrompt: string }): string {
+
+async function askRefineAnswers(questions: string[]): Promise<string[]> {
+  if (questions.length === 0) return [];
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answers: string[] = [];
+    process.stdout.write('MAP refine needs a few answers before execution.\n');
+    for (const [index, question] of questions.entries()) {
+      answers.push(await rl.question(`${index + 1}. ${question}\n> `));
+    }
+    return answers;
+  } finally {
+    rl.close();
+  }
+}
+
+function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; assumptions: string[]; answers?: string[]; refinedPrompt: string }): string {
   const questions = result.questionsAsked.length > 0
     ? result.questionsAsked.map((question, index) => `${index + 1}. ${question}`)
     : ['1. No clarification questions were generated; review the optimized prompt below before execution.'];
   return [
     '# MAP Refine Questions',
     '',
-    'Please answer these questions before execution, then rerun MAP with your answers included in the prompt or use `map refine --run` when you are ready to execute automatically.',
+    result.answers && result.answers.length > 0
+      ? 'Answers collected. Review the refined prompt below, then rerun MAP with it or use `map refine --run` when you are ready to execute automatically.'
+      : 'Please answer these questions before execution, then rerun MAP with your answers included in the prompt or use `map refine --run` when you are ready to execute automatically.',
     '',
     '## Original request',
     result.inputPrompt,
@@ -376,6 +398,13 @@ function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: st
     '## Questions',
     ...questions,
     '',
+    ...(result.answers && result.answers.length > 0
+      ? [
+          '## Answers collected',
+          ...result.answers.map((answer, index) => `${index + 1}. ${result.questionsAsked[index] ?? `Question ${index + 1}`}\n   Answer: ${answer}`),
+          '',
+        ]
+      : []),
     '## Assumptions MAP would use if you proceed without more answers',
     ...result.assumptions.map((assumption) => `- ${assumption}`),
     '',

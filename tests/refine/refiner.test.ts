@@ -50,6 +50,24 @@ describe('Socratic prompt refiner', () => {
     expect(result.refinedPrompt).toContain('What is the primary goal');
   });
 
+
+  it('incorporates collected answers into the refined prompt', () => {
+    const initial = refinePromptHeadless({
+      prompt: 'Build something useful',
+      headless: true,
+    });
+    const result = refinePromptHeadless({
+      prompt: 'Build something useful',
+      headless: true,
+      answers: initial.questionsAsked.map((question) => `Answer for: ${question}`),
+    });
+
+    expect(result.answers).toHaveLength(initial.questionsAsked.length);
+    expect(result.refinedPrompt).toContain('Answers provided');
+    expect(result.refinedPrompt).toContain('Use these user-provided answers');
+    expect(result.refinedPrompt).toContain('Answer for: What is the primary goal');
+  });
+
   it('does not recommend chemical classification agents for PubChem software sync requests', () => {
     const result = refinePromptHeadless({
       prompt: 'Develop local software to synchronize PubChem compound and substance files and convert them to Markdown',

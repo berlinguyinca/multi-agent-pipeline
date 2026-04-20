@@ -22,6 +22,7 @@ export interface RefineResult {
   questionsAsked: string[];
   assumptions: string[];
   recommendedCapabilities: RefineCapabilityRecommendation[];
+  answers: string[];
   outputPath?: string;
 }
 
@@ -59,6 +60,7 @@ export function scorePromptForRefinement(prompt: string): SocraticScore {
 export function refinePromptHeadless(options: RefineOptions): RefineResult {
   const initial = scorePromptForRefinement(options.prompt);
   const assumptions = buildAssumptions(initial.questions);
+  const answers = normalizeAnswers(options.answers, initial.questions.length);
   const recommendedCapabilities = recommendCapabilities(options.prompt);
   const refinedPrompt = [
     '# Refined MAP Prompt',
@@ -76,8 +78,16 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
           '',
         ]
       : []),
+    ...(answers.length > 0
+      ? [
+          '## Answers provided',
+          ...answers.map((answer, index) => `${index + 1}. ${initial.questions[index] ?? `Question ${index + 1}`}
+   Answer: ${answer}`),
+          '',
+        ]
+      : []),
     '## Optimized prompt',
-    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities),
+    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities, initial.questions, answers),
   ].join('\n');
 
   return {
@@ -97,6 +107,7 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
     questionsAsked: initial.questions,
     assumptions,
     recommendedCapabilities,
+    answers,
     ...(options.outputPath ? { outputPath: options.outputPath } : {}),
   };
 }
@@ -105,12 +116,21 @@ function buildOptimizedPrompt(
   prompt: string,
   assumptions: string[],
   capabilities: RefineCapabilityRecommendation[],
+  questions: string[] = [],
+  answers: string[] = [],
 ): string {
   return [
     prompt.trim(),
     '',
     'Use the following clarified constraints:',
     ...assumptions.map((assumption) => `- ${assumption}`),
+    ...(answers.length > 0
+      ? [
+          '',
+          'Use these user-provided answers:',
+          ...answers.map((answer, index) => `- ${questions[index] ?? `Question ${index + 1}`}: ${answer}`),
+        ]
+      : []),
     ...(capabilities.length > 0
       ? [
           '',
@@ -121,6 +141,14 @@ function buildOptimizedPrompt(
     '',
     'Before finalizing, challenge hidden assumptions, verify evidence requirements, and produce only the requested output structure.',
   ].join('\n');
+}
+
+
+function normalizeAnswers(answers: string[] | undefined, questionCount: number): string[] {
+  return (answers ?? [])
+    .slice(0, questionCount)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
 }
 
 function recommendCapabilities(prompt: string): RefineCapabilityRecommendation[] {
