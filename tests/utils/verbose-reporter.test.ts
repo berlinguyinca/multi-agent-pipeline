@@ -145,6 +145,28 @@ describe('VerboseReporter', () => {
     expect(line).toContain('5 steps');
   });
 
+  it('uses distinct colors for different agents and step ids', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.dagStepStart('step-1', 'implementation-coder', 'Implement');
+    colorReporter.dagStepStart('step-2', 'legal-license-advisor', 'Recommend licenses');
+
+    const output = colorWriter.output.join('');
+    const implementationColor = output.match(/\x1b\[([0-9;]+)mimplementation-coder\x1b\[0m/)?.[1];
+    const legalColor = output.match(/\x1b\[([0-9;]+)mlegal-license-advisor\x1b\[0m/)?.[1];
+    const stepOneColor = output.match(/\x1b\[([0-9;]+)mstep-1\x1b\[0m/)?.[1];
+    const stepTwoColor = output.match(/\x1b\[([0-9;]+)mstep-2\x1b\[0m/)?.[1];
+
+    expect(implementationColor).toBeDefined();
+    expect(legalColor).toBeDefined();
+    expect(implementationColor).not.toBe(legalColor);
+    expect(stepOneColor).toBeDefined();
+    expect(stepTwoColor).toBeDefined();
+    expect(stepOneColor).not.toBe(stepTwoColor);
+  });
+
   it('colorizes agent decisions, agents, and verdicts when color is supported', () => {
     const colorWriter = createTestWriter();
     colorWriter.supportsColor = true;
@@ -170,6 +192,22 @@ describe('VerboseReporter', () => {
     expect(output).toMatch(/\x1b\[[0-9;]+mimplementation-coder\x1b\[0m/);
     expect(output).toMatch(/\x1b\[[0-9;]+mselected\x1b\[0m/);
     expect(output).toMatch(/decision=\x1b\[[0-9;]+mrevise\x1b\[0m/);
+  });
+
+  it('renders failures as red with an indented why line', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.dagStepFailed('step-9', 'code-qa-analyst', 'missing implementation artifacts\nsecondary detail');
+
+    const output = colorWriter.output.join('');
+    expect(output).toMatch(/\x1b\[31m✘\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[31mfailed\x1b\[0m/);
+    expect(output).toContain('  ');
+    expect(output).toContain('↳ Why:');
+    expect(output).toContain('missing implementation artifacts');
+    expect(output).not.toContain('secondary detail');
   });
 
   it('logs agent routing and helper decisions', () => {
@@ -263,10 +301,11 @@ describe('VerboseReporter', () => {
     expect(line).toBeDefined();
   });
 
-  it('logs DAG step failed', () => {
-    reporter.dagStepFailed('s2', 'tester', 'timeout');
+  it('logs DAG step failed with an indented one-line reason', () => {
+    reporter.dagStepFailed('s2', 'tester', 'timeout\nfull stack trace');
     const line = writer.output.find((s) => s.includes('Step s2') && s.includes('failed'));
-    expect(line).toContain('timeout');
+    expect(line).toContain('↳ Why: timeout');
+    expect(line).not.toContain('full stack trace');
   });
 
   it('logs DAG step skipped', () => {

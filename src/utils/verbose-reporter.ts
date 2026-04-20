@@ -33,6 +33,8 @@ function formatBytes(bytes: number): string {
 }
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const AGENT_COLOR_CODES = ['38;5;75', '38;5;170', '38;5;76', '38;5;214', '38;5;141', '38;5;39', '38;5;203', '38;5;111'];
+const STEP_COLOR_CODES = ['38;5;33', '38;5;37', '38;5;63', '38;5;99', '38;5;136', '38;5;30', '38;5;161', '38;5;67'];
 
 export interface VerboseWriter {
   supportsColor?: boolean;
@@ -41,6 +43,7 @@ export interface VerboseWriter {
 }
 
 const stderrWriter: VerboseWriter = {
+  supportsColor: shouldUseVerboseColor(),
   write(text: string) {
     process.stderr.write(text);
   },
@@ -50,6 +53,36 @@ const stderrWriter: VerboseWriter = {
     }
   },
 };
+
+function shouldUseVerboseColor(): boolean {
+  if (process.env['NO_COLOR'] || process.env['MAP_NO_COLOR']) return false;
+  if (process.env['TERM'] === 'dumb') return false;
+  if (process.env['FORCE_COLOR'] && process.env['FORCE_COLOR'] !== '0') return true;
+  if (process.env['MAP_FORCE_COLOR'] && process.env['MAP_FORCE_COLOR'] !== '0') return true;
+  if (process.env['npm_config_color'] === 'true' || process.env['npm_config_color'] === 'always') return true;
+  if (process.stderr.isTTY) return true;
+  // npm scripts and some wrapped terminals can make stderr look non-TTY even
+  // though the user is reading an ANSI-capable terminal. Verbose mode is
+  // human-facing, so keep colors on by default unless explicitly disabled.
+  if (!process.env['CI']) return true;
+  return false;
+}
+
+function stableColorCode(value: string, palette: string[]): string {
+  let hash = 0;
+  for (const char of value) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  }
+  return palette[Math.abs(hash) % palette.length]!;
+}
+
+function firstReasonLine(reason: string): string {
+  return normalizeTerminalText(reason)
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? 'unknown';
+}
 
 export class VerboseReporter {
   private startedAt: number;
@@ -85,6 +118,12 @@ export class VerboseReporter {
     return `${codes[color]}${text}\x1b[0m`;
   }
 
+  private colorCode(text: string, code: string): string {
+    const supportsColor = this.writer.supportsColor ?? process.stderr.isTTY;
+    if (!supportsColor) return text;
+    return `\x1b[${code}m${text}\x1b[0m`;
+  }
+
   private decisionColor(decision: string): 'green' | 'yellow' | 'red' | 'cyan' | 'dim' {
     if (decision === 'selected' || decision === 'added' || decision === 'accept') return 'green';
     if (decision === 'skipped' || decision === 'not-needed' || decision === 'revise') return 'yellow';
@@ -94,11 +133,11 @@ export class VerboseReporter {
   }
 
   private agentLabel(agent: string): string {
-    return this.color(agent, 'magenta');
+    return this.colorCode(agent, stableColorCode(agent, AGENT_COLOR_CODES));
   }
 
   private stepLabel(stepId: string): string {
-    return this.color(stepId, 'blue');
+    return this.colorCode(stepId, stableColorCode(stepId, STEP_COLOR_CODES));
   }
 
   private log(icon: string, message: string, options: { preserveAnsi?: boolean } = {}): void {
@@ -175,7 +214,14 @@ export class VerboseReporter {
 
   stageFailed(stage: StageName, error: string): void {
     const label = STAGE_LABELS[stage] ?? stage;
-    this.log('✘', `${label} failed: ${error}`);
+    this.log(
+      this.color('✘', 'red'),
+      [
+        `${this.color(label, 'cyan')} ${this.color('failed', 'red')}`,
+        `  ${this.color('↳ Why:', 'yellow')} ${this.color(firstReasonLine(error), 'red')}`,
+      ].join('\n'),
+      { preserveAnsi: true },
+    );
   }
 
   // ── Streaming activity ───────────────────────────────────────────────
@@ -311,7 +357,14 @@ export class VerboseReporter {
   }
 
   dagStepFailed(stepId: string, agent: string, error: string): void {
-    this.log('✘', `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] ${this.color('failed', 'red')}: ${normalizeTerminalText(error)}`, { preserveAnsi: true });
+    this.log(
+      this.color('✘', 'red'),
+      [
+        `${this.color('Step', 'cyan')} ${this.stepLabel(stepId)} [${this.agentLabel(agent)}] ${this.color('failed', 'red')}`,
+        `  ${this.color('↳ Why:', 'yellow')} ${this.color(firstReasonLine(error), 'red')}`,
+      ].join('\n'),
+      { preserveAnsi: true },
+    );
   }
 
   dagStepRetry(stepId: string, agent: string, attempt: number, error: string): void {
@@ -347,12 +400,13 @@ export class VerboseReporter {
     reason: string;
   }): void {
     this.log(
-      '✘',
+      this.color('✘', 'red'),
       [
-        `Cannot recover ${event.stepId} automatically.`,
+        `${this.color('Cannot recover', 'red')} ${this.stepLabel(event.stepId)} automatically.`,
         `Failure type: ${event.failureKind ?? 'unknown'}.`,
-        `Why: ${event.reason}`,
+        `${this.color('Why:', 'yellow')} ${normalizeTerminalText(event.reason)}`,
       ].join(' '),
+      { preserveAnsi: true },
     );
   }
 
@@ -366,8 +420,9 @@ export class VerboseReporter {
 
   securityGateFailed(stepId: string, findingCount: number): void {
     this.log(
-      '✘',
-      `Security gate failed for ${stepId} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+      this.color('✘', 'red'),
+      `${this.color('Security gate failed', 'red')} for ${this.stepLabel(stepId)} (${findingCount} finding${findingCount === 1 ? '' : 's'})`,
+      { preserveAnsi: true },
     );
   }
 
