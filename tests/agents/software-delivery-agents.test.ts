@@ -407,6 +407,26 @@ describe('software delivery agent bundle', () => {
     }
   });
 
+
+  it('requires software development agents to run tests in isolated Docker-backed service environments when databases are needed', async () => {
+    const agents = await Promise.all([
+      'tdd-engineer',
+      'implementation-coder',
+      'software-delivery',
+      'build-fixer',
+      'test-stabilizer',
+      'code-qa-analyst',
+      'adviser',
+    ].map((name) => loadAgentFromDirectory(path.join(AGENTS_DIR, name))));
+
+    for (const agent of agents) {
+      expect(agent.prompt, `${agent.name} missing isolated test environment contract`).toContain('Isolated Test Environment Contract');
+      expect(agent.prompt, `${agent.name} missing Docker service guidance`).toContain('Docker');
+      expect(agent.prompt, `${agent.name} missing host database ban`).toContain('Do not connect tests to host databases');
+      expect(agent.prompt, `${agent.name} missing test verification evidence`).toContain('test command');
+    }
+  });
+
   it('loads strict source metadata generator agents as non-LLM metadata adapters', async () => {
     const insight = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'insightcode-metadata'));
     const codefetch = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'codefetch-metadata'));

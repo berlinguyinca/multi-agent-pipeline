@@ -47,6 +47,7 @@ ${cleanTask}
 16. When a task asks to download, pull, import, build, install, or verify a Hugging Face or Ollama model, route through model-installer when available before any downstream agent that needs the model.
 17. For large software tasks, split implementation into bounded slices handled by existing implementation agents instead of one broad file-output step; each slice should have a focused task, clear dependencies, and verification context. Prefer TDD/test-authoring, then implementation-coder/software-delivery slices, then QA/docs.
 18. For completed software builds, include legal-license-advisor when available to recommend compatible license options based on utilized languages and libraries before docs-maintainer finalizes license coverage. Then include a post-build docs step when docs-maintainer is available so the delivered tool gets a README explaining what the tool does and how to use the tool, plus LICENSE coverage or an explicit license-choice blocker.
+19. For software workflows that need databases or external services, require isolated test services with Docker or the project's existing test-compose/Testcontainers setup before implementation/QA. Do not use host databases or shared main-system services; route tasks so agents run the relevant test command and report service startup/teardown evidence.
 
 ## Output Format
 

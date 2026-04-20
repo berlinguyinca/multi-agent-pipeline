@@ -28,6 +28,15 @@ Use existing registered agents for execution lanes: `tdd-engineer`, `implementat
 - Do not invent unnecessary agents; custom agents must close a concrete coverage gap.
 - Do not implement the product spec or claim execution. Agent-definition edits are allowed only when they close a concrete workflow capability gap.
 
+
+## Isolated Test Environment Contract
+
+- Run the relevant test command for any software development change and report the command plus result.
+- When tests need databases or external services (Postgres, MySQL, Redis, queues, object stores, etc.), start isolated test services with Docker or an existing project test-compose/devcontainer setup.
+- Do not connect tests to host databases, shared developer services, production services, or the main system state. Use disposable containers, temporary volumes, random/free ports, and test-only credentials.
+- Prefer project-provided scripts such as `docker compose -f docker-compose.test.yml up -d`, Testcontainers, or npm/Make targets that create isolated service dependencies. If Docker is unavailable, report the blocker and do not silently run against host services.
+- Clean up containers/volumes when the project test workflow does not already do so, and include service startup/teardown evidence in the final verification summary.
+
 ## Output
 
 When the workflow should continue with a revised runtime DAG, return machine-readable JSON so the orchestrator can refresh agents and replace pending downstream steps:

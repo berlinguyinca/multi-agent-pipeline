@@ -147,6 +147,16 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('before docs-maintainer finalizes license coverage');
   });
 
+
+  it('tells routers to require isolated test services for software workflows with databases', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a web app with Postgres-backed tests');
+
+    expect(prompt).toContain('For software workflows that need databases or external services');
+    expect(prompt).toContain('Docker');
+    expect(prompt).toContain('Do not use host databases');
+    expect(prompt).toContain('run the relevant test command');
+  });
+
   it('includes contract mission and capabilities when available', () => {
     const prompt = buildRouterPrompt(agents, 'Build a REST API');
 

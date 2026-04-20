@@ -22,6 +22,8 @@ For software builds, smart routing and adviser guidance now treat licensing and 
 
 Code QA can also drive an autonomous repair loop. `code-qa-analyst` ends implementation reviews with a structured `accept|revise|reject` verdict; when it returns `revise` or `reject`, MAP rewires downstream steps through the upstream file-producing developer agent, reruns QA after the repair, and repeats up to `quality.maxCodeQaIterations`.
 
+Software-development workflows are expected to run verification tests in isolated environments. When a feature needs databases or service dependencies, agents should use Docker-backed project test services (`docker compose`, Testcontainers, devcontainers, or equivalent project scripts), disposable volumes, random/free ports, and test-only credentials. Agents must not point tests at host databases, shared developer services, production endpoints, or main-system state; if Docker or the project test service setup is unavailable, they should report that blocker instead of silently testing against the host.
+
 ## Quick Start
 
 Install the `map` command:
