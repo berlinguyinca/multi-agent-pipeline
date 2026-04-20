@@ -30,10 +30,10 @@ describe('validateStepHandoff', () => {
     expect(validation.handoffFindings[0]?.message).toContain('file-output step completed without usable output or file evidence');
   });
 
-  it('allows file-output steps with textual implementation evidence', () => {
+  it('allows verification-oriented file-output steps with textual evidence', () => {
     const validation = validateStepHandoff({
-      step: step({ agent: 'tdd-engineer' }),
-      result: result({ outputType: 'files', output: 'Created tests/pubchem-sync.test.ts and ran npm test.' }),
+      step: step({ agent: 'build-fixer' }),
+      result: result({ agent: 'build-fixer', outputType: 'files', output: 'Ran npm test and verified the workspace is already clean.' }),
       priorResults: new Map(),
     });
 

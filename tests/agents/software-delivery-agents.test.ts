@@ -293,6 +293,19 @@ describe('software delivery agent bundle', () => {
     expect(security.prompt).toContain('tool-output');
   });
 
+
+  it('requires implementation file-output agents to edit workspace files and report verification', async () => {
+    const tdd = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'tdd-engineer'));
+    const delivery = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'software-delivery'));
+    const implementation = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'implementation-coder'));
+
+    for (const agent of [tdd, delivery, implementation]) {
+      expect(agent.prompt, `${agent.name} missing file-output contract`).toContain('File-Output Contract');
+      expect(agent.prompt, `${agent.name} missing workspace edit instruction`).toContain('create or modify the requested files in the workspace');
+      expect(agent.prompt, `${agent.name} missing verification instruction`).toContain('verification command/result');
+    }
+  });
+
   it('loads strict source metadata generator agents as non-LLM metadata adapters', async () => {
     const insight = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'insightcode-metadata'));
     const codefetch = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'codefetch-metadata'));
