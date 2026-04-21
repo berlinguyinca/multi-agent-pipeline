@@ -18,6 +18,9 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'tdd-engineer',
   'implementation-coder',
   'code-qa-analyst',
+  'code-qa-gemma',
+  'code-qa-qwen',
+  'code-qa-glm',
   'grammar-spelling-specialist',
   'output-formatter',
   'usage-classification-tree',
@@ -50,13 +53,24 @@ describe('software delivery agent bundle', () => {
     for (const name of SOFTWARE_DELIVERY_AGENTS) {
       const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, name));
 
-      if (name === 'legal-license-advisor' || name === 'docs-maintainer' || name === 'release-readiness-reviewer' || name === 'code-qa-analyst') {
+      if (name === 'legal-license-advisor' || name === 'docs-maintainer' || name === 'release-readiness-reviewer') {
         expect(agent.adapter).toBe('metadata');
         expect(agent.model).toBe(name);
         continue;
       }
+      if (name === 'code-qa-analyst') {
+        expect(agent.adapter).toBe('metadata');
+        expect(agent.model).toBe('code-qa-consensus');
+        continue;
+      }
       expect(agent.adapter).toBe('ollama');
-      if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
+      if (name === 'code-qa-gemma') {
+        expect(agent.model).toBe('gemma4:26b');
+      } else if (name === 'code-qa-qwen') {
+        expect(agent.model).toBe('qwen3.6:latest');
+      } else if (name === 'code-qa-glm') {
+        expect(agent.model).toBe('glm-4.7-flash:latest');
+      } else if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
         expect(agent.model).toBe('bespoke-minicheck:7b');
       } else if (['tdd-engineer', 'implementation-coder', 'build-fixer', 'test-stabilizer'].includes(name)) {
         expect(agent.model).toBe('qwen3.6:latest');
@@ -422,6 +436,20 @@ describe('software delivery agent bundle', () => {
   });
 
 
+
+  it('loads a three-model code QA panel with distinct model families', async () => {
+    const gemma = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'code-qa-gemma'));
+    const qwen = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'code-qa-qwen'));
+    const glm = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'code-qa-glm'));
+    const consensus = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'code-qa-analyst'));
+
+    expect(gemma.model).toBe('gemma4:26b');
+    expect(qwen.model).toBe('qwen3.6:latest');
+    expect(glm.model).toBe('glm-4.7-flash:latest');
+    expect(new Set([gemma.model, qwen.model, glm.model]).size).toBe(3);
+    expect(consensus.model).toBe('code-qa-consensus');
+  });
+
   it('requires software development agents to run tests in isolated Docker-backed service environments when databases are needed', async () => {
     const agents = await Promise.all([
       'tdd-engineer',
@@ -430,6 +458,9 @@ describe('software delivery agent bundle', () => {
       'build-fixer',
       'test-stabilizer',
       'code-qa-analyst',
+  'code-qa-gemma',
+  'code-qa-qwen',
+  'code-qa-glm',
       'adviser',
     ].map((name) => loadAgentFromDirectory(path.join(AGENTS_DIR, name))));
 

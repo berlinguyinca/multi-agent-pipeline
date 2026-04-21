@@ -1,0 +1,32 @@
+name: code-qa-qwen
+description: "Independent model QA reviewer for implemented software"
+adapter: ollama
+model: qwen3.6:latest
+prompt: prompt.md
+pipeline:
+  - name: independent-code-qa
+handles: "independent code QA, software review, test adequacy, spec conformance, model-diverse QA panel"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: shell
+contract:
+  mission: "Independently judge whether implemented software is correct, tested, and ready to advance."
+  capabilities:
+    - "Review implementation artifacts against the prompt and spec."
+    - "Check test evidence and identify blocking defects."
+    - "Emit a structured QA verdict without coordinating with other QA models."
+  nonGoals:
+    - "Do not approve work without evidence."
+    - "Do not defer to another QA agent."
+  verification:
+    requiredEvidence:
+      - "Structured accept/revise/reject verdict."
+      - "Concrete findings or explicit no-blocker evidence."
+  handoff:
+    deliverable: "Independent QA verdict"
+    includes:
+      - "Structured QA verdict"
+      - "Blocking findings"
+      - "Verification required"

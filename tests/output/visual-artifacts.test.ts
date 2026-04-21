@@ -161,6 +161,8 @@ describe('visual report artifacts', () => {
     const circularSvg = await fs.readFile(path.join(outputDir, circularGraph!.src), 'utf8');
     expect(circularSvg).toContain('Agent Circular Route');
     expect(circularSvg).toContain('circular-edge');
+    expect(circularSvg).toContain('circular-label-bg');
+    expect(circularSvg).toContain('viewBox="0 0');
   });
 
 

@@ -245,6 +245,7 @@ describe('executeDAG', () => {
   });
 
   it('does not repeat file-output agents during local agent consensus', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-repeat-file-consensus-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement X', dependsOn: [] }],
     };
@@ -252,6 +253,7 @@ describe('executeDAG', () => {
     const createAdapter = vi.fn(() => mockAdapter('Created files'));
 
     const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
       agentConsensus: {
         enabled: true,
         runs: 3,
@@ -264,6 +266,7 @@ describe('executeDAG', () => {
     expect(createAdapter).toHaveBeenCalledTimes(1);
     expect(result.steps[0].output).toBe('Created files');
     expect(result.steps[0].consensus).toBeUndefined();
+    await fs.rm(workingDir, { recursive: true, force: true });
   });
 
   it('runs file-output consensus in isolated git worktrees and applies the best verified patch', async () => {
@@ -2389,7 +2392,6 @@ describe('executeDAG', () => {
       },
     );
 
-    if (!result.success) console.error(JSON.stringify(result.steps, null, 2));
     expect(result.success).toBe(true);
     expect(calls).toEqual([
       'spec-qa-reviewer',
@@ -3341,6 +3343,86 @@ describe('executeDAG', () => {
 
 
 
+
+
+
+  it('expands implementation QA into a three-model panel and sends disagreements back to the developer', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    const qaConsensus = makeAgent('code-qa-analyst', 'answer');
+    qaConsensus.model = 'code-qa-consensus';
+    const qaGemma = makeAgent('code-qa-gemma', 'answer');
+    qaGemma.model = 'gemma4:26b';
+    const qaQwen = makeAgent('code-qa-qwen', 'answer');
+    qaQwen.model = 'qwen3.6:latest';
+    const qaGlm = makeAgent('code-qa-glm', 'answer');
+    qaGlm.model = 'glm-4.7-flash:latest';
+    const agents = new Map([
+      ['implementation-coder', implementation],
+      ['code-qa-analyst', qaConsensus],
+      ['code-qa-gemma', qaGemma],
+      ['code-qa-qwen', qaQwen],
+      ['code-qa-glm', qaGlm],
+    ]);
+    const calls: Array<{ model?: string; prompt: string }> = [];
+    let implementationCalls = 0;
+    const createAdapter = vi.fn((config: AdapterConfig): AgentAdapter => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        calls.push({ model: config.model, prompt });
+        if (config.model === undefined) {
+          implementationCalls += 1;
+          yield implementationCalls === 1 ? 'Implemented initial feature.' : 'Fixed QA findings.';
+          return;
+        }
+        if (config.model === 'qwen3.6:latest' && implementationCalls === 1) {
+          yield '{"verdict":"revise","blockingFindings":[{"severity":"high","file":"src/tool.ts","issue":"missing test","requiredFix":"add test"}],"verificationRequired":["npm test"]}';
+          return;
+        }
+        if (config.model === 'code-qa-consensus') {
+          const hasRevise = prompt.includes('"verdict":"revise"') && !prompt.includes('Fixed QA findings');
+          yield hasRevise
+            ? '{"verdict":"revise","blockingFindings":[{"severity":"high","file":"src/tool.ts","issue":"QA panel disagreement","requiredFix":"fix panel findings"}],"verificationRequired":["npm test"]}'
+            : '{"verdict":"accept","blockingFindings":[],"verificationRequired":["npm test"]}';
+          return;
+        }
+        yield '{"verdict":"accept","blockingFindings":[],"verificationRequired":["npm test"]}';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      qaRepairMaxRounds: 1,
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls.map((call) => call.model).filter(Boolean)).toEqual(expect.arrayContaining([
+      'gemma4:26b',
+      'qwen3.6:latest',
+      'glm-4.7-flash:latest',
+      'code-qa-consensus',
+    ]));
+    expect(result.steps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      'step-2-qa-gemma',
+      'step-2-qa-qwen',
+      'step-2-qa-glm',
+      'step-2-fix-1',
+      'step-2-retry-1-qa-gemma',
+      'step-2-retry-1-qa-qwen',
+      'step-2-retry-1-qa-glm',
+      'step-2-retry-1',
+    ]));
+    expect(implementationCalls).toBe(2);
+  });
 
   it.each([
     ['PubChem'],

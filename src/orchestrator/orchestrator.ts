@@ -103,6 +103,71 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+
+const CODE_QA_PANEL_AGENTS = ['code-qa-gemma', 'code-qa-qwen', 'code-qa-glm'];
+
+function hasCodeQaPanel(agents: Map<string, AgentDefinition>): boolean {
+  return CODE_QA_PANEL_AGENTS.every((agent) => agents.has(agent)) && agents.has('code-qa-analyst');
+}
+
+function expandCodeQaPanel(plan: DAGPlan, agents: Map<string, AgentDefinition>): DAGPlan {
+  const panelAgents = CODE_QA_PANEL_AGENTS;
+  if (!hasCodeQaPanel(agents)) return plan;
+  const expanded: DAGStep[] = [];
+  const existingIds = new Set(plan.plan.map((step) => step.id));
+  for (const step of plan.plan) {
+    if (step.agent !== 'code-qa-analyst' || isCrossReviewHelperStep(step) || step.parentStepId) {
+      expanded.push(step);
+      continue;
+    }
+    const panelSteps = panelAgents.map((agent) => ({
+      id: nextPanelStepId(step.id, agent, existingIds),
+      agent,
+      task: buildIndependentQaPanelTask(step),
+      dependsOn: [...step.dependsOn],
+    }));
+    for (const panelStep of panelSteps) existingIds.add(panelStep.id);
+    expanded.push(...panelSteps);
+    expanded.push({
+      ...step,
+      task: buildQaConsensusTask(step),
+      dependsOn: panelSteps.map((panelStep) => panelStep.id),
+    });
+  }
+  return { plan: expanded };
+}
+
+function nextPanelStepId(stepId: string, agent: string, existingIds: Set<string>): string {
+  const suffix = agent.replace(/^code-qa-/, 'qa-');
+  const base = `${stepId}-${suffix}`;
+  if (!existingIds.has(base)) return base;
+  for (let index = 1; ; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!existingIds.has(candidate)) return candidate;
+  }
+}
+
+function buildIndependentQaPanelTask(step: DAGStep): string {
+  return [
+    `Independent QA review for downstream QA step ${step.id}.`,
+    `Original QA task: ${step.task}`,
+    'Review the implementation artifacts, tests, generated files, and prior step evidence independently from the other QA models.',
+    'You must end with a structured JSON verdict block: {"verdict":"accept|revise|reject","blockingFindings":[],"verificationRequired":[]}.',
+    'Use accept only when there are no critical/high/medium blockers and test evidence is adequate.',
+  ].join('\n');
+}
+
+function buildQaConsensusTask(step: DAGStep): string {
+  return [
+    `Synthesize the three independent QA model verdicts for ${step.id}.`,
+    `Original QA task: ${step.task}`,
+    'The previous context contains verdicts from Gemma, Qwen, and GLM/Kimi-slot QA agents.',
+    'Accept only if all three independent QA agents accept and local artifact/test evidence is also acceptable.',
+    'If any model returns revise or reject, return revise/reject with combined actionable findings for the developer repair loop.',
+    'End with the Structured QA Verdict JSON shape: {"verdict":"accept|revise|reject","blockingFindings":[],"verificationRequired":[]}.',
+  ].join('\n');
+}
+
 export async function executeDAG(
   plan: DAGPlan,
   agents: Map<string, AgentDefinition>,
@@ -113,9 +178,9 @@ export async function executeDAG(
   onOutputChunk?: (stepId: string, chunk: string) => void,
   retry?: DAGRetryOptions,
 ): Promise<DAGExecutionResult> {
-  const mutablePlan: DAGPlan = {
+  const mutablePlan: DAGPlan = expandCodeQaPanel({
     plan: plan.plan.map((step) => ({ ...step, dependsOn: [...step.dependsOn] })),
-  };
+  }, agents);
   const configuredMaxRetries = retry?.maxStepRetries;
   const maxRetries = configuredMaxRetries ?? DEFAULT_MAX_STEP_RETRIES;
   const retryDelayMs = retry?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -1484,8 +1549,12 @@ interface CodeQaVerdict {
   verificationRequired: string[];
 }
 
+function isCodeQaConsensusAgent(agent: string): boolean {
+  return agent === 'code-qa-analyst';
+}
+
 function maybeScheduleCodeQaRepair(options: CodeQaRepairOptions): boolean {
-  if (options.step.agent !== 'code-qa-analyst') return false;
+  if (!isCodeQaConsensusAgent(options.step.agent)) return false;
   if (isCrossReviewHelperStep(options.step)) return false;
   if (options.result.status !== 'completed') return false;
 
@@ -1535,16 +1604,26 @@ function maybeScheduleCodeQaRepair(options: CodeQaRepairOptions): boolean {
     dependsOn: [...new Set([options.step.id, ...developerStep.dependsOn])],
     parentStepId: rootId,
   };
+  const retryPanelSteps: DAGStep[] = hasCodeQaPanel(options.agents)
+    ? CODE_QA_PANEL_AGENTS.map((agent) => ({
+        id: nextPanelStepId(retryId, agent, options.allIds),
+        agent,
+        task: buildIndependentQaPanelTask({ ...options.step, id: retryId, task: retryTask }),
+        dependsOn: [fixId],
+        parentStepId: rootId,
+      }))
+    : [];
   const retryStep: DAGStep = {
     id: retryId,
     agent: options.step.agent,
     task: retryTask,
-    dependsOn: [fixId],
+    dependsOn: retryPanelSteps.length > 0 ? retryPanelSteps.map((step) => step.id) : [fixId],
     parentStepId: rootId,
   };
 
-  insertAfter(options.plan, options.step.id, [fixStep, retryStep]);
+  insertAfter(options.plan, options.step.id, [fixStep, ...retryPanelSteps, retryStep]);
   options.allIds.add(fixId);
+  for (const panelStep of retryPanelSteps) options.allIds.add(panelStep.id);
   options.allIds.add(retryId);
   for (const candidate of options.plan.plan) {
     if (candidate.id === options.step.id || candidate.id === fixId || candidate.id === retryId || options.settled.has(candidate.id)) {
@@ -1569,6 +1648,19 @@ function maybeScheduleCodeQaRepair(options: CodeQaRepairOptions): boolean {
     spawnedByAgent: options.step.agent,
     failureKind: 'test',
   });
+  for (const panelStep of retryPanelSteps) {
+    options.results.set(panelStep.id, {
+      id: panelStep.id,
+      agent: panelStep.agent,
+      task: panelStep.task,
+      dependsOn: [...panelStep.dependsOn],
+      status: 'pending',
+      parentStepId: rootId,
+      edgeType: 'feedback',
+      spawnedByAgent: fixStep.agent,
+      failureKind: 'test',
+    });
+  }
   options.results.set(retryId, {
     id: retryId,
     agent: retryStep.agent,
@@ -1659,10 +1751,16 @@ function findDeveloperStepForQa(
   plan: DAGPlan,
   agents: Map<string, AgentDefinition>,
 ): DAGStep | null {
-  for (const depId of [...qaStep.dependsOn].reverse()) {
+  const visited = new Set<string>();
+  const queue = [...qaStep.dependsOn].reverse();
+  while (queue.length > 0) {
+    const depId = queue.shift()!;
+    if (visited.has(depId)) continue;
+    visited.add(depId);
     const depStep = plan.plan.find((candidate) => candidate.id === depId);
     if (!depStep) continue;
     if (agents.get(depStep.agent)?.output.type === 'files') return depStep;
+    queue.push(...[...depStep.dependsOn].reverse());
   }
   return null;
 }
@@ -2195,7 +2293,7 @@ function sliceJsonObjects(text: string): string[] {
 
 type WorkspaceSnapshot = Map<string, string>;
 
-const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', '.map', '.worktrees']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', '.map', '.worktrees', 'venv', '.venv', '__pycache__', '.pytest_cache']);
 const MAX_SNAPSHOT_FILES = 20_000;
 
 async function captureWorkspaceSnapshot(rootDir: string): Promise<WorkspaceSnapshot> {

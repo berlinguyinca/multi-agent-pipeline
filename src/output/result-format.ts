@@ -530,11 +530,11 @@ function renderHtmlAgentNetwork(data: Record<string, unknown>, requestedLayout: 
 function renderHtmlAgentCircularNetwork(dag: DAGResult): string {
   const layout = buildDAGLayout(dag);
   if (layout.layers.length === 0) return '';
-  const width = 900;
-  const height = 760;
+  const width = Math.max(1100, 620 + dag.nodes.length * 42);
+  const height = Math.max(860, 620 + dag.nodes.length * 26);
   const centerX = width / 2;
-  const centerY = height / 2 + 24;
-  const radius = Math.min(290, 130 + dag.nodes.length * 14);
+  const centerY = height / 2 + 28;
+  const radius = Math.max(260, Math.min(width, height) / 2 - 150);
   const orderedNodes = layout.layers.flatMap((layer) => layer.nodes.map((entry) => entry.node));
   const positions = new Map<string, { x: number; y: number; angle: number }>();
   orderedNodes.forEach((node, index) => {
@@ -574,8 +574,9 @@ function renderHtmlAgentCircularNetwork(dag: DAGResult): string {
     const markerId = `html-circular-arrow-${index}`;
     const midX = (from.x + to.x) / 2;
     const midY = (from.y + to.y) / 2;
-    const controlX = centerX + (midX - centerX) * 0.34;
-    const controlY = centerY + (midY - centerY) * 0.34;
+    const spread = ((index % 5) - 2) * 18;
+    const controlX = centerX + (midX - centerX) * 0.28 + spread;
+    const controlY = centerY + (midY - centerY) * 0.28 - spread;
     return [
       `<defs><marker id="${markerId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker></defs>`,
       `<path class="circular-edge" d="M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}" fill="none" stroke="${color}" stroke-width="2.7" stroke-linecap="round" opacity=".74" marker-end="url(#${markerId})"><title>${escapeHtml(`${edge.from} to ${edge.to} (${edge.type})`)}</title></path>`,
@@ -585,9 +586,13 @@ function renderHtmlAgentCircularNetwork(dag: DAGResult): string {
     const pos = positions.get(node.id);
     if (!pos) return '';
     const status = String(node.status ?? 'pending').toLowerCase();
-    const labelAnchor = Math.cos(pos.angle) >= 0 ? 'start' : 'end';
-    const labelX = pos.x + Math.cos(pos.angle) * 43;
-    const labelY = pos.y + Math.sin(pos.angle) * 43;
+    const labelRight = Math.cos(pos.angle) >= 0;
+    const labelAnchor = labelRight ? 'start' : 'end';
+    const labelX = pos.x + Math.cos(pos.angle) * 62;
+    const labelY = pos.y + Math.sin(pos.angle) * 62;
+    const labelWidth = 190;
+    const labelBoxX = labelRight ? labelX - 8 : labelX - labelWidth + 8;
+    const labelBoxY = labelY - 16;
     const agent = String(node.agent || 'unknown');
     const shortAgent = agent.length > 24 ? `${agent.slice(0, 23)}…` : agent;
     const shortId = node.id.length > 10 ? `${node.id.slice(0, 9)}…` : node.id;
@@ -599,6 +604,7 @@ function renderHtmlAgentCircularNetwork(dag: DAGResult): string {
       `<text y="-3" font-size="10" text-anchor="middle" font-weight="800" fill="#1e293b">${index + 1}</text>`,
       `<text y="11" font-size="8.5" text-anchor="middle" fill="#64748b">${escapeHtml(shortId)}</text>`,
       '</g>',
+      `<rect class="circular-label-bg" x="${labelBoxX}" y="${labelBoxY}" width="${labelWidth}" height="${consensus ? 48 : 34}" rx="9" fill="#ffffff" stroke="#dbeafe" opacity=".92"/>`,
       `<text x="${labelX}" y="${labelY}" font-size="11" text-anchor="${labelAnchor}" font-weight="800" fill="#1e293b">${escapeHtml(shortAgent)}</text>`,
       `<text x="${labelX}" y="${labelY + 13}" font-size="9" text-anchor="${labelAnchor}" fill="#64748b">${escapeHtml(`${node.id} | ${status}`)}</text>`,
       consensus ? `<text x="${labelX}" y="${labelY + 25}" font-size="9" text-anchor="${labelAnchor}" fill="#475569">${escapeHtml(consensus)}</text>` : '',

@@ -1,12 +1,12 @@
 name: code-qa-analyst
-description: "Reviews implemented code for correctness, maintainability, test adequacy, and spec conformance"
+description: "Synthesizes three independent model QA verdicts and local artifact/test evidence"
 adapter: metadata
-model: code-qa-analyst
+model: code-qa-consensus
 prompt: prompt.md
 pipeline:
-  - name: analyze-code
-  - name: report-findings
-handles: "code QA, code review, test adequacy, spec conformance, maintainability review, regression risk, implementation quality"
+  - name: synthesize-qa-panel
+  - name: report-consensus
+handles: "code QA consensus, model-diverse QA panel synthesis, code review, test adequacy, spec conformance, implementation quality"
 output:
   type: answer
 tools:

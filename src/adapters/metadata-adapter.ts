@@ -346,17 +346,31 @@ async function countFiles(dir: string, extension: string): Promise<number> {
 }
 
 
+function parseQaPanelVerdicts(prompt: string): Array<'accept' | 'revise' | 'reject'> {
+  const verdicts: Array<'accept' | 'revise' | 'reject'> = [];
+  const regex = /"verdict"\s*:\s*"(accept|revise|reject)"/gi;
+  for (const match of prompt.matchAll(regex)) {
+    verdicts.push(match[1]!.toLowerCase() as 'accept' | 'revise' | 'reject');
+  }
+  return verdicts;
+}
+
 async function renderCodeQaAnalysis(cwd: string, prompt = ''): Promise<string> {
   const artifact = await inspectSoftwareArtifacts(cwd);
   const testRun = await runDetectedTestCommand(cwd);
-  const verdict = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme && testRun.passed ? 'accept' : 'revise';
+  const panelVerdicts = parseQaPanelVerdicts(prompt);
+  const panelAgrees = panelVerdicts.length >= 3 && panelVerdicts.every((entry) => entry === 'accept');
+  const hasPanelDisagreement = panelVerdicts.some((entry) => entry !== 'accept');
+  const artifactAcceptable = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme && testRun.passed;
+  const verdict = artifactAcceptable && (!panelVerdicts.length || panelAgrees) ? 'accept' : 'revise';
   if (/cross-review critique|Return a concise structured cross-review critique/i.test(prompt)) {
     return [
       'Critique summary: Local artifact inspection confirms whether the generated software includes source, tests, README, and generated data artifacts without assuming a specific database.',
       `Verification reviewed: source files=${artifact.sourceFiles}; test files=${artifact.testFiles}; README present=${artifact.hasReadme}; generated Markdown/data records=${artifact.markdownRecords}.`,
       `Test command: ${testRun.command}; passed=${testRun.passed}.`,
+      `QA panel verdicts: ${panelVerdicts.length > 0 ? panelVerdicts.join(', ') : 'not provided'}.`,
       testRun.output ? `Test output excerpt: ${testRun.output.slice(0, 600)}` : '',
-      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: fix missing artifacts or failing generated project tests before release.',
+      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: fix missing artifacts, failing generated project tests, or QA panel findings before release.',
       'Residual risks: live external database downloads require the generated project\'s own integration tests or documented manual verification.',
     ].filter(Boolean).join('\n');
   }
@@ -369,14 +383,15 @@ async function renderCodeQaAnalysis(cwd: string, prompt = ''): Promise<string> {
     `- Test files counted: ${artifact.testFiles}`,
     `- Markdown/data records counted: ${artifact.markdownRecords}`,
     `- README present: ${artifact.hasReadme}`,
+    `- QA panel verdicts: ${panelVerdicts.length > 0 ? panelVerdicts.join(', ') : 'not provided'}`,
     `- Test command: ${testRun.command}`,
     `- Test passed: ${testRun.passed}`,
     '',
     '```json',
     JSON.stringify({
       verdict,
-      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: testRun.passed ? 'Required generated software artifacts are missing.' : `Generated project tests failed: ${testRun.output.slice(0, 300)}`, requiredFix: 'Return to the implementation agent and create/fix source, tests, and README artifacts from the prompt-specific requirements.' }],
-      verificationRequired: [testRun.command, 'Run any generated fixture/sample-data command required by the prompt.'],
+      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: hasPanelDisagreement ? `QA panel disagreement: ${panelVerdicts.join(', ')}` : (testRun.passed ? 'Required generated software artifacts are missing.' : `Generated project tests failed: ${testRun.output.slice(0, 300)}`), requiredFix: 'Return to the implementation agent and create/fix source, tests, and README artifacts from the prompt-specific requirements.' }],
+      verificationRequired: [testRun.command, panelVerdicts.length > 0 ? `QA panel verdicts: ${panelVerdicts.join(', ')}` : 'Run any generated fixture/sample-data command required by the prompt.'],
     }, null, 2),
     '```',
   ].join('\n');

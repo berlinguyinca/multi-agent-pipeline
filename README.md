@@ -612,7 +612,7 @@ Connections:
 <final output from the last completed agent>
 ````
 
-The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports six layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), `cluster` (D summary-first grouped stages), and `circular` (E radial route map). PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
+The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports six layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), `cluster` (D summary-first grouped stages), and `circular` (E radial route map). Circular SVG output uses a larger zoomable canvas, curved colored dependency routes, and label backgrounds so multi-agent handoffs such as the QA panel remain readable without text overlap. PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
 
 `--graph` writes standalone graph image artifacts for all six supported layouts directly in the request output directory and adds `graphArtifacts` plus `graphArtifactManifestPath` to JSON/YAML output. PNG rendering uses Chrome/Chromium when available (`MAP_GRAPH_BROWSER` can point to a browser binary); when no compatible browser is found, MAP writes deterministic SVG fallbacks and records the reason in `graphWarnings`.
 
@@ -934,6 +934,10 @@ Every consensus path reports diagnostics in the result graph/report. Reports inc
 
 ### Autonomous cross-model review
 
+### Three-model QA panel
+
+Software implementation QA is expanded at execution time into three independent model reviewers before consensus: `code-qa-gemma` (`gemma4:26b`), `code-qa-qwen` (`qwen3.6:latest`), and `code-qa-glm` (`glm-4.7-flash:latest`, the local Kimi-slot alternative until a Kimi Ollama model is installed). The original `code-qa-analyst` step becomes a deterministic consensus gate: all three model verdicts must accept and local generated-project tests must pass, otherwise MAP sends the work back to the developer repair loop with combined findings.
+
 MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are adviser planning outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
 
 The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
@@ -1116,6 +1120,9 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `code-qa-gemma` | `answer` | Independent Gemma model QA verdict for software implementations. |
+| `code-qa-qwen` | `answer` | Independent Qwen model QA verdict for software implementations. |
+| `code-qa-glm` | `answer` | Independent GLM/Kimi-slot model QA verdict for software implementations. |
 | `legal-license-advisor` | `answer` | Deterministic post-build license option recommendations from utilized languages, package manifests, existing license files, and local evidence ledger. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |

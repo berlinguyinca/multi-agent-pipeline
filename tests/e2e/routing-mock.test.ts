@@ -1,5 +1,8 @@
 // tests/e2e/routing-mock.test.ts
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { routeTask } from '../../src/router/router.js';
 import { executeDAG } from '../../src/orchestrator/orchestrator.js';
 import { buildHeadlessResultV2 } from '../../src/headless/result-builder.js';
@@ -66,7 +69,8 @@ describe('end-to-end routing flow (mocked adapters)', () => {
       async *run() { yield 'PostgreSQL supports range, list, and hash partitioning...'; },
     }));
 
-    const dagResult = await executeDAG(plan, agents, createAdapter);
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-routing-mock-'));
+    const dagResult = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, { workingDir });
     expect(dagResult.success).toBe(true);
 
     const result = buildHeadlessResultV2(plan, dagResult.steps, 5000);
@@ -109,7 +113,8 @@ describe('end-to-end routing flow (mocked adapters)', () => {
       },
     }));
 
-    const dagResult = await executeDAG(plan, agents, createAdapter);
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-routing-mock-'));
+    const dagResult = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, { workingDir });
     expect(dagResult.success).toBe(true);
 
     const result = buildHeadlessResultV2(plan, dagResult.steps, 20000);
@@ -119,5 +124,6 @@ describe('end-to-end routing flow (mocked adapters)', () => {
     expect(result.steps[0].outputType).toBe('answer');
     expect(result.steps[1].outputType).toBe('files');
     expect(result.dag.edges).toEqual([{ from: 'step-1', to: 'step-2', type: 'planned' }]);
+    await fs.rm(workingDir, { recursive: true, force: true });
   });
 });
