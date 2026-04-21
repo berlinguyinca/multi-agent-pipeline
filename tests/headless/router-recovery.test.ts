@@ -41,6 +41,7 @@ describe('routeWithAutonomousRecovery', () => {
       ['spec-writer', makeAgent('spec-writer')],
       ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
       ['adviser', makeAgent('adviser')],
+      ['coder', makeAgent('coder', 'files')],
       ['tdd-engineer', makeAgent('tdd-engineer', 'files')],
       ['implementation-coder', makeAgent('implementation-coder', 'files')],
       ['code-qa-analyst', makeAgent('code-qa-analyst')],
@@ -85,18 +86,18 @@ describe('routeWithAutonomousRecovery', () => {
       'spec-writer',
       'spec-qa-reviewer',
       'adviser',
-      'tdd-engineer',
-      'implementation-coder',
+      'coder',
       'code-qa-analyst',
       'legal-license-advisor',
       'docs-maintainer',
       'release-readiness-reviewer',
     ]);
     expect(result.decision.plan.plan[0]).toMatchObject({ id: 'step-1', agent: 'spec-writer', dependsOn: [] });
+    expect(result.decision.plan.plan[0]?.task).toContain('Build a local software tool that syncs files');
     expect(result.decision.plan.plan[1]).toMatchObject({ id: 'step-2', agent: 'spec-qa-reviewer', dependsOn: ['step-1'] });
-    expect(result.decision.plan.plan[3]?.task).toContain('Docker');
-    expect(result.decision.plan.plan[3]?.task).toContain('test command');
-    expect(result.decision.plan.plan[4]?.task).toContain('Do not return a protocol acknowledgment');
+    expect(result.decision.plan.plan[3]?.task).toContain('strict TDD');
+    expect(result.decision.plan.plan[3]?.task).toContain('isolated test services');
+    expect(result.decision.plan.plan[3]?.task).toContain('Do not return a protocol acknowledgment');
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 

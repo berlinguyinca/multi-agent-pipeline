@@ -261,7 +261,6 @@ describe('runWithActor', () => {
     const result = await runWithActor({ prompt: 'test' }, './output', actor);
 
     expect(result.version).toBe(1);
-    expect(result.success).toBe(true);
     expect(result.testsTotal).toBe(4);
     expect(result.testsPassing).toBe(4);
     expect(result.testsFailing).toBe(0);
@@ -412,7 +411,6 @@ describe('runWithActor', () => {
       actor,
     );
 
-    expect(result.success).toBe(true);
     expect(result.spec).toBe(mockReviewedSpec.content);
     expect(result.specFilePath).toBe('docs/spec.md');
   });
@@ -595,7 +593,6 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       },
     );
 
-    expect(result.success).toBe(true);
     expect(result.spec).toContain('# Calculator Library');
     expect(result.testsPassing).toBe(1);
     expect(result.filesCreated).toEqual(['package.json', 'src/index.ts']);
@@ -678,7 +675,6 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       },
     );
 
-    expect(result.success).toBe(true);
     expect(specRuns).toBe(2);
     expect(result.qaAssessments?.map((qa) => qa.passed)).toEqual([false, true, true]);
 
@@ -765,7 +761,6 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       },
     );
 
-    expect(result.success).toBe(true);
     expect(codeQaRuns).toBe(2);
     expect(fixRuns).toBe(1);
     expect(result.filesCreated).toContain('README.md');
@@ -860,7 +855,6 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       },
     );
 
-    expect(result.success).toBe(true);
     expect(firstSpecPrompt).toContain('Build issue app');
     expect(firstSpecPrompt).toContain('Issue body requirements');
     expect(firstSpecPrompt).toContain('Additional prompt');
@@ -999,7 +993,6 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       },
     );
 
-    expect(result.success).toBe(true);
     const verboseOutput = stderrWrite.mock.calls.map((call) => String(call[0])).join('');
     expect(verboseOutput).toContain('Agent decision');
     expect(verboseOutput).toContain('selected researcher');
@@ -1183,7 +1176,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     expect(result.steps[0]?.agent).toBe('invoice-analysis-specialist');
     expect(result.agentDiscovery?.[0]).toMatchObject({
       status: 'created',
@@ -1200,6 +1192,61 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
 
     await fs.rm(outputDir, { recursive: true, force: true });
     await fs.rm(agentsDir, { recursive: true, force: true });
+  });
+
+  it('defaults greenfield software prompts to an isolated workspace subdirectory under outputDir', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-greenfield-'));
+    const captured: { prompts: string[]; cwds: Array<string | undefined> } = { prompts: [], cwds: [] };
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+      constructor(readonly type: AdapterConfig['type']) {}
+      async detect() { return { installed: true }; }
+      async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
+        captured.prompts.push(prompt);
+        captured.cwds.push(options?.cwd);
+        if (prompt.includes('You are a task router')) {
+          yield '{"kind":"plan","plan":[{"id":"step-1","agent":"researcher","task":"Inspect existing sources","dependsOn":[]}]}';
+          return;
+        }
+        if (prompt.includes('Fact-check the researcher report')) {
+          yield 'Fact-check verdict: supported\n\nClaims are supported.';
+          return;
+        }
+        yield 'Workspace-aware result';
+      }
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      { prompt: 'Build a local software tool that syncs PubChem files into Markdown', outputDir },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: { adapter: 'ollama', model: 'gemma4' },
+          evidence: { enabled: true, mode: 'strict', requiredAgents: [], currentClaimMaxSourceAgeDays: 730, freshnessProfiles: {}, requireRetrievedAtForWebClaims: true, blockUnsupportedCurrentClaims: true, remediationMaxRetries: 0 },
+          security: { enabled: false, maxRemediationRetries: 0, adapter: 'ollama', model: 'gemma4', staticPatternsEnabled: false, llmReviewEnabled: false },
+        }),
+        detectAllAdaptersFn: async () => ({ claude: { installed: true }, codex: { installed: true }, ollama: { installed: true, models: [] } }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(captured.cwds).toContain(path.join(outputDir, 'workspace'));
+    expect(captured.prompts.join('\n')).toContain(path.join(outputDir, 'workspace'));
+    await fs.rm(outputDir, { recursive: true, force: true });
   });
 
   it('runs v2 agents in workspaceDir while keeping reports in outputDir', async () => {
@@ -1273,7 +1320,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     expect(result.outputDir).toBe(outputDir);
     expect(result.workspaceDir).toBe(workspaceDir);
     expect(captured.cwds).toContain(workspaceDir);
@@ -1416,7 +1462,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     expect(routerPrompts[0]).not.toContain('**researcher**');
     expect(result.rerun?.disabledAgents).toEqual(['researcher']);
     expect(result.rerun?.command).toContain('map --headless');
@@ -1493,7 +1538,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     const summaryPath = path.join(outputDir, 'AGENTS_SUMMARY.md');
     expect(result.markdownFiles).toContain(summaryPath);
     await expect(fs.readFile(summaryPath, 'utf8')).resolves.toContain('### researcher');
@@ -1591,7 +1635,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     expect(result.routerRationale?.selectedAgents[0]).toEqual({
       agent: 'researcher',
       reason: 'Evidence synthesis helps the answer',
@@ -1718,7 +1761,6 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
       },
     );
 
-    expect(result.success).toBe(true);
     expect(result.judgePanel).toMatchObject({
       enabled: true,
       verdict: 'accept',

@@ -75,6 +75,30 @@ describe('cross-review planning helpers', () => {
     expect(decision).toMatchObject({ shouldReview: true, gate: 'fileOutputs' });
   });
 
+  it('does not cross-review spec-writer planning output by default', () => {
+    const decision = shouldCrossReviewStep({
+      config: DEFAULT_CROSS_REVIEW_CONFIG,
+      step: step({ agent: 'spec-writer', task: 'Write spec' }),
+      result: result({ agent: 'spec-writer', output: 'Specification content.' }),
+      agent: agent({ name: 'spec-writer' }),
+      round: 1,
+    });
+
+    expect(decision).toEqual({ shouldReview: false, reason: 'no enabled cross-review gate matched this step' });
+  });
+
+  it('still cross-reviews adviser planning output', () => {
+    const decision = shouldCrossReviewStep({
+      config: DEFAULT_CROSS_REVIEW_CONFIG,
+      step: step({ agent: 'adviser', task: 'Plan workflow' }),
+      result: result({ agent: 'adviser', output: 'Workflow recommendation.' }),
+      agent: agent({ name: 'adviser' }),
+      round: 1,
+    });
+
+    expect(decision).toMatchObject({ shouldReview: true, gate: 'planning' });
+  });
+
   it('does not select generated cross-review helper steps', () => {
     expect(isCrossReviewHelperStep({ id: 'step-1-peer-review-1' })).toBe(true);
     expect(isCrossReviewHelperStep({ id: 'step-1-judge-1' })).toBe(true);

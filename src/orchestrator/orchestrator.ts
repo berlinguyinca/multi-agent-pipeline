@@ -212,6 +212,8 @@ export async function executeDAG(
         let evidenceRemediationContext: string | undefined;
         let fileOutputRemediationRetries = 0;
         let fileOutputRemediationContext: string | undefined;
+        let duplicateToolRemediationRetries = 0;
+        let duplicateToolRemediationContext: string | undefined;
 
         while (true) {
           if (signal?.aborted) break;
@@ -239,6 +241,9 @@ export async function executeDAG(
             const fullContext = fileOutputRemediationContext
               ? `${evidenceAwareContext}\n\n${fileOutputRemediationContext}`
               : evidenceAwareContext;
+            const progressAwareContext = duplicateToolRemediationContext
+              ? `${fullContext}\n\n${duplicateToolRemediationContext}`
+              : fullContext;
 
             const configs: AdapterConfig[] = [
               { type: stepAdapter, model: stepModel },
@@ -281,7 +286,7 @@ export async function executeDAG(
               : null;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
-              const context = injectToolCatalog(fullContext, tools, agent.prompt);
+              const context = injectToolCatalog(progressAwareContext, tools, agent.prompt);
               return runStepWithTools({
                 context,
                 tools,
@@ -465,6 +470,12 @@ export async function executeDAG(
               fileOutputRemediationRetries += 1;
               lastError = 'file-output step completed without usable output or file evidence';
               fileOutputRemediationContext = buildFileOutputRemediationContext(step, result);
+              continue;
+            }
+            if (shouldRetryDuplicateToolLoop(result, handoffValidation) && duplicateToolRemediationRetries < 1) {
+              duplicateToolRemediationRetries += 1;
+              lastError = 'step repeated an identical successful tool call without producing substantive output';
+              duplicateToolRemediationContext = buildDuplicateToolLoopRemediationContext(step, result);
               continue;
             }
             result.handoffPassed = handoffValidation.handoffPassed;
@@ -719,12 +730,38 @@ function shouldRetryEmptyFileOutput(
   );
 }
 
+function shouldRetryDuplicateToolLoop(
+  result: StepResult,
+  handoffValidation: ReturnType<typeof validateStepHandoff>,
+): boolean {
+  if (!result.output?.includes('already returned the same successful result for identical parameters')) return false;
+  return handoffValidation.handoffFindings.some((finding) =>
+    finding.severity === 'high' && finding.message.includes('identical successful tool call'),
+  );
+}
+
 function buildFileOutputRemediationContext(step: DAGStep, result: StepResult): string {
   return [
     '--- File-Output Remediation Required ---',
     'Your previous file-output response was empty or did not provide usable file evidence.',
     'You must create or modify files in the workspace using the available tools, then report changed files and verification evidence.',
     'If you are blocked from editing files, return a concrete blocker with the exact missing information, command failure, or missing authority.',
+    '',
+    `Original step: ${step.id}`,
+    `Original task: ${step.task}`,
+    '',
+    'Previous output:',
+    result.output?.trim() || '(empty)',
+  ].join('\n');
+}
+
+function buildDuplicateToolLoopRemediationContext(step: DAGStep, result: StepResult): string {
+  return [
+    '--- No-Progress Tool Loop Remediation Required ---',
+    'Your previous response repeated a tool call that had already succeeded with identical parameters.',
+    'Do not repeat the same tool call again.',
+    'Either use the previous tool result to produce the final answer, or make a different tool call that materially advances the task.',
+    'If you are a file-output agent, you must create or modify files in the workspace before claiming success.',
     '',
     `Original step: ${step.id}`,
     `Original task: ${step.task}`,
@@ -1764,6 +1801,7 @@ interface RunStepWithToolsOptions {
 async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {
   let prompt = options.context;
   const successfulToolResults = new Map<string, string>();
+  const duplicateToolCalls = new Map<string, number>();
 
   for (let toolRound = 0; toolRound <= options.maxToolCalls; toolRound += 1) {
     const output = await runWithFailover(options.configs, options.createAdapter, async (adapter) => {
@@ -1808,6 +1846,26 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
     const toolCallKey = stableToolCallKey(toolCall);
     const previousSuccessfulOutput = successfulToolResults.get(toolCallKey);
     if (previousSuccessfulOutput !== undefined) {
+      const duplicateCount = (duplicateToolCalls.get(toolCallKey) ?? 0) + 1;
+      duplicateToolCalls.set(toolCallKey, duplicateCount);
+      if (options.maxToolCalls > DEFAULT_MAX_TOOL_CALLS && duplicateCount <= 2) {
+        prompt = [
+          options.context,
+          '',
+          '--- Repeated tool call blocked ---',
+          output,
+          '',
+          `Tool execution result for ${toolCall.tool}:`,
+          previousSuccessfulOutput,
+          '',
+          'You already executed this exact tool call successfully.',
+          'Do not repeat it.',
+          'For this file-output task, your next response must either:',
+          '- emit a different tool call that materially advances the task, such as writing/editing files or running the relevant test command, or',
+          '- return the final answer that names changed files and verification evidence.',
+        ].join('\n');
+        continue;
+      }
       return [
         `Tool ${toolCall.tool} already returned the same successful result for identical parameters.`,
         'Returning that result instead of repeating the tool call.',

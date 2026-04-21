@@ -25,6 +25,9 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
   if (output.length > 0 && isProtocolAcknowledgment(output)) {
     findings.push(finding('high', 'Step returned protocol acknowledgment without substantive task output.', options.step.id));
   }
+  if (output.length > 0 && isDuplicateToolLoopPlaceholder(output)) {
+    findings.push(finding('high', 'Step repeated an identical successful tool call without producing substantive output.', options.step.id));
+  }
   if (options.result.outputType === 'files' && output.length === 0 && (options.result.filesCreated?.length ?? 0) === 0) {
     findings.push(finding('high', 'file-output step completed without usable output or file evidence.', options.step.id));
   }
@@ -78,6 +81,10 @@ function isProtocolAcknowledgment(output: string): boolean {
     /\b(changed files?|files changed|created|modified|implemented|tests? run|verification|adviser-workflow|plan":|diff|patch)\b/,
   ];
   return !substantiveSignals.some((pattern) => pattern.test(normalized));
+}
+
+function isDuplicateToolLoopPlaceholder(output: string): boolean {
+  return output.includes('already returned the same successful result for identical parameters');
 }
 
 

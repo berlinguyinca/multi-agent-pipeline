@@ -2728,6 +2728,43 @@ describe('executeDAG', () => {
     expect(runCount).toBe(8);
   });
 
+  it('keeps file-output agents in the same tool loop when they repeat an identical successful inspection call', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    const prompts: string[] = [];
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        runCount += 1;
+        if (runCount <= 2) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'printf inspect' } });
+          return;
+        }
+        yield 'Created tests/pubchem-sync.test.ts and ran targeted test command.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.output).toContain('Created tests/pubchem-sync.test.ts');
+    expect(runCount).toBe(3);
+    expect(prompts[2]).toContain('Repeated tool call blocked');
+    expect(prompts[2]).toContain('Do not repeat it.');
+  });
+
   it('executes declared tools before returning the final step output', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'researcher', task: 'Research current status', dependsOn: [] }],
@@ -3068,7 +3105,7 @@ describe('executeDAG', () => {
 
 
 
-  it('returns a final answer after a repeated identical successful tool request', async () => {
+  it('retries once and then fails a file-output agent that repeats the same successful tool call without progress', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'build-fixer', task: 'Run git diff --check', dependsOn: [] }],
     };
@@ -3092,11 +3129,41 @@ describe('executeDAG', () => {
       retryDelayMs: 0,
     });
 
-    expect(result.success).toBe(true);
-    expect(result.steps[0]?.status).toBe('completed');
-    expect(result.steps[0]?.output).toContain('Tool shell already returned the same successful result');
-    expect(result.steps[0]?.output).toContain('clean');
-    expect(runCount).toBe(2);
+    expect(result.success).toBe(false);
+    expect(result.steps[0]?.status).toBe('failed');
+    expect(result.steps[0]?.error).toContain('identical successful tool call');
+    expect(runCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it('injects a no-progress remediation context before retrying a repeated identical tool call', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    const prompts: string[] = [];
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        runCount += 1;
+        yield JSON.stringify({ tool: 'shell', params: { command: 'printf clean' } });
+      },
+    }));
+
+    await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(runCount).toBeGreaterThanOrEqual(4);
+    expect(prompts.some((prompt) => prompt.includes('No-Progress Tool Loop Remediation Required'))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes('Do not repeat the same tool call again'))).toBe(true);
   });
 
   it('does not security-gate cross-review control outputs before judge decisions are parsed', async () => {

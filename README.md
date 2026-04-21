@@ -24,6 +24,12 @@ Code QA can also drive an autonomous repair loop. `code-qa-analyst` ends impleme
 
 Software-development workflows are expected to run verification tests in isolated environments. When a feature needs databases or service dependencies, agents should use Docker-backed project test services (`docker compose`, Testcontainers, devcontainers, or equivalent project scripts), disposable volumes, random/free ports, and test-only credentials. Agents must not point tests at host databases, shared developer services, production endpoints, or main-system state; if Docker or the project test service setup is unavailable, they should report that blocker instead of silently testing against the host.
 
+For greenfield software prompts, headless v2 now defaults the execution workspace to `<outputDir>/workspace` unless `--workspace-dir` or `workspaceDir` is set explicitly. This keeps generated source/test files separate from MAP reports, PDFs, graphs, and prior output artifacts.
+
+Smart-routing software recovery is also more execution-biased now: when the router cannot build a valid plan for a software task, MAP synthesizes a concrete software lifecycle fallback and prefers the unified `coder` agent when that agent is registered; otherwise it falls back to the `tdd-engineer` + `implementation-coder` path.
+
+To reduce no-progress loops, file-output agents no longer get to silently succeed by repeating the same successful inspection tool call. MAP injects explicit remediation context, requires a materially different tool call or final verified answer, and fails the handoff if the agent still only returns a duplicate-tool placeholder.
+
 ## Quick Start
 
 Install the `map` command:
@@ -512,7 +518,7 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
 | `--ollama-max-loaded-models` | `ollama.maxLoadedModels` | `2` | Set `OLLAMA_MAX_LOADED_MODELS` for concurrently loaded models |
-| `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
+| `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` (or `<outputDir>/workspace` for greenfield software prompts) | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 
@@ -918,7 +924,7 @@ Every consensus path reports diagnostics in the result graph/report. Reports inc
 
 ### Autonomous cross-model review
 
-MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
+MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are adviser planning outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
 
 The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
 

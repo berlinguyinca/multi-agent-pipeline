@@ -1229,13 +1229,13 @@ export async function runHeadlessV2(
     applyHeadlessRouterOverrides(config, options);
     applyHeadlessDisabledAgentOverrides(config, options);
     applyHeadlessCrossReviewOverrides(config, options);
-    workspaceDir = path.resolve(options.workspaceDir ?? config.workspaceDir ?? outputDir);
-    await fs.mkdir(workspaceDir, { recursive: true });
     const securityConfig = resolveSecurityConfig(config);
     const baseResolvedPrompt = await resolveHeadlessPrompt(options, config, dependencies, (context, token) => {
       issueContext = context;
       githubToken = token;
     });
+    workspaceDir = resolveDefaultWorkspaceDir(options.workspaceDir, config.workspaceDir, outputDir, baseResolvedPrompt);
+    await fs.mkdir(workspaceDir, { recursive: true });
     const resolvedPrompt = appendWorkspaceContext(baseResolvedPrompt, workspaceDir, outputDir);
 
     const agentsDir = dependencies.agentsDir ?? path.join(process.cwd(), 'agents');
@@ -1451,6 +1451,26 @@ export async function runHeadlessV2(
     await recordAgentPerformance(finalResult, workspaceDir ?? outputDir);
     return await finish(finalResult);
   }
+}
+
+function resolveDefaultWorkspaceDir(
+  explicitWorkspaceDir: string | undefined,
+  configuredWorkspaceDir: string | undefined,
+  outputDir: string,
+  prompt: string,
+): string {
+  if (explicitWorkspaceDir) return path.resolve(explicitWorkspaceDir);
+  if (configuredWorkspaceDir) return path.resolve(configuredWorkspaceDir);
+  return isGreenfieldSoftwarePrompt(prompt)
+    ? path.join(outputDir, 'workspace')
+    : outputDir;
+}
+
+function isGreenfieldSoftwarePrompt(prompt: string): boolean {
+  const task = prompt.toLowerCase();
+  const asksForSoftware = /\b(software|app|application|cli|tool|service|program|script|pipeline|develop|implement|build|create)\b/.test(task);
+  const asksForEngineeringWorkflow = /\b(download|sync|synchroni[sz]e|convert|folder|file|database|markdown|local|rate thrott|data processing|api|ftp)\b/.test(task);
+  return asksForSoftware && asksForEngineeringWorkflow;
 }
 
 async function runHeadlessV2Comparison(

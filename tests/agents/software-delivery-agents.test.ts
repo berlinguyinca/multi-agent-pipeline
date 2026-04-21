@@ -379,6 +379,8 @@ describe('software delivery agent bundle', () => {
     expect(tdd.prompt).toContain('first response must be a JSON shell tool call');
     expect(tdd.prompt).toContain('write at least one focused failing test file');
     expect(tdd.prompt).toContain('Do not return an empty response');
+    expect(tdd.prompt).toContain('If the workspace is greenfield or nearly empty');
+    expect(tdd.prompt).toContain('Do not repeat the same inspection command');
   });
 
 
@@ -405,6 +407,8 @@ describe('software delivery agent bundle', () => {
       expect(agent.prompt, `${agent.name} missing workspace edit instruction`).toContain('create or modify the requested files in the workspace');
       expect(agent.prompt, `${agent.name} missing verification instruction`).toContain('verification command/result');
     }
+    expect(implementation.prompt).toContain('If the workspace is greenfield or nearly empty');
+    expect(delivery.prompt).toContain('Do not spend multiple rounds repeating the same inspection command');
   });
 
 

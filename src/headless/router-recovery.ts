@@ -199,10 +199,15 @@ function buildSoftwareLifecycleFallbackPlan(
   const softwareSignals = /\b(software|implementation|feature|code|build|test|tdd|docs|developer|lifecycle|tool|cli|app|service)\b/.test(text);
   if (!softwareSignals) return null;
 
-  const required = ['spec-writer', 'spec-qa-reviewer', 'adviser', 'tdd-engineer', 'implementation-coder', 'code-qa-analyst'];
-  if (!required.every((name) => agents.has(name))) return null;
+  const commonRequired = ['spec-writer', 'spec-qa-reviewer', 'adviser', 'code-qa-analyst'];
+  if (!commonRequired.every((name) => agents.has(name))) return null;
+  const hasUnifiedCoder = agents.has('coder');
+  if (!hasUnifiedCoder && !['tdd-engineer', 'implementation-coder'].every((name) => agents.has(name))) {
+    return null;
+  }
 
   const plan: DAGPlan['plan'] = [];
+  const requestContext = JSON.stringify(userTask.replace(/\s+/g, ' ').trim().slice(0, 1200));
   const add = (agent: string, task: string, dependsOn: string[]): void => {
     if (!agents.has(agent)) return;
     plan.push({ id: `step-${plan.length + 1}`, agent, task, dependsOn });
@@ -210,21 +215,30 @@ function buildSoftwareLifecycleFallbackPlan(
 
   add(
     'spec-writer',
-    `Create an implementation-ready specification from the original request. Router recovery reason: ${decision.reason}.Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
+    `Create an implementation-ready specification from this original request: ${requestContext}. Router recovery reason: ${decision.reason}. Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
     [],
   );
   add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria.', ['step-1']);
   add('adviser', 'Create an executable adviser workflow from the reviewed and QA-approved spec using exact registered agents and adviser-workflow JSON when changing the DAG.', ['step-2']);
-  add('tdd-engineer', `Write focused failing tests before implementation. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.`, ['step-3']);
-  add('implementation-coder', `Implement the smallest coherent change satisfying the reviewed spec and tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.`, ['step-4']);
-  add('code-qa-analyst', `Review implementation correctness, test adequacy, isolated service usage, and spec conformance.End with the Structured QA Verdict JSON.`, ['step-5']);
-  add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', ['step-6']);
-  add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [agents.has('legal-license-advisor') ? 'step-7' : 'step-6']);
+  let qaStepId = '';
+  if (hasUnifiedCoder) {
+    add('coder', 'Execute the full spec-to-code lifecycle with strict TDD, isolated test services, implementation, and documentation. Do not return a protocol acknowledgment; create files, run tests, and report verification evidence.', ['step-3']);
+    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and spec conformance. End with the Structured QA Verdict JSON.', ['step-4']);
+    qaStepId = 'step-5';
+  } else {
+    add('tdd-engineer', 'Write focused failing tests before implementation. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.', ['step-3']);
+    add('implementation-coder', 'Implement the smallest coherent change satisfying the reviewed spec and tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.', ['step-4']);
+    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and spec conformance. End with the Structured QA Verdict JSON.', ['step-5']);
+    qaStepId = 'step-6';
+  }
+  add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', [qaStepId]);
+  const legalStepId = `step-${plan.findIndex((step) => step.agent === 'legal-license-advisor') + 1}`;
+  add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [agents.has('legal-license-advisor') ? legalStepId : qaStepId]);
   const readinessDependency = agents.has('docs-maintainer')
     ? `step-${plan.findIndex((step) => step.agent === 'docs-maintainer') + 1}`
     : agents.has('legal-license-advisor')
-      ? 'step-7'
-      : 'step-6';
+      ? legalStepId
+      : qaStepId;
   add('release-readiness-reviewer', 'Assess final readiness, verification evidence, residual risk, and handoff status.', [readinessDependency]);
 
   return { plan };

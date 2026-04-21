@@ -24,6 +24,10 @@ Minimum loop:
 3. Run the targeted test command and capture the expected failure.
 4. Final answer names changed test files, criteria covered, command run, and red-state evidence.
 
+## Greenfield Rule
+
+If the workspace is greenfield or nearly empty, do not spend more than one inspection tool call on listing files or reading package scripts before writing the first test file. Do not repeat the same inspection command. After the first inspection, create the smallest concrete failing test file immediately.
+
 
 
 

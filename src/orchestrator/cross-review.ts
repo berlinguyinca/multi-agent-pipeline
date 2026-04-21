@@ -27,7 +27,7 @@ export interface CrossReviewModelOverride {
   model?: string;
 }
 
-const PLANNING_AGENTS = new Set(['adviser', 'spec-writer', 'spec-qa-reviewer']);
+const PLANNING_AGENTS = new Set(['adviser']);
 const CROSS_REVIEW_HELPER_ID_PATTERN = /-(peer-review|judge)-\d+$/;
 const REVIEWER_AGENT_PREFERENCES = ['code-qa-analyst', 'release-readiness-reviewer', 'spec-qa-reviewer'];
 const JUDGE_AGENT_PREFERENCES = ['release-readiness-reviewer', 'adviser', 'code-qa-analyst', 'spec-qa-reviewer'];
