@@ -32,6 +32,7 @@ To reduce no-progress loops, file-output agents no longer get to silently succee
 If a file-output agent reaches the tool-call cap after actually changing workspace files, MAP preserves those file artifacts and lets downstream implementation or QA evaluate/repair them instead of discarding the work as a total failure.
 TDD agents use a smaller tool-call cap than implementation agents so partial test artifacts are handed off quickly instead of spending many minutes in repeated inspection loops.
 When adviser decomposes a no-output broad implementation after TDD artifacts already exist, MAP normalizes the workflow toward implementation lanes instead of adding another round of TDD-first loops.
+Broad `software-delivery` steps also use a shorter no-progress timeout than focused implementation lanes so the workflow decomposes faster when broad delivery stalls without file changes.
 Security scanning treats MD5/SHA1 checksum/integrity fixtures differently from password or cryptographic use so data-ingestion tests for upstream checksum formats do not block the workflow as weak-crypto findings.
 
 When executing a saved refined prompt, MAP treats the refine answers as complete input. Router cleanup removes accidental `prompt-refiner` steps from already-refined plans, and agent conduct instructs downstream agents to use the provided answers plus reasonable assumptions instead of asking the same blocking questions again.

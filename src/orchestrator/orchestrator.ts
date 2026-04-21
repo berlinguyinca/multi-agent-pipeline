@@ -204,7 +204,7 @@ export async function executeDAG(
         let lastError: string | undefined;
         let attempts = 0;
         let stepTimedOut = false;
-        let timeoutMsForAttempt = Math.max(stepTimeoutMs, adaptiveTimeouts.get(step.agent) ?? 0);
+        let timeoutMsForAttempt = Math.max(stepTimeoutMsForAgent(agent, stepTimeoutMs), adaptiveTimeouts.get(step.agent) ?? 0);
         let sawTimeoutBeforeSuccess = false;
         let errorRetries = 0;
         let securityRemediationRetries = 0;
@@ -1939,6 +1939,12 @@ interface RunStepWithToolsOptions {
   onProgress?: () => void;
 }
 
+
+
+function stepTimeoutMsForAgent(agent: AgentDefinition, defaultTimeoutMs: number): number {
+  if (agent.name === 'software-delivery') return Math.min(defaultTimeoutMs, 60_000);
+  return defaultTimeoutMs;
+}
 
 function maxToolCallsForAgent(agent: AgentDefinition): number {
   if (agent.name === 'tdd-engineer') return TDD_ENGINEER_MAX_TOOL_CALLS;
