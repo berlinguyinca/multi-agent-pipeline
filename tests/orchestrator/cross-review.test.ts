@@ -75,6 +75,27 @@ describe('cross-review planning helpers', () => {
     expect(decision).toMatchObject({ shouldReview: true, gate: 'fileOutputs' });
   });
 
+
+  it('does not cross-review preserved partial file-output artifacts', () => {
+    const decision = shouldCrossReviewStep({
+      config: DEFAULT_CROSS_REVIEW_CONFIG,
+      step: step({ agent: 'tdd-engineer', task: 'Write tests' }),
+      result: result({
+        agent: 'tdd-engineer',
+        outputType: 'files',
+        output: 'File-output agent reached its tool-call limit after modifying the workspace.\nChanged files detected:\n- test/pubchem-sync.test.js',
+        filesCreated: ['test/pubchem-sync.test.js'],
+      }),
+      agent: agent({ name: 'tdd-engineer', output: { type: 'files' } }),
+      round: 1,
+    });
+
+    expect(decision).toEqual({
+      shouldReview: false,
+      reason: 'partial file-output artifacts continue to downstream repair instead of cross-review revision',
+    });
+  });
+
   it('does not cross-review spec-writer planning output by default', () => {
     const decision = shouldCrossReviewStep({
       config: DEFAULT_CROSS_REVIEW_CONFIG,
