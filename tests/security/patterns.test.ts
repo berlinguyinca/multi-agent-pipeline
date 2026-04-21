@@ -96,8 +96,13 @@ describe('OWASP Top 10 patterns', () => {
   });
 
   it('detects weak crypto', () => {
-    const findings = matchPatterns('const hash = createHash("md5");');
+    const findings = matchPatterns('const passwordHash = createHash("md5");');
     expect(findings.some(f => f.rule === 'weak-crypto')).toBe(true);
+  });
+
+  it('allows MD5/SHA1 in explicit checksum/integrity contexts', () => {
+    const findings = matchPatterns('const checksum = createHash("sha1").update(file).digest("hex");');
+    expect(findings.some(f => f.rule === 'weak-crypto')).toBe(false);
   });
 });
 

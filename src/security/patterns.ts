@@ -19,7 +19,7 @@ export function regexPattern(
     description,
     test(content: string): SecurityFinding[] {
       const findings: SecurityFinding[] = [];
-      const lines = content.split('\n');
+      const lines = content.split(/\r?\n/);
       for (let i = 0; i < lines.length; i++) {
         if (regex.test(lines[i])) {
           findings.push({
@@ -103,12 +103,30 @@ const ssrfPattern = regexPattern(
   /(?:fetch|axios|http\.(?:get|request)|got)\s*\(\s*(?:req|request|params|query|userInput|url)/,
 );
 
-const weakCrypto = regexPattern(
-  'weak-crypto',
-  'medium',
-  'MD5/SHA1 are cryptographically weak hash algorithms',
-  /(?:createHash|crypto\.(?:MD5|SHA1))\s*\(\s*['"`](?:md5|sha1)['"`]/i,
-);
+const weakCrypto: SecurityPattern = {
+  rule: 'weak-crypto',
+  severity: 'medium',
+  description: 'MD5/SHA1 are cryptographically weak hash algorithms',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const regex = /(?:createHash|crypto\.(?:MD5|SHA1))\s*\(\s*['"`](?:md5|sha1)['"`]/i;
+    const checksumContext = /(?:checksum|integrity|etag|digest|hash fixture|md5sum|sha1sum|file verification|data verification)/i;
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      if (!regex.test(line)) continue;
+      if (checksumContext.test(line)) continue;
+      findings.push({
+        rule: 'weak-crypto',
+        severity: 'medium',
+        message: 'MD5/SHA1 are cryptographically weak hash algorithms',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
 
 // ---------------------------------------------------------------------------
 // CWE Top 25 patterns (11-15)
@@ -180,7 +198,7 @@ const promptInjectionMarker: SecurityPattern = {
   description: 'Prompt injection marker detected in generated code',
   test(content: string): SecurityFinding[] {
     const findings: SecurityFinding[] = [];
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const marker = /(?:IGNORE\s+(?:ALL\s+)?PREVIOUS|SYSTEM\s*:|DISREGARD\s+(?:ALL\s+)?(?:PREVIOUS|ABOVE)|\bACT\s+AS\s+(?:admin|root|system|developer|user|assistant)\b)/i;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
