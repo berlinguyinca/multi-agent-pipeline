@@ -74,6 +74,7 @@ export interface DAGRetryOptions {
 
 const DEFAULT_MAX_TOOL_CALLS = 4;
 const FILE_OUTPUT_MAX_TOOL_CALLS = 12;
+const TDD_ENGINEER_MAX_TOOL_CALLS = 4;
 const MAX_RECOVERY_ROUNDS = 2;
 const DEFAULT_QA_REPAIR_ROUNDS = 3;
 const DEFAULT_STEP_TIMEOUT_MS = 300_000;
@@ -295,7 +296,7 @@ export async function executeDAG(
               return runStepWithTools({
                 context,
                 tools,
-                maxToolCalls: agent.output.type === 'files' ? FILE_OUTPUT_MAX_TOOL_CALLS : DEFAULT_MAX_TOOL_CALLS,
+                maxToolCalls: maxToolCallsForAgent(agent),
                 configs,
                 createAdapter,
                 stepId: step.id,
@@ -1905,6 +1906,12 @@ interface RunStepWithToolsOptions {
   resolvedSeed?: number;
   workingDir: string;
   onProgress?: () => void;
+}
+
+
+function maxToolCallsForAgent(agent: AgentDefinition): number {
+  if (agent.name === 'tdd-engineer') return TDD_ENGINEER_MAX_TOOL_CALLS;
+  return agent.output.type === 'files' ? FILE_OUTPUT_MAX_TOOL_CALLS : DEFAULT_MAX_TOOL_CALLS;
 }
 
 async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {

@@ -2736,13 +2736,13 @@ describe('executeDAG', () => {
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 
-  it('allows file-output agents enough tool rounds to inspect, edit, and verify', async () => {
+  it('allows implementation file-output agents enough tool rounds to inspect, edit, and verify', async () => {
     const plan: DAGPlan = {
-      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
     };
-    const tdd = makeAgent('tdd-engineer', 'files');
-    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
-    const agents = new Map([['tdd-engineer', tdd]]);
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
     let runCount = 0;
     const createAdapter = vi.fn((): AgentAdapter => ({
       type: 'ollama',
@@ -2752,7 +2752,7 @@ describe('executeDAG', () => {
       async *run() {
         runCount += 1;
         if (runCount <= 7) {
-          yield JSON.stringify({ tool: 'shell', params: { command: `printf round-${runCount}` } });
+          yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log('round-${runCount}')"` } });
           return;
         }
         yield 'Created tests/pubchem-sync.test.ts and ran targeted test command.';
@@ -2769,13 +2769,51 @@ describe('executeDAG', () => {
     expect(runCount).toBe(8);
   });
 
-  it('keeps file-output agents in the same tool loop when they repeat an identical successful inspection call', async () => {
+
+  it('caps tdd-engineer tool loops lower so partial tests hand off quickly', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tdd-tool-cap-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
     };
     const tdd = makeAgent('tdd-engineer', 'files');
-    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
     const agents = new Map([['tdd-engineer', tdd]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'node -e "require(\'fs\').writeFileSync(\'quick.test.js\', \'test\')"' } });
+          return;
+        }
+        yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log(${runCount})"` } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.output).toContain('Tool-loop condition: Tool loop exceeded 4 rounds');
+    expect(result.steps[0]?.filesCreated).toEqual(['quick.test.js']);
+    expect(runCount).toBeLessThanOrEqual(6);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('keeps non-TDD file-output agents in the same tool loop when they repeat an identical successful inspection call', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
     const prompts: string[] = [];
     let runCount = 0;
     const createAdapter = vi.fn((): AgentAdapter => ({
