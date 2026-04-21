@@ -164,4 +164,11 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('Capabilities: Gather evidence; Synthesize findings');
     expect(prompt).toContain('Mission: Implement tested software changes.');
   });
+
+  it('tells the router not to schedule prompt-refiner for already refined prompts', () => {
+    const prompt = buildRouterPrompt(new Map(), '# Refined MAP Prompt\n\n## Answers provided\nFTP', 5);
+    expect(prompt).toContain('do not route through prompt-refiner again');
+    expect(prompt).toContain('Treat refinement as complete');
+  });
+
 });

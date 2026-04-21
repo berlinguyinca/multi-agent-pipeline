@@ -697,6 +697,18 @@ function cleanRouterDecision(
     dependsOn: step.dependsOn.map((dep) => dep.trim()).filter(Boolean),
   }));
 
+  if (isAlreadyRefinedPrompt(userTask)) {
+    const droppedIds = new Set(cleanedSteps
+      .filter((step) => step.agent === 'prompt-refiner')
+      .map((step) => step.id));
+    cleanedSteps = cleanedSteps
+      .filter((step) => !droppedIds.has(step.id))
+      .map((step) => ({
+        ...step,
+        dependsOn: step.dependsOn.filter((dep) => !droppedIds.has(dep)),
+      }));
+  }
+
   if (shouldPreferChemicalSpecialistPlan(userTask, cleanedSteps)) {
     const droppedIds = new Set(cleanedSteps
       .filter((step) => step.agent === 'researcher')
@@ -734,6 +746,16 @@ function cleanRouterDecision(
     },
     ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set(cleanedSteps.map((step) => step.agent))) } : {}),
   };
+}
+
+function isAlreadyRefinedPrompt(userTask: string): boolean {
+  const task = userTask.toLowerCase();
+  return task.includes('# refined map prompt') ||
+    task.includes('## answers provided') ||
+    task.includes('use these user-provided answers') ||
+    task.includes('questionsasked') ||
+    task.includes('"mode":"refine"') ||
+    task.includes('"mode": "refine"');
 }
 
 function shouldPreferChemicalSpecialistPlan(

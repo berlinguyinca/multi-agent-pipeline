@@ -112,6 +112,61 @@ describe('routeTask', () => {
     });
   });
 
+
+  it('drops prompt-refiner from plans when the task is already refined with answers', async () => {
+    const localAgents = new Map<string, AgentDefinition>(agents);
+    localAgents.set('prompt-refiner', {
+      name: 'prompt-refiner',
+      description: 'Prompt refinement agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You refine prompts.',
+      pipeline: [{ name: 'refine' }],
+      handles: 'prompt refinement',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('spec-writer', {
+      name: 'spec-writer',
+      description: 'Specification writer',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You write specs.',
+      pipeline: [{ name: 'spec' }],
+      handles: 'software specifications',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'prompt-refiner', task: 'Ask more refine questions', dependsOn: [] },
+        { id: 'step-2', agent: 'spec-writer', task: 'Write the spec', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'coder', task: 'Implement', dependsOn: ['step-2'] },
+      ],
+      rationale: {
+        selectedAgents: [
+          { agent: 'prompt-refiner', reason: 'Refine more' },
+          { agent: 'spec-writer', reason: 'Write spec' },
+          { agent: 'coder', reason: 'Build it' },
+        ],
+      },
+    });
+
+    const result = await routeTask(
+      '# Refined MAP Prompt\n\n## Answers provided\nFTP bulk dumps',
+      localAgents,
+      mockAdapter(json),
+      routerConfig,
+    );
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual(['spec-writer', 'coder']);
+    expect(result.plan.plan[0]).toMatchObject({ id: 'step-2', dependsOn: [] });
+    expect(result.rationale?.selectedAgents.map((entry) => entry.agent)).toEqual(['spec-writer', 'coder']);
+  });
+
   it('parses a multi-agent plan', async () => {
     const json = '{"plan":[{"id":"step-1","agent":"researcher","task":"Research","dependsOn":[]},{"id":"step-2","agent":"coder","task":"Implement","dependsOn":["step-1"]}]}';
     const adapter = mockAdapter(json);
