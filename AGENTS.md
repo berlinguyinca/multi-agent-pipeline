@@ -49,6 +49,7 @@ MAP uses consensus selectively for local model quality without making heavyweigh
    File-output agents must not be allowed to declare success by repeating the same successful inspection tool call forever. MAP should inject explicit no-progress remediation context, require a materially different advancing tool call or final verified answer, and fail the handoff when the agent still only returns a duplicate-tool placeholder.
    If a file-output agent reaches its tool-call cap after creating or modifying files, preserve the changed-file evidence and allow downstream agents to evaluate or repair those artifacts rather than treating the step as a total loss.
    Keep the TDD agent's tool-call cap lower than broader implementation agents so partial tests move to implementation/QA repair quickly instead of looping on inspection.
+   TDD and broad software-delivery lanes should also have hard wall-clock guards so continuous streaming without convergence cannot reset the no-progress timer forever.
    No-diff decomposition after TDD artifacts exist should move toward implementation lanes; avoid reintroducing new TDD-first loops unless no implementation lane is available.
    Broad `software-delivery` should use a shorter no-progress timeout than focused implementation lanes so stalled broad prompts quickly decompose into executable slices.
    Security weak-crypto checks should still flag MD5/SHA1 for password or cryptographic use, but allow explicit checksum/integrity contexts used for upstream data verification fixtures.

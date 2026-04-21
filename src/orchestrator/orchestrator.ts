@@ -266,6 +266,7 @@ export async function executeDAG(
             // local-model responses can keep running while they stream output.
             const stepController = new AbortController();
             let stepTimer: ReturnType<typeof setTimeout> | undefined;
+            let hardStepTimer: ReturnType<typeof setTimeout> | undefined;
             const abortFromParent = () => stepController.abort();
             signal?.addEventListener('abort', abortFromParent, { once: true });
             const consensusConfig = resolveAgentConsensus(agent, agentConsensus);
@@ -273,6 +274,13 @@ export async function executeDAG(
             const currentBaseTimeoutMs = timeoutMsForAttempt;
             const currentTimeoutMs =
               currentBaseTimeoutMs * (fileConsensusConfig?.runs ?? consensusConfig?.runs ?? 1);
+            const hardTimeoutMs = hardStepTimeoutMsForAgent(agent);
+            if (hardTimeoutMs !== null) {
+              hardStepTimer = setTimeout(() => {
+                stepTimedOut = true;
+                stepController.abort();
+              }, hardTimeoutMs);
+            }
             const armStepTimer = () => {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
               if (currentTimeoutMs <= 0) return;
@@ -343,6 +351,7 @@ export async function executeDAG(
               }
             } finally {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
+              if (hardStepTimer !== undefined) clearTimeout(hardStepTimer);
               signal?.removeEventListener('abort', abortFromParent);
             }
 
@@ -672,7 +681,7 @@ export async function executeDAG(
             if (!isRetryable(err) || errorRetries >= retryBudget) {
               const duration = Date.now() - startedAt;
               const snapshotForFailureChanges = stepWorkspaceBefore ?? workspaceBefore;
-              if (agent.output.type === 'files' && isToolLoopExceeded(lastError) && snapshotForFailureChanges) {
+              if (agent.output.type === 'files' && isPreservableFileOutputRuntimeFailure(lastError) && snapshotForFailureChanges) {
                 const changedFiles = await diffWorkspaceSnapshot(workingDir, snapshotForFailureChanges);
                 if (changedFiles.length > 0) {
                   const partialResult: StepResult = {
@@ -788,6 +797,11 @@ export async function executeDAG(
 
 function isToolLoopExceeded(error: string | undefined): boolean {
   return /Tool loop exceeded \d+ rounds/.test(error ?? '');
+}
+
+function isPreservableFileOutputRuntimeFailure(error: string | undefined): boolean {
+  const message = error ?? '';
+  return isToolLoopExceeded(message) || /timed out|Operation aborted|Step timed out/i.test(message);
 }
 
 function buildToolLoopPartialFileOutput(step: DAGStep, changedFiles: string[], error: string | undefined): string {
@@ -1940,6 +1954,13 @@ interface RunStepWithToolsOptions {
 }
 
 
+
+
+function hardStepTimeoutMsForAgent(agent: AgentDefinition): number | null {
+  if (agent.name === 'tdd-engineer') return 60_000;
+  if (agent.name === 'software-delivery') return 120_000;
+  return null;
+}
 
 function stepTimeoutMsForAgent(agent: AgentDefinition, defaultTimeoutMs: number): number {
   if (agent.name === 'software-delivery') return Math.min(defaultTimeoutMs, 60_000);
