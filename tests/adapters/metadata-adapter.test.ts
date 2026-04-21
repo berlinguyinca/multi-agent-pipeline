@@ -76,11 +76,29 @@ describe('MetadataAdapter code-qa-analyst', () => {
     for (let index = 0; index < 1000; index += 1) await fs.writeFile(path.join(cwd, 'sample-output/records/a/b', `${index}.md`), '# x\n', 'utf8');
     await fs.writeFile(path.join(cwd, 'src/tool.py'), 'def main(): return 0\n', 'utf8');
     await fs.writeFile(path.join(cwd, 'README.md'), '# Readme\n', 'utf8');
-    await fs.writeFile(path.join(cwd, 'tests/test_tool.py'), 'pass\n', 'utf8');
+    await fs.mkdir(path.join(cwd, 'venv/lib/python3.14/site-packages/noise'), { recursive: true });
+    await fs.writeFile(path.join(cwd, 'venv/lib/python3.14/site-packages/noise/not_product.py'), 'def noise(): pass\n', 'utf8');
+    await fs.writeFile(path.join(cwd, 'tests/test_tool.py'), 'import unittest\nclass ToolTest(unittest.TestCase):\n    def test_tool(self):\n        self.assertTrue(True)\n', 'utf8');
     const adapter = new MetadataAdapter('code-qa-analyst');
     let output = '';
     for await (const chunk of adapter.run('Review implementation', { cwd })) output += chunk;
     expect(output).toContain('"verdict": "accept"');
     await fs.rm(cwd, { recursive: true, force: true });
   });
+
+  it('rejects generated downloader artifacts when their own tests fail', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'map-code-qa-failing-'));
+    await fs.mkdir(path.join(cwd, 'src'), { recursive: true });
+    await fs.mkdir(path.join(cwd, 'tests'), { recursive: true });
+    await fs.writeFile(path.join(cwd, 'src/tool.py'), 'def main(): return 0\n', 'utf8');
+    await fs.writeFile(path.join(cwd, 'README.md'), '# Readme\n', 'utf8');
+    await fs.writeFile(path.join(cwd, 'tests/test_tool.py'), 'import unittest\nclass ToolTest(unittest.TestCase):\n    def test_tool(self):\n        self.assertEqual(1, 2)\n', 'utf8');
+    const adapter = new MetadataAdapter('code-qa-analyst');
+    let output = '';
+    for await (const chunk of adapter.run('Review implementation', { cwd })) output += chunk;
+    expect(output).toContain('"verdict": "revise"');
+    expect(output).toContain('Generated project tests failed');
+    await fs.rm(cwd, { recursive: true, force: true });
+  });
+
 });

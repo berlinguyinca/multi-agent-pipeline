@@ -1,6 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { AdapterType, DetectInfo, RunOptions } from '../types/adapter.js';
+
+const execFileAsync = promisify(execFile);
 
 interface FileSummary {
   path: string;
@@ -344,35 +348,84 @@ async function countFiles(dir: string, extension: string): Promise<number> {
 
 async function renderCodeQaAnalysis(cwd: string, prompt = ''): Promise<string> {
   const artifact = await inspectSoftwareArtifacts(cwd);
-  const verdict = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme ? 'accept' : 'revise';
+  const testRun = await runDetectedTestCommand(cwd);
+  const verdict = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme && testRun.passed ? 'accept' : 'revise';
   if (/cross-review critique|Return a concise structured cross-review critique/i.test(prompt)) {
     return [
       'Critique summary: Local artifact inspection confirms whether the generated software includes source, tests, README, and generated data artifacts without assuming a specific database.',
       `Verification reviewed: source files=${artifact.sourceFiles}; test files=${artifact.testFiles}; README present=${artifact.hasReadme}; generated Markdown/data records=${artifact.markdownRecords}.`,
-      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: regenerate missing implementation artifacts before release.',
+      `Test command: ${testRun.command}; passed=${testRun.passed}.`,
+      testRun.output ? `Test output excerpt: ${testRun.output.slice(0, 600)}` : '',
+      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: fix missing artifacts or failing generated project tests before release.',
       'Residual risks: live external database downloads require the generated project\'s own integration tests or documented manual verification.',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
   return [
     '# Code QA review',
     '',
-    verdict === 'accept' ? 'No critical, high, or medium blocking findings from local artifact inspection.' : 'Blocking findings remain for missing generated software artifacts.',
+    verdict === 'accept' ? 'No critical, high, or medium blocking findings from local artifact and test inspection.' : 'Blocking findings remain for missing generated software artifacts or failing tests.',
     '',
     `- Source files counted: ${artifact.sourceFiles}`,
     `- Test files counted: ${artifact.testFiles}`,
     `- Markdown/data records counted: ${artifact.markdownRecords}`,
     `- README present: ${artifact.hasReadme}`,
+    `- Test command: ${testRun.command}`,
+    `- Test passed: ${testRun.passed}`,
     '',
     '```json',
     JSON.stringify({
       verdict,
-      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: 'Required generated software artifacts are missing.', requiredFix: 'Return to the implementation agent and create source, tests, and README artifacts from the prompt-specific requirements.' }],
-      verificationRequired: ['Run the generated project\'s documented test command.', 'Run any generated fixture/sample-data command required by the prompt.'],
+      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: testRun.passed ? 'Required generated software artifacts are missing.' : `Generated project tests failed: ${testRun.output.slice(0, 300)}`, requiredFix: 'Return to the implementation agent and create/fix source, tests, and README artifacts from the prompt-specific requirements.' }],
+      verificationRequired: [testRun.command, 'Run any generated fixture/sample-data command required by the prompt.'],
     }, null, 2),
     '```',
   ].join('\n');
 }
 
+
+
+interface TestRunResult {
+  command: string;
+  passed: boolean;
+  output: string;
+}
+
+async function runDetectedTestCommand(cwd: string): Promise<TestRunResult> {
+  const candidates: Array<{ command: string; file: string; args: string[] }> = [
+    { command: './venv/bin/pytest -q', file: path.join(cwd, 'venv', 'bin', 'pytest'), args: ['-q'] },
+    { command: './.venv/bin/pytest -q', file: path.join(cwd, '.venv', 'bin', 'pytest'), args: ['-q'] },
+  ];
+  for (const candidate of candidates) {
+    if (await exists(candidate.file)) {
+      try {
+        const { stdout, stderr } = await execFileAsync(candidate.file, candidate.args, { cwd, timeout: 60_000, maxBuffer: 1024 * 1024 });
+        return { command: candidate.command, passed: true, output: `${stdout}${stderr}`.trim() };
+      } catch (error) {
+        const err = error as { stdout?: string; stderr?: string; message?: string };
+        return { command: candidate.command, passed: false, output: `${err.stdout ?? ''}${err.stderr ?? ''}${err.message ?? ''}`.trim() };
+      }
+    }
+  }
+  if (await exists(path.join(cwd, 'package.json'))) {
+    try {
+      const { stdout, stderr } = await execFileAsync('npm', ['test'], { cwd, timeout: 60_000, maxBuffer: 1024 * 1024 });
+      return { command: 'npm test', passed: true, output: `${stdout}${stderr}`.trim() };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      return { command: 'npm test', passed: false, output: `${err.stdout ?? ''}${err.stderr ?? ''}${err.message ?? ''}`.trim() };
+    }
+  }
+  if ((await countFiles(path.join(cwd, 'tests'), '.py')) > 0) {
+    try {
+      const { stdout, stderr } = await execFileAsync('python3', ['-m', 'unittest', 'discover', 'tests'], { cwd, timeout: 60_000, maxBuffer: 1024 * 1024 });
+      return { command: 'python3 -m unittest discover tests', passed: true, output: `${stdout}${stderr}`.trim() };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      return { command: 'python3 -m unittest discover tests', passed: false, output: `${err.stdout ?? ''}${err.stderr ?? ''}${err.message ?? ''}`.trim() };
+    }
+  }
+  return { command: 'no test command detected', passed: false, output: 'No runnable test command was detected.' };
+}
 
 interface SoftwareArtifactInspection {
   sourceFiles: number;
@@ -399,7 +452,7 @@ async function listFiles(root: string): Promise<string[]> {
   const walkDir = async (dir: string): Promise<void> => {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
-      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'coverage') continue;
+      if (['node_modules', '.git', 'dist', 'coverage', 'venv', '.venv', '__pycache__', '.pytest_cache'].includes(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walkDir(full);
       if (entry.isFile()) out.push(path.relative(root, full));
