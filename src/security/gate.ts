@@ -49,7 +49,8 @@ export async function runSecurityGate(input: SecurityGateInput): Promise<Securit
       reviewAdapter: input.createReviewAdapter(),
     });
     llmFindings = llmResult.llmFindings;
-    if (!llmResult.passed) {
+    const blockingLlmFindings = llmFindings.filter((finding) => finding.severity !== 'low');
+    if (blockingLlmFindings.length > 0) {
       return {
         passed: false,
         findings: [...staticFindings, ...llmFindings],

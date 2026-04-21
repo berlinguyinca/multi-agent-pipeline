@@ -67,6 +67,24 @@ describe('runSecurityGate', () => {
     expect(result.llmFindings[0]?.rule).toBe('novel-threat');
   });
 
+
+  it('treats low-severity LLM review findings as non-blocking warnings', async () => {
+    const result = await runSecurityGate({
+      content: 'const sample = "fixture";',
+      agentName: 'tdd-engineer',
+      task: 'Write fixture tests',
+      config: defaultConfig,
+      createReviewAdapter: () =>
+        mockAdapter(
+          'SECURITY_FINDING: information_disclosure | low | The shell command contains local fixture details\nSECURITY_PASSED: false',
+        ),
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.llmFindings).toHaveLength(1);
+    expect(result.findings[0]?.severity).toBe('low');
+  });
+
   it('skips LLM review when disabled', async () => {
     const result = await runSecurityGate({
       content: 'function safe() { return 1; }',
