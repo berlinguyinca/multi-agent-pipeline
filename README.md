@@ -38,6 +38,7 @@ Security scanning treats MD5/SHA1 checksum/integrity fixtures differently from p
 Low-severity LLM-only security findings are reported as warnings instead of blocking remediation, reserving hard security stops for medium-or-higher LLM findings or static critical/high patterns.
 
 When executing a saved refined prompt, MAP treats the refine answers as complete input. Router cleanup removes accidental `prompt-refiner` steps from already-refined plans, and agent conduct instructs downstream agents to use the provided answers plus reasonable assumptions instead of asking the same blocking questions again.
+For already-refined software plans, router cleanup also removes initial TDD-only gates when an implementation lane is already present, allowing implementation/QA repair to proceed instead of re-entering long test-authoring loops.
 
 ## Quick Start
 

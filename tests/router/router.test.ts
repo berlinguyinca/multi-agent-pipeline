@@ -167,6 +167,53 @@ describe('routeTask', () => {
     expect(result.rationale?.selectedAgents.map((entry) => entry.agent)).toEqual(['spec-writer', 'coder']);
   });
 
+
+  it('drops tdd-engineer from already refined software plans when implementation lanes are present', async () => {
+    const localAgents = new Map<string, AgentDefinition>(agents);
+    localAgents.set('tdd-engineer', {
+      name: 'tdd-engineer',
+      description: 'TDD agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You write tests.',
+      pipeline: [{ name: 'tdd' }],
+      handles: 'test writing',
+      output: { type: 'files' },
+      tools: [],
+    });
+    localAgents.set('software-delivery', {
+      name: 'software-delivery',
+      description: 'Software delivery agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You implement software.',
+      pipeline: [{ name: 'deliver' }],
+      handles: 'software delivery',
+      output: { type: 'files' },
+      tools: [],
+    });
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] },
+        { id: 'step-2', agent: 'software-delivery', task: 'Implement the software', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'coder', task: 'Review implementation', dependsOn: ['step-2'] },
+      ],
+    });
+
+    const result = await routeTask(
+      '# Refined MAP Prompt\n\n## Answers provided\nFTP\nBuild a local software tool that syncs files to Markdown',
+      localAgents,
+      mockAdapter(json),
+      routerConfig,
+    );
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual(['software-delivery', 'coder']);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([]);
+  });
+
   it('parses a multi-agent plan', async () => {
     const json = '{"plan":[{"id":"step-1","agent":"researcher","task":"Research","dependsOn":[]},{"id":"step-2","agent":"coder","task":"Implement","dependsOn":["step-1"]}]}';
     const adapter = mockAdapter(json);

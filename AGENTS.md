@@ -36,6 +36,7 @@ This repository is **multi-agent-pipeline (MAP)**. It orchestrates local and CLI
 - `agents/output-formatter` is disabled by default because LLM formatting repeatedly dropped protected scientific labels/terms. Use deterministic local Markdown/HTML/PDF renderers for normal reports; re-enable `output-formatter` only for explicit custom transformation tasks.
 - Software router recovery should favor concrete execution over ceremonial fallback prose. The synthesized software lifecycle fallback should first produce a spec, run spec QA, revise the spec against concrete blockers, and only then move into coding. When the agent registry includes unified `coder`, prefer it over splitting immediately into separate TDD/implementation lanes; otherwise use the bounded `tdd-engineer` + `implementation-coder` path.
 - Saved/refined MAP prompts with `Answers provided` are already past the refine phase. Router cleanup should remove accidental `prompt-refiner` steps from those plans, and agents should use the provided answers plus reasonable assumptions rather than asking the same blocking clarification questions again.
+- For already-refined software prompts, router cleanup should also remove initial `tdd-engineer` gates when an implementation lane exists; implementation/QA repair should proceed rather than re-entering long test-authoring loops.
 
 ## Repeatability and anti-hallucination controls
 

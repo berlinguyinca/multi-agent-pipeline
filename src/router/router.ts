@@ -701,12 +701,12 @@ function cleanRouterDecision(
     const droppedIds = new Set(cleanedSteps
       .filter((step) => step.agent === 'prompt-refiner')
       .map((step) => step.id));
-    cleanedSteps = cleanedSteps
-      .filter((step) => !droppedIds.has(step.id))
-      .map((step) => ({
-        ...step,
-        dependsOn: step.dependsOn.filter((dep) => !droppedIds.has(dep)),
-      }));
+    if (isSoftwareDevelopmentRequest(userTask.toLowerCase()) && hasImplementationLane(cleanedSteps)) {
+      for (const step of cleanedSteps) {
+        if (step.agent === 'tdd-engineer') droppedIds.add(step.id);
+      }
+    }
+    cleanedSteps = removeStepsAndRewireDependencies(cleanedSteps, droppedIds);
   }
 
   if (shouldPreferChemicalSpecialistPlan(userTask, cleanedSteps)) {
@@ -746,6 +746,28 @@ function cleanRouterDecision(
     },
     ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set(cleanedSteps.map((step) => step.agent))) } : {}),
   };
+}
+
+
+function hasImplementationLane(steps: Array<{ agent: string }>): boolean {
+  return steps.some((step) => ['implementation-coder', 'software-delivery', 'coder'].includes(step.agent));
+}
+
+function removeStepsAndRewireDependencies<T extends { id: string; dependsOn: string[] }>(steps: T[], droppedIds: Set<string>): T[] {
+  if (droppedIds.size === 0) return steps;
+  const originalById = new Map(steps.map((step) => [step.id, step]));
+  const replacementDeps = (dep: string): string[] => {
+    if (!droppedIds.has(dep)) return [dep];
+    const dropped = originalById.get(dep);
+    if (!dropped) return [];
+    return dropped.dependsOn.flatMap(replacementDeps);
+  };
+  return steps
+    .filter((step) => !droppedIds.has(step.id))
+    .map((step) => ({
+      ...step,
+      dependsOn: [...new Set(step.dependsOn.flatMap(replacementDeps).filter((dep) => !droppedIds.has(dep)))],
+    }));
 }
 
 function isAlreadyRefinedPrompt(userTask: string): boolean {
