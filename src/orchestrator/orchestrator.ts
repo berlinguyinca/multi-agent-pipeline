@@ -504,11 +504,30 @@ export async function executeDAG(
 
             results.set(step.id, result);
             if (!effectiveHandoffPassed) {
-              result.status = 'failed';
               result.error = handoffValidation.handoffFindings
                 .filter((finding) => finding.severity === 'high')
                 .map((finding) => finding.message)
                 .join('; ') || 'Handoff validation failed';
+              if (shouldDecomposeFailedFileOutput(step, result)) {
+                result.status = 'completed';
+                completed.add(step.id);
+                settled.add(step.id);
+                maybeScheduleNoDiffDecomposition({
+                  step,
+                  result,
+                  plan: mutablePlan,
+                  allIds,
+                  agents,
+                  results,
+                  settled,
+                  reporter,
+                });
+                reporter?.dagStepOutput(step.id, step.agent, result.output ?? result.error ?? '');
+                reporter?.dagStepComplete(step.id, step.agent, duration);
+                lastError = undefined;
+                break;
+              }
+              result.status = 'failed';
               failed.add(step.id);
               settled.add(step.id);
               reporter?.dagStepFailed(step.id, step.agent, result.error);
@@ -966,6 +985,18 @@ interface NoDiffDecompositionOptions {
   results: Map<string, StepResult>;
   settled: Set<string>;
   reporter?: VerboseReporter;
+}
+
+
+function shouldDecomposeFailedFileOutput(step: DAGStep, result: StepResult): boolean {
+  if (!requiresDecompositionForNoDiff(step.agent)) return false;
+  if (result.outputType !== 'files') return false;
+  return result.handoffFindings?.some((finding) =>
+    finding.severity === 'high' && (
+      finding.message.includes('workspace file changes') ||
+      finding.message.includes('file-output step completed without usable output or file evidence')
+    ),
+  ) ?? false;
 }
 
 function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): void {

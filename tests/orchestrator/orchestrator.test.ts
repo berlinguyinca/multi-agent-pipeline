@@ -2654,6 +2654,47 @@ describe('executeDAG', () => {
   });
 
 
+
+  it('decomposes broad file-output work that returns no usable output or file evidence', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-empty-file-output-decompose-'));
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'software-delivery', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['software-delivery', makeAgent('software-delivery', 'files')],
+      ['adviser', makeAgent('adviser', 'answer')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+    ]);
+    const createAdapter = createQueueAdapter([
+      '',
+      '',
+      'Return a valid implementation-coder slice plan.',
+      'QA sees decomposition guidance.',
+    ]);
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-decompose-1',
+      'step-2',
+    ]);
+    expect(result.steps.find((step) => step.id === 'step-1')).toMatchObject({
+      status: 'completed',
+      error: expect.stringContaining('file-output step completed without usable output'),
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1-decompose-1']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('inserts an adviser decomposition lane before downstream work when implementation produces no diff', async () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-diff-decompose-'));
     const plan: DAGPlan = {
