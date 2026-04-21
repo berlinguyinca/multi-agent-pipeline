@@ -480,12 +480,26 @@ export async function executeDAG(
               duplicateToolRemediationContext = buildDuplicateToolLoopRemediationContext(step, result);
               continue;
             }
-            result.handoffPassed = handoffValidation.handoffPassed;
-            result.handoffFindings = handoffValidation.handoffFindings;
+            let effectiveHandoffPassed = handoffValidation.handoffPassed;
+            let effectiveHandoffFindings = handoffValidation.handoffFindings;
+            if (shouldPreserveDuplicateToolLoopFileArtifacts(result, handoffValidation)) {
+              const changedFiles = result.filesCreated ?? [];
+              result.output = buildToolLoopPartialFileOutput(
+                step,
+                changedFiles,
+                'repeated identical successful tool call without producing substantive output',
+              );
+              effectiveHandoffPassed = true;
+              effectiveHandoffFindings = handoffValidation.handoffFindings.filter(
+                (finding) => !finding.message.includes('identical successful tool call'),
+              );
+            }
+            result.handoffPassed = effectiveHandoffPassed;
+            result.handoffFindings = effectiveHandoffFindings;
             result.specConformance = handoffValidation.specConformance;
 
             results.set(step.id, result);
-            if (!handoffValidation.handoffPassed) {
+            if (!effectiveHandoffPassed) {
               result.status = 'failed';
               result.error = handoffValidation.handoffFindings
                 .filter((finding) => finding.severity === 'high')
@@ -774,6 +788,18 @@ function shouldRetryEmptyFileOutput(
   if (result.output?.trim()) return false;
   return handoffValidation.handoffFindings.some((finding) =>
     finding.severity === 'high' && finding.message.includes('file-output step completed without usable output'),
+  );
+}
+
+
+function shouldPreserveDuplicateToolLoopFileArtifacts(
+  result: StepResult,
+  handoffValidation: ReturnType<typeof validateStepHandoff>,
+): boolean {
+  if ((result.filesCreated?.length ?? 0) === 0) return false;
+  if (!result.output?.includes('already returned the same successful result for identical parameters')) return false;
+  return handoffValidation.handoffFindings.some((finding) =>
+    finding.severity === 'high' && finding.message.includes('identical successful tool call'),
   );
 }
 

@@ -3106,6 +3106,39 @@ describe('executeDAG', () => {
 
 
 
+
+  it('continues file-output work when repeated duplicate tool calls still leave changed files', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-duplicate-tool-partial-files-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    const command = 'node -e "require(\'fs\').writeFileSync(\'generated.test.js\', \'test\')"';
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        yield JSON.stringify({ tool: 'shell', params: { command } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.output).toContain('repeated identical successful tool call');
+    expect(result.steps[0]?.filesCreated).toEqual(['generated.test.js']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('continues file-output work when the tool loop cap is reached after workspace changes', async () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tool-loop-partial-files-'));
     const plan: DAGPlan = {
