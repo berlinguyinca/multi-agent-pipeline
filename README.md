@@ -29,6 +29,7 @@ For greenfield software prompts, headless v2 now defaults the execution workspac
 Smart-routing software recovery is also more execution-biased now: when the router cannot build a valid plan for a software task, MAP synthesizes a concrete software lifecycle fallback with deterministic `spec-writer -> spec-qa-reviewer -> spec-writer revision` handoff before coding. It then prefers the unified `coder` agent when that agent is registered; otherwise it falls back to the `tdd-engineer` + `implementation-coder` path.
 
 To reduce no-progress loops, file-output agents no longer get to silently succeed by repeating the same successful inspection tool call. MAP injects explicit remediation context, requires a materially different tool call or final verified answer, and fails the handoff if the agent still only returns a duplicate-tool placeholder.
+If a file-output agent reaches the tool-call cap after actually changing workspace files, MAP preserves those file artifacts and lets downstream implementation or QA evaluate/repair them instead of discarding the work as a total failure.
 
 When executing a saved refined prompt, MAP treats the refine answers as complete input. Router cleanup removes accidental `prompt-refiner` steps from already-refined plans, and agent conduct instructs downstream agents to use the provided answers plus reasonable assumptions instead of asking the same blocking questions again.
 

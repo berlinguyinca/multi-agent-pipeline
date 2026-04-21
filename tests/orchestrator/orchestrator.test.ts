@@ -2700,7 +2700,7 @@ describe('executeDAG', () => {
       plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
     };
     const tdd = makeAgent('tdd-engineer', 'files');
-    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
     const agents = new Map([['tdd-engineer', tdd]]);
     let runCount = 0;
     const createAdapter = vi.fn((): AgentAdapter => ({
@@ -3104,6 +3104,44 @@ describe('executeDAG', () => {
   });
 
 
+
+
+  it('continues file-output work when the tool loop cap is reached after workspace changes', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tool-loop-partial-files-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'node -e "require(\'fs\').writeFileSync(\'generated.test.js\', \'test\')"' } });
+          return;
+        }
+        yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log(${runCount})"` } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.output).toContain('tool-call limit');
+    expect(result.steps[0]?.filesCreated).toEqual(['generated.test.js']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
 
   it('retries once and then fails a file-output agent that repeats the same successful tool call without progress', async () => {
     const plan: DAGPlan = {

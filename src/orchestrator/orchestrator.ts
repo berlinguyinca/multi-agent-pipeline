@@ -226,6 +226,8 @@ export async function executeDAG(
             if (signal?.aborted) break;
           }
 
+          let workspaceBefore: WorkspaceSnapshot | null = null;
+
           try {
             const baseContext = buildStepContext(step.task, step.dependsOn, results);
             const workspaceAwareContext = workspaceInstruction
@@ -281,7 +283,7 @@ export async function executeDAG(
             const resolvedThink = agent.think ?? adapterDefaults?.[stepAdapter]?.think;
             const resolvedTemperature = adapterDefaults?.[stepAdapter]?.temperature;
             const resolvedSeed = adapterDefaults?.[stepAdapter]?.seed;
-            const workspaceBefore = agent.output.type === 'files'
+            workspaceBefore = agent.output.type === 'files'
               ? await captureWorkspaceSnapshot(workingDir)
               : null;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
@@ -631,6 +633,32 @@ export async function executeDAG(
               : (configuredMaxRetries ?? 0);
             if (!isRetryable(err) || errorRetries >= retryBudget) {
               const duration = Date.now() - startedAt;
+              if (agent.output.type === 'files' && isToolLoopExceeded(lastError) && workspaceBefore) {
+                const changedFiles = await diffWorkspaceSnapshot(workingDir, workspaceBefore);
+                if (changedFiles.length > 0) {
+                  const partialResult: StepResult = {
+                    id: step.id,
+                    agent: step.agent,
+                    provider: stepAdapter,
+                    model: stepModel,
+                    task: step.task,
+                    dependsOn: [...step.dependsOn],
+                    status: 'completed',
+                    outputType: agent.output.type,
+                    output: buildToolLoopPartialFileOutput(step, changedFiles, lastError),
+                    duration,
+                    attempts,
+                    filesCreated: changedFiles,
+                  };
+                  results.set(step.id, partialResult);
+                  completed.add(step.id);
+                  settled.add(step.id);
+                  reporter?.dagStepOutput(step.id, step.agent, partialResult.output ?? '');
+                  reporter?.dagStepComplete(step.id, step.agent, duration);
+                  lastError = undefined;
+                  break;
+                }
+              }
               const baseFailure: StepResult = {
                 id: step.id,
                 agent: step.agent,
@@ -717,6 +745,25 @@ export async function executeDAG(
   };
 }
 
+
+
+function isToolLoopExceeded(error: string | undefined): boolean {
+  return /Tool loop exceeded \d+ rounds/.test(error ?? '');
+}
+
+function buildToolLoopPartialFileOutput(step: DAGStep, changedFiles: string[], error: string | undefined): string {
+  return [
+    'File-output agent reached its tool-call limit after modifying the workspace.',
+    `Original step: ${step.id}`,
+    `Original task: ${step.task}`,
+    `Tool-loop condition: ${error ?? 'tool-call limit reached'}`,
+    '',
+    'Changed files detected:',
+    ...changedFiles.map((file) => `- ${file}`),
+    '',
+    'Continuing with these file artifacts so downstream implementation or QA can evaluate and repair them instead of discarding the work.',
+  ].join('\n');
+}
 
 function shouldRetryEmptyFileOutput(
   agent: AgentDefinition,
