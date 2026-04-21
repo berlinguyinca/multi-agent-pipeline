@@ -26,7 +26,7 @@ Software-development workflows are expected to run verification tests in isolate
 
 For greenfield software prompts, headless v2 now defaults the execution workspace to `<outputDir>/workspace` unless `--workspace-dir` or `workspaceDir` is set explicitly. This keeps generated source/test files separate from MAP reports, PDFs, graphs, and prior output artifacts.
 
-Smart-routing software recovery is also more execution-biased now: when the router cannot build a valid plan for a software task, MAP synthesizes a concrete software lifecycle fallback and prefers the unified `coder` agent when that agent is registered; otherwise it falls back to the `tdd-engineer` + `implementation-coder` path.
+Smart-routing software recovery is also more execution-biased now: when the router cannot build a valid plan for a software task, MAP synthesizes a concrete software lifecycle fallback with deterministic `spec-writer -> spec-qa-reviewer -> spec-writer revision` handoff before coding. It then prefers the unified `coder` agent when that agent is registered; otherwise it falls back to the `tdd-engineer` + `implementation-coder` path.
 
 To reduce no-progress loops, file-output agents no longer get to silently succeed by repeating the same successful inspection tool call. MAP injects explicit remediation context, requires a materially different tool call or final verified answer, and fails the handoff if the agent still only returns a duplicate-tool placeholder.
 

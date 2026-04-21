@@ -69,11 +69,10 @@ describe('ollama runtime guard', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('does not start ollama serve when the server is already available', async () => {
+  it('does not start ollama serve or pull when the server is available and the model is already installed', async () => {
     mockExecSequence(
       execSuccess('ollama version 1.0.0'),
       execSuccess('NAME ID SIZE MODIFIED\ngemma4:26b abc 1 GB now\n'),
-      execSuccess('success'),
     );
 
     await ensureOllamaReadyForConfigs([
@@ -81,19 +80,17 @@ describe('ollama runtime guard', () => {
     ]);
 
     expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.execFile).toHaveBeenCalledWith(
-      'ollama',
-      ['pull', 'gemma4:26b'],
-      { env: expect.objectContaining({ OLLAMA_HOST: 'http://127.0.0.1:11434' }) },
-      expect.any(Function),
+    const pullCalls = mocks.execFile.mock.calls.filter(
+      ([cmd, args]) => cmd === 'ollama' && Array.isArray(args) && args[0] === 'pull',
     );
+    expect(pullCalls).toHaveLength(0);
   });
 
   it('starts ollama serve when the server probe fails', async () => {
     mockExecSequence(
       execSuccess('ollama version 1.0.0'),
       execFailure('connection refused'),
-      execSuccess('NAME ID SIZE MODIFIED\n'),
+      execSuccess('NAME ID SIZE MODIFIED\nother-model abc 1 GB now\n'),
       execSuccess('success'),
     );
 
@@ -112,11 +109,11 @@ describe('ollama runtime guard', () => {
     });
   });
 
-  it('uses configured Ollama server env when starting and pulling models', async () => {
+  it('uses configured Ollama server env when starting and pulling missing models', async () => {
     mockExecSequence(
       execSuccess('ollama version 1.0.0'),
       execFailure('connection refused'),
-      execSuccess('NAME ID SIZE MODIFIED\n'),
+      execSuccess('NAME ID SIZE MODIFIED\nother-model abc 1 GB now\n'),
       execSuccess('success'),
     );
 
@@ -151,7 +148,7 @@ describe('ollama runtime guard', () => {
     );
   });
 
-  it('pulls missing models and refreshes existing tags once per process run', async () => {
+  it('pulls missing models once per process run', async () => {
     mockExecSequence(
       execSuccess('ollama version 1.0.0'),
       execSuccess('NAME ID SIZE MODIFIED\n'),

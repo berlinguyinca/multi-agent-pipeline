@@ -1260,6 +1260,7 @@ export async function runHeadlessV2(
     const probeConcurrency =
       dependencies.probeOllamaConcurrencyCapacityFn ??
       (dependencies.createAdapterFn === createAdapter ? probeOllamaConcurrencyCapacity : undefined);
+    const routerProbeTimeoutMs = Math.min(8_000, Math.max(4_000, Math.floor((options.routerTimeoutMs ?? config.router.timeoutMs) / 10)));
     const ollamaConcurrency =
       config.router.adapter === 'ollama' && probeConcurrency
         ? await probeConcurrency({
@@ -1270,6 +1271,7 @@ export async function runHeadlessV2(
                 ? config.router.consensus.models
                 : [config.router.model, config.router.model, config.router.model],
             maxParallel: 3,
+            timeoutMs: routerProbeTimeoutMs,
           })
         : { maxParallel: 1 };
     const routerConfig = {

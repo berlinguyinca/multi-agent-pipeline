@@ -85,7 +85,7 @@ describe('routeWithAutonomousRecovery', () => {
     expect(result.decision.plan.plan.map((step) => step.agent)).toEqual([
       'spec-writer',
       'spec-qa-reviewer',
-      'adviser',
+      'spec-writer',
       'coder',
       'code-qa-analyst',
       'legal-license-advisor',
@@ -95,6 +95,9 @@ describe('routeWithAutonomousRecovery', () => {
     expect(result.decision.plan.plan[0]).toMatchObject({ id: 'step-1', agent: 'spec-writer', dependsOn: [] });
     expect(result.decision.plan.plan[0]?.task).toContain('Build a local software tool that syncs files');
     expect(result.decision.plan.plan[1]).toMatchObject({ id: 'step-2', agent: 'spec-qa-reviewer', dependsOn: ['step-1'] });
+    expect(result.decision.plan.plan[2]).toMatchObject({ id: 'step-3', agent: 'spec-writer', dependsOn: ['step-2'] });
+    expect(result.decision.plan.plan[2]?.task).toContain('resolve all concrete blockers identified by spec QA');
+    expect(result.decision.plan.plan[3]?.task).toContain('revised spec');
     expect(result.decision.plan.plan[3]?.task).toContain('strict TDD');
     expect(result.decision.plan.plan[3]?.task).toContain('isolated test services');
     expect(result.decision.plan.plan[3]?.task).toContain('Do not return a protocol acknowledgment');

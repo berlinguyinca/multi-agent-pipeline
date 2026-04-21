@@ -1005,6 +1005,7 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
       maxLoadedModels: 3,
       model: 'qwen3:latest',
       models: ['qwen3:latest', 'llama3.1:8b'],
+      timeoutMs: 4000,
     });
     expect(adapterConfigs).toEqual(
       expect.arrayContaining([
