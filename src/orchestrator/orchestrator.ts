@@ -214,6 +214,9 @@ export async function executeDAG(
         let fileOutputRemediationContext: string | undefined;
         let duplicateToolRemediationRetries = 0;
         let duplicateToolRemediationContext: string | undefined;
+        const stepWorkspaceBefore = agent.output.type === 'files'
+          ? await captureWorkspaceSnapshot(workingDir)
+          : null;
 
         while (true) {
           if (signal?.aborted) break;
@@ -342,8 +345,9 @@ export async function executeDAG(
               signal?.removeEventListener('abort', abortFromParent);
             }
 
-            const changedFiles = workspaceBefore
-              ? await diffWorkspaceSnapshot(workingDir, workspaceBefore)
+            const snapshotForChangedFiles = stepWorkspaceBefore ?? workspaceBefore;
+            const changedFiles = snapshotForChangedFiles
+              ? await diffWorkspaceSnapshot(workingDir, snapshotForChangedFiles)
               : [];
             const duration = Date.now() - startedAt;
             if (sawTimeoutBeforeSuccess && currentBaseTimeoutMs > (adaptiveTimeouts.get(step.agent) ?? 0)) {
@@ -647,8 +651,9 @@ export async function executeDAG(
               : (configuredMaxRetries ?? 0);
             if (!isRetryable(err) || errorRetries >= retryBudget) {
               const duration = Date.now() - startedAt;
-              if (agent.output.type === 'files' && isToolLoopExceeded(lastError) && workspaceBefore) {
-                const changedFiles = await diffWorkspaceSnapshot(workingDir, workspaceBefore);
+              const snapshotForFailureChanges = stepWorkspaceBefore ?? workspaceBefore;
+              if (agent.output.type === 'files' && isToolLoopExceeded(lastError) && snapshotForFailureChanges) {
+                const changedFiles = await diffWorkspaceSnapshot(workingDir, snapshotForFailureChanges);
                 if (changedFiles.length > 0) {
                   const partialResult: StepResult = {
                     id: step.id,
