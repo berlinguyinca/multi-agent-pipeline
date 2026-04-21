@@ -1,7 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { AdapterType, DetectInfo, RunOptions } from '../types/adapter.js';
-import { buildPubChemSyncProject } from './pubchem-sync-builder.js';
 
 interface FileSummary {
   path: string;
@@ -34,10 +33,6 @@ export class MetadataAdapter {
   async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
     this.cancelled = false;
     const cwd = path.resolve(options?.cwd ?? process.cwd());
-    if ((this.model ?? '').toLowerCase().includes('pubchem-sync-builder')) {
-      yield await buildPubChemSyncProject(cwd, () => this.cancelled || options?.signal?.aborted === true);
-      return;
-    }
     if ((this.model ?? '').toLowerCase().includes('legal-license-advisor')) {
       yield await renderLegalLicenseAdvice(cwd);
       return;
@@ -266,8 +261,8 @@ async function renderDocsMaintenance(cwd: string): Promise<string> {
     '',
     '## MAP Handoff',
     '',
-    '- Usage: run `python -m unittest discover tests` to verify the generated tool.',
-    '- Fixture verification: run `python -m pubchem_sync.cli --root ./pubchem-data --fixture-count 1000` to generate 1000 Markdown records.',
+    '- Usage: run the project documented test command before distribution.',
+    "- Data verification: run the generated tool's documented fixture or sample-data command when one is provided by the implementation.",
     '- License: review the generated `LICENSE` file and legal-license-advisor recommendations before distribution.',
     '',
   ].join('\n');
@@ -299,21 +294,14 @@ async function renderDocsMaintenance(cwd: string): Promise<string> {
 
 
 async function renderReleaseReadiness(cwd: string, prompt = ''): Promise<string> {
-  const manifestPath = path.join(cwd, 'sample-output', 'manifest.json');
-  const readmePath = path.join(cwd, 'README.md');
-  const licensePath = path.join(cwd, 'LICENSE');
-  const manifestRaw = await fs.readFile(manifestPath, 'utf8').catch(() => '{}');
-  const manifest = JSON.parse(manifestRaw) as { markdown_records?: number };
-  const markdownRecords = await countFiles(path.join(cwd, 'sample-output', 'records'), '.md');
-  const hasReadme = await exists(readmePath);
-  const hasLicense = await exists(licensePath);
-  const ready = markdownRecords >= 1000 && manifest.markdown_records === 1000 && hasReadme && hasLicense;
+  const artifact = await inspectSoftwareArtifacts(cwd);
+  const ready = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme && artifact.hasLicense;
   if (/Judge the original step output|\"decision\":\"accept\|revise\|combine\|degraded/.test(prompt)) {
     return JSON.stringify({
       decision: ready ? 'accept' : 'revise',
-      rationale: ready ? 'Local readiness evidence shows 1000 Markdown records plus README and LICENSE artifacts.' : 'Local readiness evidence is incomplete.',
-      remediation: ready ? [] : ['Regenerate missing record, README, LICENSE, or manifest artifacts.'],
-      residualRisks: ['Live PubChem bulk downloads are not exercised in deterministic fixture mode.'],
+      rationale: ready ? 'Local readiness evidence shows source, tests, README, and LICENSE artifacts.' : 'Local readiness evidence is incomplete.',
+      remediation: ready ? [] : ['Regenerate missing source, test, README, or LICENSE artifacts.'],
+      residualRisks: artifact.markdownRecords >= 1000 ? ['Large-record fixture coverage is local/offline, not a live external database transfer.'] : ['Live external database transfer is not proven by local artifact inspection.'],
     });
   }
   return [
@@ -321,17 +309,18 @@ async function renderReleaseReadiness(cwd: string, prompt = ''): Promise<string>
     '',
     `Verdict: ${ready ? 'ready' : 'not ready'}`,
     '',
-    `- Markdown fixture records counted: ${markdownRecords}`,
-    `- Manifest markdown_records: ${manifest.markdown_records ?? 'unavailable'}`,
-    `- README present: ${hasReadme}`,
-    `- LICENSE present: ${hasLicense}`,
+    `- Source files counted: ${artifact.sourceFiles}`,
+    `- Test files counted: ${artifact.testFiles}`,
+    `- Markdown/data records counted: ${artifact.markdownRecords}`,
+    `- README present: ${artifact.hasReadme}`,
+    `- LICENSE present: ${artifact.hasLicense}`,
     '',
     '## Claim Evidence Ledger',
     '```json',
     JSON.stringify({ claims: [
-      { id: 'ready-1', claim: `The generated workspace contains ${markdownRecords} sample Markdown records.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'sample-output/records', summary: `Counted ${markdownRecords} .md files under sample-output/records.`, supports: 'Supports generated record count.' }] },
-      { id: 'ready-2', claim: `The generated manifest reports ${manifest.markdown_records ?? 'unavailable'} Markdown records.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'sample-output/manifest.json', summary: manifestRaw.slice(0, 200), supports: 'Supports manifest record count.' }] },
-      { id: 'ready-3', claim: `README and LICENSE presence is ${hasReadme && hasLicense ? 'complete' : 'incomplete'}.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'README.md and LICENSE', summary: `README present=${hasReadme}; LICENSE present=${hasLicense}.`, supports: 'Supports documentation and license handoff readiness.' }] },
+      { id: 'ready-1', claim: `The generated workspace contains ${artifact.sourceFiles} source files and ${artifact.testFiles} test files.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'workspace source/test file scan', summary: `Counted source=${artifact.sourceFiles}; tests=${artifact.testFiles}.`, supports: 'Supports software implementation artifact presence.' }] },
+      { id: 'ready-2', claim: `The generated workspace contains ${artifact.markdownRecords} Markdown/data record artifacts.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'workspace generated record scan', summary: `Counted ${artifact.markdownRecords} generated .md records excluding README-style documentation.`, supports: 'Supports local fixture/generated-record evidence without assuming a specific database.' }] },
+      { id: 'ready-3', claim: `README and LICENSE presence is ${artifact.hasReadme && artifact.hasLicense ? 'complete' : 'incomplete'}.`, claimType: 'local-file-inspection', confidence: 'high', timeframe: 'current', recencyStatus: 'current', evidence: [{ sourceType: 'local-file', title: 'README.md and LICENSE', summary: `README present=${artifact.hasReadme}; LICENSE present=${artifact.hasLicense}.`, supports: 'Supports documentation and license handoff readiness.' }] },
     ] }, null, 2),
     '```',
   ].join('\n');
@@ -354,33 +343,68 @@ async function countFiles(dir: string, extension: string): Promise<number> {
 
 
 async function renderCodeQaAnalysis(cwd: string, prompt = ''): Promise<string> {
-  const markdownRecords = await countFiles(path.join(cwd, 'sample-output', 'records'), '.md');
-  const hasReadme = await exists(path.join(cwd, 'README.md'));
-  const hasTests = await exists(path.join(cwd, 'tests', 'test_pubchem_sync.py'));
-  const verdict = markdownRecords >= 1000 && hasReadme && hasTests ? 'accept' : 'revise';
+  const artifact = await inspectSoftwareArtifacts(cwd);
+  const verdict = artifact.sourceFiles > 0 && artifact.testFiles > 0 && artifact.hasReadme ? 'accept' : 'revise';
   if (/cross-review critique|Return a concise structured cross-review critique/i.test(prompt)) {
     return [
-      'Critique summary: Local artifact inspection confirms the generated PubChem sync project includes source, tests, README, and fixture Markdown outputs.',
-      `Verification reviewed: ${markdownRecords} sample Markdown records counted; README present=${hasReadme}; tests present=${hasTests}.`,
-      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: regenerate missing artifacts before release.',
-      'Residual risks: live PubChem FTP downloads are represented by safe URL/checksum code and fixture tests, not by a live bulk transfer in this run.',
+      'Critique summary: Local artifact inspection confirms whether the generated software includes source, tests, README, and generated data artifacts without assuming a specific database.',
+      `Verification reviewed: source files=${artifact.sourceFiles}; test files=${artifact.testFiles}; README present=${artifact.hasReadme}; generated Markdown/data records=${artifact.markdownRecords}.`,
+      verdict === 'accept' ? 'Required remediation: none.' : 'Required remediation: regenerate missing implementation artifacts before release.',
+      'Residual risks: live external database downloads require the generated project\'s own integration tests or documented manual verification.',
     ].join('\n');
   }
   return [
     '# Code QA review',
     '',
-    verdict === 'accept' ? 'No critical, high, or medium blocking findings.' : 'Blocking findings remain for missing generated artifacts.',
+    verdict === 'accept' ? 'No critical, high, or medium blocking findings from local artifact inspection.' : 'Blocking findings remain for missing generated software artifacts.',
     '',
-    `- Markdown fixture records counted: ${markdownRecords}`,
-    `- README present: ${hasReadme}`,
-    `- Tests present: ${hasTests}`,
+    `- Source files counted: ${artifact.sourceFiles}`,
+    `- Test files counted: ${artifact.testFiles}`,
+    `- Markdown/data records counted: ${artifact.markdownRecords}`,
+    `- README present: ${artifact.hasReadme}`,
     '',
     '```json',
     JSON.stringify({
       verdict,
-      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: 'Required generated artifacts are missing.', requiredFix: 'Regenerate the PubChem sync project.' }],
-      verificationRequired: ['python -m unittest discover tests', 'python -m pubchem_sync.cli --root ./pubchem-data --fixture-count 1000'],
+      blockingFindings: verdict === 'accept' ? [] : [{ severity: 'high', file: 'workspace', issue: 'Required generated software artifacts are missing.', requiredFix: 'Return to the implementation agent and create source, tests, and README artifacts from the prompt-specific requirements.' }],
+      verificationRequired: ['Run the generated project\'s documented test command.', 'Run any generated fixture/sample-data command required by the prompt.'],
     }, null, 2),
     '```',
   ].join('\n');
+}
+
+
+interface SoftwareArtifactInspection {
+  sourceFiles: number;
+  testFiles: number;
+  markdownRecords: number;
+  hasReadme: boolean;
+  hasLicense: boolean;
+}
+
+async function inspectSoftwareArtifacts(cwd: string): Promise<SoftwareArtifactInspection> {
+  const files = await listFiles(cwd);
+  const normalized = files.map((file) => file.replace(/\\/g, '/'));
+  return {
+    sourceFiles: normalized.filter((file) => /(^|\/)(src|lib|app|pkg|cmd|internal|[A-Za-z0-9_-]+_sync)\//.test(file) && /\.(ts|tsx|js|mjs|cjs|py|go|rs|java|kt|rb)$/.test(file)).length,
+    testFiles: normalized.filter((file) => /(^|\/)(tests?|__tests__)\//.test(file) || /(?:test|spec)\.(ts|tsx|js|py|go|rs|java|kt)$/.test(file)).length,
+    markdownRecords: normalized.filter((file) => file.endsWith('.md') && !/(^|\/)(README|CHANGELOG|CONTRIBUTING|LICENSE)(?:\.md)?$/i.test(file)).length,
+    hasReadme: normalized.some((file) => /(^|\/)README(?:\.md)?$/i.test(file)),
+    hasLicense: normalized.some((file) => /(^|\/)LICENSE(?:\..*)?$/i.test(file)),
+  };
+}
+
+async function listFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  const walkDir = async (dir: string): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'coverage') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walkDir(full);
+      if (entry.isFile()) out.push(path.relative(root, full));
+    }
+  };
+  await walkDir(root);
+  return out;
 }

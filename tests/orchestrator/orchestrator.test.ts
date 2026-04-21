@@ -3340,6 +3340,50 @@ describe('executeDAG', () => {
 
 
 
+
+
+  it.each([
+    ['PubChem'],
+    ['HMDB'],
+    ['Metabolomics Workbench'],
+  ])('lets a generic implementation agent build %s downloader software from the prompt', async (domain) => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-generic-downloader-build-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: `Build software to download ${domain} records and convert 1000 records to Markdown`, dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    let calls = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        calls += 1;
+        if (calls === 1) {
+          const matchedDomain = /download ([A-Za-z ]+?) records/.exec(prompt)?.[1]?.trim() ?? 'external database';
+          const command = `python3 - <<'PYGEN'\nfrom pathlib import Path\ndomain = ${JSON.stringify(matchedDomain)}\nPath('src').mkdir(exist_ok=True)\nPath('tests').mkdir(exist_ok=True)\nPath('data/records').mkdir(parents=True, exist_ok=True)\nPath('src/downloader.py').write_text(f'def source_name():\\n    return {domain!r}\\n', encoding='utf8')\nPath('tests/test_downloader.py').write_text('from src.downloader import source_name\\n\\ndef test_source_name():\\n    assert source_name()\\n', encoding='utf8')\nPath('README.md').write_text(f'# {domain} downloader\\n\\nDownloads prompt-specific records and writes Markdown.\\n', encoding='utf8')\nPath('LICENSE').write_text('License choice pending.\\n', encoding='utf8')\nfor i in range(1000):\n    Path('data/records', f'{i}.md').write_text(f'# {domain} record {i}\\n', encoding='utf8')\nPYGEN`;
+          yield JSON.stringify({ tool: 'shell', params: { command } });
+          return;
+        }
+        yield `Built downloader software for ${domain}; changed files include src/downloader.py, tests/test_downloader.py, README.md, LICENSE, and 1000 Markdown records.`;
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(await fs.readFile(path.join(workingDir, 'README.md'), 'utf8')).toContain(domain);
+    expect(await countMarkdownFiles(path.join(workingDir, 'data', 'records'))).toBe(1000);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('executes malformed multiline shell tool JSON emitted by local models', async () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-malformed-tool-json-'));
     const plan: DAGPlan = {
@@ -3680,3 +3724,13 @@ describe('executeDAG', () => {
     expect(participants.find((participant) => participant.role === 'judge')?.agent).toBe('adviser');
   });
 });
+async function countMarkdownFiles(dir: string): Promise<number> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  let count = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) count += await countMarkdownFiles(full);
+    if (entry.isFile() && entry.name.endsWith('.md')) count += 1;
+  }
+  return count;
+}

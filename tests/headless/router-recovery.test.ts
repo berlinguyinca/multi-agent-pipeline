@@ -104,25 +104,26 @@ describe('routeWithAutonomousRecovery', () => {
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 
-
-
-  it('uses the deterministic PubChem sync builder for PubChem software recovery', async () => {
-    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-pubchem-'));
+  it.each([
+    ['PubChem', 'Build software to download PubChem FTP bulk data and convert 1000 records to markdown'],
+    ['HMDB', 'Build software to download HMDB metabolite XML data and convert 1000 records to markdown'],
+    ['Metabolomics Workbench', 'Build software to download Metabolomics Workbench study data and convert 1000 records to markdown'],
+  ])('keeps %s downloader software requests on the generic implementation lane', async (_label, prompt) => {
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-generic-downloader-'));
     const agents = new Map<string, AgentDefinition>([
       ['spec-writer', makeAgent('spec-writer')],
       ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
-      ['pubchem-sync-builder', makeAgent('pubchem-sync-builder', 'files')],
       ['implementation-coder', makeAgent('implementation-coder', 'files')],
       ['code-qa-analyst', makeAgent('code-qa-analyst')],
       ['legal-license-advisor', makeAgent('legal-license-advisor')],
       ['docs-maintainer', makeAgent('docs-maintainer', 'files')],
       ['release-readiness-reviewer', makeAgent('release-readiness-reviewer')],
     ]);
-    const noMatch = JSON.stringify({ kind: 'no-match', reason: 'No specialist route exists for PubChem software.' });
+    const noMatch = JSON.stringify({ kind: 'no-match', reason: 'No specialist route exists for this downloader software request.' });
 
     const result = await routeWithAutonomousRecovery({
-      resolvedPrompt: 'Build PubChem FTP software that converts 1000 records to markdown',
-      basePrompt: 'Build PubChem FTP software that converts 1000 records to markdown',
+      resolvedPrompt: prompt,
+      basePrompt: prompt,
       agents,
       agentsDir,
       config: {
@@ -147,10 +148,15 @@ describe('routeWithAutonomousRecovery', () => {
 
     expect(result.decision.kind).toBe('plan');
     if (result.decision.kind !== 'plan') throw new Error('expected plan');
-    expect(result.decision.plan.plan.map((step) => step.agent)).toContain('pubchem-sync-builder');
-    expect(result.decision.plan.plan.map((step) => step.agent)).not.toContain('implementation-coder');
+    const agentsInPlan = result.decision.plan.plan.map((step) => step.agent);
+    expect(agentsInPlan).toContain('implementation-coder');
+    expect(agentsInPlan).not.toContain('pubchem-sync-builder');
+    expect(agentsInPlan).not.toContain('hmdb-sync-builder');
+    expect(agentsInPlan).not.toContain('metabolomics-workbench-sync-builder');
+    expect(result.decision.plan.plan.find((step) => step.agent === 'implementation-coder')?.task).toContain('prompt-specific downloader');
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
+
 
   it('adds ledger instructions when best-effort fallback must use an evidence-required agent', async () => {
     const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-ledger-'));
