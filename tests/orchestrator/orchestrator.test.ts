@@ -2655,6 +2655,51 @@ describe('executeDAG', () => {
 
 
 
+
+  it('normalizes no-diff decomposition workflows to implementation lanes when TDD artifacts already exist', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-decompose-normalize-'));
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'software-delivery', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['software-delivery', makeAgent('software-delivery', 'files')],
+      ['adviser', makeAgent('adviser', 'answer')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['tdd-engineer', makeAgent('tdd-engineer', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+    ]);
+    const adviserWorkflow = JSON.stringify({
+      kind: 'adviser-workflow',
+      refreshAgents: false,
+      plan: [
+        { id: 'new-tdd', agent: 'tdd-engineer', task: 'Write more tests', dependsOn: ['step-1-decompose-1'] },
+        { id: 'new-impl', agent: 'implementation-coder', task: 'Implement from existing tests', dependsOn: ['new-tdd'] },
+      ],
+    });
+    const createAdapter = createQueueAdapter([
+      'Implementation complete but no files changed.',
+      adviserWorkflow,
+      'implementation done',
+      'qa done',
+    ]);
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      adaptiveReplanning: { enabled: true },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.map((step) => step.id)).toContain('new-impl');
+    expect(result.plan.plan.map((step) => step.id)).not.toContain('new-tdd');
+    expect(result.plan.plan.find((step) => step.id === 'new-impl')?.dependsOn).toEqual(['step-1-decompose-1']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('decomposes broad file-output work that returns no usable output or file evidence', async () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-empty-file-output-decompose-'));
     const plan: DAGPlan = {

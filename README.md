@@ -31,6 +31,7 @@ Smart-routing software recovery is also more execution-biased now: when the rout
 To reduce no-progress loops, file-output agents no longer get to silently succeed by repeating the same successful inspection tool call. MAP injects explicit remediation context, requires a materially different tool call or final verified answer, and fails the handoff if the agent still only returns a duplicate-tool placeholder.
 If a file-output agent reaches the tool-call cap after actually changing workspace files, MAP preserves those file artifacts and lets downstream implementation or QA evaluate/repair them instead of discarding the work as a total failure.
 TDD agents use a smaller tool-call cap than implementation agents so partial test artifacts are handed off quickly instead of spending many minutes in repeated inspection loops.
+When adviser decomposes a no-output broad implementation after TDD artifacts already exist, MAP normalizes the workflow toward implementation lanes instead of adding another round of TDD-first loops.
 
 When executing a saved refined prompt, MAP treats the refine answers as complete input. Router cleanup removes accidental `prompt-refiner` steps from already-refined plans, and agent conduct instructs downstream agents to use the provided answers plus reasonable assumptions instead of asking the same blocking questions again.
 

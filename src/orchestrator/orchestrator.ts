@@ -16,7 +16,7 @@ import { shouldGateStep } from '../security/should-gate.js';
 import { isAbortError } from '../utils/error.js';
 import { recordLearningCandidate } from '../knowledge/index.js';
 import { normalizeTerminalText } from '../utils/terminal-text.js';
-import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
+import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent, type AdviserWorkflowPayload } from '../adviser/workflow.js';
 import { maybeScheduleGrammarReview } from './grammar-review.js';
 import { maybeScheduleFactCheck } from './fact-check.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
@@ -911,11 +911,41 @@ interface AdviserWorkflowOptions {
   reporter?: VerboseReporter;
 }
 
+
+function normalizeDecompositionAdviserWorkflow(
+  adviserStepId: string,
+  workflow: AdviserWorkflowPayload,
+): AdviserWorkflowPayload {
+  if (!adviserStepId.includes('-decompose-')) return workflow;
+  const hasImplementationLane = workflow.plan.some((step) =>
+    ['implementation-coder', 'coder', 'software-delivery', 'build-fixer'].includes(step.agent),
+  );
+  if (!hasImplementationLane) return workflow;
+
+  const removedTddIds = new Set(workflow.plan
+    .filter((step) => step.agent === 'tdd-engineer')
+    .map((step) => step.id));
+  if (removedTddIds.size === 0) return workflow;
+
+  const normalizedPlan = workflow.plan
+    .filter((step) => !removedTddIds.has(step.id))
+    .map((step) => ({
+      ...step,
+      dependsOn: [...new Set(step.dependsOn.map((dep) => removedTddIds.has(dep) ? adviserStepId : dep))],
+    }));
+
+  return {
+    ...workflow,
+    plan: normalizedPlan,
+  };
+}
+
 async function maybeApplyAdviserWorkflow(
   options: AdviserWorkflowOptions,
 ): Promise<AdviserReplanEvent | null> {
-  const workflow = parseAdviserWorkflow(options.output);
-  if (!workflow) return null;
+  const parsedWorkflow = parseAdviserWorkflow(options.output);
+  if (!parsedWorkflow) return null;
+  const workflow = normalizeDecompositionAdviserWorkflow(options.adviserStepId, parsedWorkflow);
 
   const refreshedAgents =
     workflow.refreshAgents && options.refreshAgents
@@ -1003,10 +1033,11 @@ function shouldDecomposeFailedFileOutput(step: DAGStep, result: StepResult): boo
 function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): void {
   if (!options.agents.has('adviser')) return;
   if (!requiresDecompositionForNoDiff(options.step.agent)) return;
-  const hasNoDiffFinding = options.result.handoffFindings?.some((finding) =>
-    finding.message.includes('workspace file changes'),
+  const hasDecompositionFinding = options.result.handoffFindings?.some((finding) =>
+    finding.message.includes('workspace file changes') ||
+    finding.message.includes('file-output step completed without usable output or file evidence'),
   ) ?? false;
-  if (!hasNoDiffFinding) return;
+  if (!hasDecompositionFinding) return;
   const decomposeId = nextAvailableRuntimeId(`${options.step.id}-decompose`, options.allIds);
   const decomposeStep: DAGStep = {
     id: decomposeId,
