@@ -3338,6 +3338,44 @@ describe('executeDAG', () => {
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 
+
+
+  it('executes malformed multiline shell tool JSON emitted by local models', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-malformed-tool-json-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Create a file', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    let calls = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        calls += 1;
+        if (calls === 1) {
+          yield `\`\`\`json\n{"tool":"shell","params":{"command":"cat <<'EOF' > hello.txt\nhello from malformed json\nEOF"}}\n\`\`\``;
+          return;
+        }
+        yield 'Created hello.txt and verified it exists.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(await fs.readFile(path.join(workingDir, 'hello.txt'), 'utf8')).toContain('hello from malformed json');
+    expect(result.steps[0]?.filesCreated).toContain('hello.txt');
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('retries once and then fails a file-output agent that repeats the same successful tool call without progress', async () => {
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'build-fixer', task: 'Run git diff --check', dependsOn: [] }],

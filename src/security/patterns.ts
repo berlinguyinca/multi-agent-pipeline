@@ -68,12 +68,44 @@ const commandInjection = regexPattern(
   /(?:exec|execSync|spawn|spawnSync)\s*\(\s*`[^`]*\$\{/,
 );
 
-const pathTraversal = regexPattern(
-  'path-traversal',
-  'high',
-  'Path traversal via ../ can access files outside intended directory',
-  /\.\.[\\/]/,
-);
+const pathTraversal: SecurityPattern = {
+  rule: 'path-traversal',
+  severity: 'high',
+  description: 'Path traversal via ../ can access files outside intended directory',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      if (!/\.\.[\\/]/.test(line)) continue;
+      if (isBenignRelativeModuleSpecifier(line)) continue;
+      if (!hasPathTraversalRiskContext(line)) continue;
+      findings.push({
+        rule: 'path-traversal',
+        severity: 'high',
+        message: 'Path traversal via ../ can access files outside intended directory',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
+
+
+function hasPathTraversalRiskContext(line: string): boolean {
+  return /\b(?:readFile|writeFile|appendFile|createReadStream|createWriteStream|open|unlink|rename|copyFile|mkdir|readdir|stat|access|path\.(?:join|resolve)|basePath|filePath|filename|outputPath|targetPath|downloadPath|uploadPath)\b/i.test(line) ||
+    /\bconst\s+file\s*=/.test(line);
+}
+
+function isBenignRelativeModuleSpecifier(line: string): boolean {
+  const trimmed = line.trim();
+  if (/^import\s+(?:type\s+)?[\s\S]+\s+from\s+['"]\.\.[\\/][^'"]+['"];?$/.test(trimmed)) return true;
+  if (/^import\s*\(\s*['"]\.\.[\\/][^'"]+['"]\s*\)/.test(trimmed)) return true;
+  if (/^export\s+(?:type\s+)?[\s\S]+\s+from\s+['"]\.\.[\\/][^'"]+['"];?$/.test(trimmed)) return true;
+  if (/^const\s+[^=]+?=\s*require\(\s*['"]\.\.[\\/][^'"]+['"]\s*\);?$/.test(trimmed)) return true;
+  return false;
+}
 
 const hardcodedSecret = regexPattern(
   'hardcoded-secret',

@@ -1,7 +1,7 @@
 name: docs-maintainer
 description: "Writes post-build README, license coverage, and Markdown documentation after implementation and QA"
-adapter: ollama
-model: gemma4:26b
+adapter: metadata
+model: docs-maintainer
 prompt: prompt.md
 pipeline:
   - name: inspect-changes

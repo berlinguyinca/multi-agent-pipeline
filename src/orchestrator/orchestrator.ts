@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { AdapterDefaultsMap, AgentConsensusConfig, CrossReviewConfig, EvidenceConfig } from '../types/config.js';
-import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, StepResult, StepStatus } from '../types/dag.js';
+import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, HandoffFinding, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
@@ -871,9 +871,10 @@ function buildDuplicateToolLoopRemediationContext(step: DAGStep, result: StepRes
   return [
     '--- No-Progress Tool Loop Remediation Required ---',
     'Your previous response repeated a tool call that had already succeeded with identical parameters.',
-    'Do not repeat the same tool call again.',
+    'This remediation overrides any first-response inspection rule in the agent prompt.',
+    'Do not repeat the same tool call again, especially not the same workspace inspection/listing command.',
     'Either use the previous tool result to produce the final answer, or make a different tool call that materially advances the task.',
-    'If you are a file-output agent, you must create or modify files in the workspace before claiming success.',
+    'If you are a file-output agent, you must create or modify files in the workspace before claiming success; for a greenfield workspace, create the minimal project files immediately with shell heredocs.',
     '',
     `Original step: ${step.id}`,
     `Original task: ${step.task}`,
@@ -1033,14 +1034,21 @@ interface NoDiffDecompositionOptions {
 }
 
 
+function isNoProgressDecompositionFinding(agent: string, finding: HandoffFinding): boolean {
+  if (finding.severity === 'high' && (
+    finding.message.includes('file-output step completed without usable output or file evidence') ||
+    finding.message.includes('identical successful tool call')
+  )) {
+    return true;
+  }
+  return agent !== 'implementation-coder' && finding.message.includes('workspace file changes');
+}
+
 function shouldDecomposeFailedFileOutput(step: DAGStep, result: StepResult): boolean {
   if (!requiresDecompositionForNoDiff(step.agent)) return false;
   if (result.outputType !== 'files') return false;
   return result.handoffFindings?.some((finding) =>
-    finding.severity === 'high' && (
-      finding.message.includes('workspace file changes') ||
-      finding.message.includes('file-output step completed without usable output or file evidence')
-    ),
+    isNoProgressDecompositionFinding(step.agent, finding),
   ) ?? false;
 }
 
@@ -1048,8 +1056,7 @@ function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): 
   if (!options.agents.has('adviser')) return;
   if (!requiresDecompositionForNoDiff(options.step.agent)) return;
   const hasDecompositionFinding = options.result.handoffFindings?.some((finding) =>
-    finding.message.includes('workspace file changes') ||
-    finding.message.includes('file-output step completed without usable output or file evidence'),
+    isNoProgressDecompositionFinding(options.step.agent, finding),
   ) ?? false;
   if (!hasDecompositionFinding) return;
   const decomposeId = nextAvailableRuntimeId(`${options.step.id}-decompose`, options.allIds);
@@ -1083,7 +1090,7 @@ function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): 
 }
 
 function requiresDecompositionForNoDiff(agent: string): boolean {
-  return new Set(['software-delivery', 'tdd-engineer']).has(agent);
+  return new Set(['software-delivery', 'tdd-engineer', 'implementation-coder']).has(agent);
 }
 
 function buildNoDiffDecompositionTask(step: DAGStep, result: StepResult): string {
@@ -2033,9 +2040,11 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
           previousSuccessfulOutput,
           '',
           'You already executed this exact tool call successfully.',
+          'This overrides any first-response inspection rule in the agent prompt.',
           'Do not repeat it.',
+          'Do not repeat the same inspection/listing/read command again.',
           'For this file-output task, your next response must either:',
-          '- emit a different tool call that materially advances the task, such as writing/editing files or running the relevant test command, or',
+          '- emit a different tool call that materially advances the task, preferably writing/editing files now (for greenfield workspaces use shell heredocs such as cat > package.json <<\'EOF\'), or',
           '- return the final answer that names changed files and verification evidence.',
         ].join('\n');
         continue;
@@ -2107,13 +2116,33 @@ function extractToolCall(output: string): { tool: string; params: Record<string,
     };
   }
 
+  const malformedShell = parseMalformedShellToolCall(fenced);
+  if (malformedShell) return malformedShell;
+
   return null;
+}
+
+function parseMalformedShellToolCall(text: string): { tool: string; params: Record<string, unknown> } | null {
+  if (!/"tool"\s*:\s*"shell"/.test(text)) return null;
+  const match = text.match(/^[\s\S]*"params"\s*:\s*\{[\s\S]*"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*$/);
+  if (!match) return null;
+  const command = match[1]!
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+  if (command.trim().length === 0) return null;
+  return { tool: 'shell', params: { command } };
 }
 
 function parseToolCallCandidate(candidate: string): { tool?: unknown; params?: unknown } | null {
   try {
     return JSON.parse(candidate) as { tool?: unknown; params?: unknown };
   } catch {
+    if (/"tool"\s*:\s*"shell"/.test(candidate) && /"command"\s*:/.test(candidate)) {
+      return null;
+    }
     try {
       return JSON.parse(candidate.replace(/[\r\n]+/g, ' ')) as { tool?: unknown; params?: unknown };
     } catch {

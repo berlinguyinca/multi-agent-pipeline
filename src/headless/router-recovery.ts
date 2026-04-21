@@ -201,8 +201,10 @@ function buildSoftwareLifecycleFallbackPlan(
 
   const commonRequired = ['spec-writer', 'spec-qa-reviewer', 'code-qa-analyst'];
   if (!commonRequired.every((name) => agents.has(name))) return null;
+  const usePubChemBuilder = /\bpubchem\b/.test(text) && agents.has('pubchem-sync-builder');
+  const hasImplementationCoder = agents.has('implementation-coder');
   const hasUnifiedCoder = agents.has('coder');
-  if (!hasUnifiedCoder && !['tdd-engineer', 'implementation-coder'].every((name) => agents.has(name))) {
+  if (!usePubChemBuilder && !hasImplementationCoder && !hasUnifiedCoder) {
     return null;
   }
 
@@ -221,15 +223,18 @@ function buildSoftwareLifecycleFallbackPlan(
   add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria. Surface concrete blockers and missing verification requirements.', ['step-1']);
   add('spec-writer', 'Revise the specification to resolve all concrete blockers identified by spec QA. Preserve valid prior content, close missing acceptance criteria, and make the spec implementation-ready without returning protocol prose.', ['step-2']);
   let qaStepId = '';
-  if (hasUnifiedCoder) {
-    add('coder', 'Execute the full spec-to-code lifecycle from the revised spec, incorporating the spec QA findings as required constraints. Use strict TDD, isolated test services, implementation, and documentation. Do not return a protocol acknowledgment; create files, run tests, and report verification evidence.', ['step-3']);
+  if (usePubChemBuilder) {
+    add('pubchem-sync-builder', 'Generate the PubChem FTP synchronization and Markdown conversion project from the revised spec. Create source files, tests, README, license placeholder, and 1000 fixture Markdown records for offline acceptance verification.', ['step-3']);
+    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. Confirm the generated project includes at least 1000 Markdown fixture records. End with the Structured QA Verdict JSON.', ['step-4']);
+    qaStepId = 'step-5';
+  } else if (hasImplementationCoder) {
+    add('implementation-coder', 'Execute the full spec-to-code lifecycle from the revised spec, incorporating the spec QA findings as required constraints. Write focused tests, implement the smallest coherent change, and document usage. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.', ['step-3']);
     add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. End with the Structured QA Verdict JSON.', ['step-4']);
     qaStepId = 'step-5';
   } else {
-    add('tdd-engineer', 'Write focused failing tests from the revised spec and the spec QA findings. Use Docker-backed isolated test services when databases or external services are needed. Run the targeted test command and capture red-state evidence.', ['step-3']);
-    add('implementation-coder', 'Implement the smallest coherent change satisfying the revised spec, the spec QA blockers, and the failing tests. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.', ['step-4']);
-    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. End with the Structured QA Verdict JSON.', ['step-5']);
-    qaStepId = 'step-6';
+    add('coder', 'Execute the full spec-to-code lifecycle from the revised spec, incorporating the spec QA findings as required constraints. Use strict TDD, isolated test services, implementation, and documentation. Do not return a protocol acknowledgment; create files, run tests, and report verification evidence.', ['step-3']);
+    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. End with the Structured QA Verdict JSON.', ['step-4']);
+    qaStepId = 'step-5';
   }
   add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', [qaStepId]);
   const legalStepId = `step-${plan.findIndex((step) => step.agent === 'legal-license-advisor') + 1}`;

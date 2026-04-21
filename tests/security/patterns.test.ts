@@ -70,6 +70,20 @@ describe('OWASP Top 10 patterns', () => {
     expect(findings.some(f => f.rule === 'path-traversal')).toBe(true);
   });
 
+  it('detects path traversal in filesystem operations', () => {
+    const findings = matchPatterns('readFileSync(path.join(basePath, "../../etc/passwd"));');
+    expect(findings.some(f => f.rule === 'path-traversal')).toBe(true);
+  });
+
+  it('does not flag normal relative module imports as path traversal', () => {
+    const findings = matchPatterns([
+      "import { shardPath } from '../src/sharding';",
+      "export { recordToMarkdown } from '../src/markdown-writer';",
+      "const helper = require('../src/helper');",
+    ].join('\n'));
+    expect(findings.some(f => f.rule === 'path-traversal')).toBe(false);
+  });
+
   it('detects hardcoded secrets', () => {
     const findings = matchPatterns('const api_key = "sk_live_abcdefghijklmnop1234";');
     expect(findings.some(f => f.rule === 'hardcoded-secret')).toBe(true);

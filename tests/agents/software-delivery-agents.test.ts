@@ -50,6 +50,11 @@ describe('software delivery agent bundle', () => {
     for (const name of SOFTWARE_DELIVERY_AGENTS) {
       const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, name));
 
+      if (name === 'legal-license-advisor' || name === 'docs-maintainer' || name === 'release-readiness-reviewer' || name === 'code-qa-analyst') {
+        expect(agent.adapter).toBe('metadata');
+        expect(agent.model).toBe(name);
+        continue;
+      }
       expect(agent.adapter).toBe('ollama');
       if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
         expect(agent.model).toBe('bespoke-minicheck:7b');
@@ -338,6 +343,8 @@ describe('software delivery agent bundle', () => {
     expect(docs.prompt).toContain('how to use the tool');
     expect(docs.prompt).toContain('LICENSE');
     expect(docs.prompt).toContain('Do not invent license terms');
+    expect(docs.adapter).toBe('metadata');
+    expect(docs.model).toBe('docs-maintainer');
     expect(docs.contract?.capabilities).toContain('Create or update release README documentation for completed user-facing software tools.');
     expect(docs.contract?.capabilities).toContain('Ensure license coverage is present or report the exact license-choice blocker.');
     expect(docs.contract?.handoff.includes).toContain('README usage documentation');
@@ -347,8 +354,8 @@ describe('software delivery agent bundle', () => {
   it('loads a legal-license-advisor that recommends compatible license options from language and library evidence', async () => {
     const legal = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'legal-license-advisor'));
 
-    expect(legal.adapter).toBe('ollama');
-    expect(legal.model).toBe('gemma4:26b');
+    expect(legal.adapter).toBe('metadata');
+    expect(legal.model).toBe('legal-license-advisor');
     expect(legal.handles).toContain('license recommendations');
     expect(legal.prompt).toContain('License Recommendation Contract');
     expect(legal.prompt).toContain('based on utilized languages and libraries');
@@ -408,7 +415,10 @@ describe('software delivery agent bundle', () => {
       expect(agent.prompt, `${agent.name} missing verification instruction`).toContain('verification command/result');
     }
     expect(implementation.prompt).toContain('If the workspace is greenfield or nearly empty');
+    expect(implementation.prompt).toContain('Remediation Override');
+    expect(implementation.prompt).toContain('Do not inspect the same files again');
     expect(delivery.prompt).toContain('Do not spend multiple rounds repeating the same inspection command');
+    expect(delivery.prompt).toContain('Remediation Override');
   });
 
 

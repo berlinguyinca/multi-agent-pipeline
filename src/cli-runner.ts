@@ -318,22 +318,25 @@ Commands:
       process.exit(0);
     };
 
-    if (!silent && process.stdin.isTTY) {
-      const handoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
-      if (handoff) {
-        const choice = await askSavedRefineHandoffChoice(handoff.refinedPromptPath);
-        if (choice === 'execute') {
-          await runWithPrompt(handoff.result.refinedPrompt, { rerunPrompt: prompt });
-          return;
-        }
-        if (choice === 'refine') {
-          await runRefineGate(handoff.result.refinedPrompt);
-          return;
-        }
+    const savedRefineHandoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
+    if (!silent && process.stdin.isTTY && savedRefineHandoff) {
+      const choice = await askSavedRefineHandoffChoice(savedRefineHandoff.refinedPromptPath);
+      if (choice === 'execute') {
+        await runWithPrompt(savedRefineHandoff.result.refinedPrompt, { rerunPrompt: prompt });
+        return;
+      }
+      if (choice === 'refine') {
+        await runRefineGate(savedRefineHandoff.result.refinedPrompt);
+        return;
       }
     }
 
     if (refineOnly) {
+      if (!silent && !process.stdin.isTTY && savedRefineHandoff) {
+        process.stderr.write(`${paint('Saved refined spec found; executing it in non-interactive refine mode:', 'cyan', 'bold')} ${savedRefineHandoff.refinedPromptPath}\n`);
+        await runWithPrompt(savedRefineHandoff.result.refinedPrompt, { rerunPrompt: prompt });
+        return;
+      }
       await runRefineGate(prompt);
       return;
     }

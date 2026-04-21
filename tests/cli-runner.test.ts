@@ -920,6 +920,32 @@ describe('runCli', () => {
     else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
   });
 
+
+
+  it('executes a saved refine spec in non-interactive --refine mode instead of asking questions again', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+    loadRefineHandoffMock.mockResolvedValueOnce({
+      result: { refinedPrompt: '# Saved refined prompt\n\nUse FTP bulk downloads with collected answers' },
+      refinedPromptPath: '/tmp/pubchem/.map/refine/refined-prompt.md',
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--refine', '--ouputDir', 'pubchem', 'ignored prompt']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(generateRefineQuestionsMock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).not.toHaveBeenCalled();
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      outputDir: 'pubchem',
+      prompt: expect.stringContaining('Use FTP bulk downloads with collected answers'),
+    }));
+    expect(stderrWriteSpy).toHaveBeenCalledWith(expect.stringContaining('Saved refined spec found'));
+    if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
+    else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
+  });
+
   it('passes disabled agent overrides to headless smart routing', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

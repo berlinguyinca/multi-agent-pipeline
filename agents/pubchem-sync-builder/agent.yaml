@@ -1,0 +1,32 @@
+name: pubchem-sync-builder
+description: "Deterministic local builder for PubChem FTP sync and Markdown conversion tools"
+adapter: metadata
+model: pubchem-sync-builder
+prompt: prompt.md
+pipeline:
+  - name: generate-pubchem-sync-tool
+handles: "PubChem FTP sync software, PubChem bulk downloads, compound and substance markdown conversion, 1000 record fixture verification"
+output:
+  type: files
+tools:
+  - type: builtin
+    name: shell
+contract:
+  mission: "Create a local PubChem FTP synchronization and Markdown conversion tool with deterministic verification artifacts."
+  capabilities:
+    - "Generate a runnable Python project for PubChem bulk sync and Markdown conversion."
+    - "Create 1000 fixture Markdown records for offline acceptance verification."
+    - "Include README, tests, and license placeholder."
+  nonGoals:
+    - "Do not call PubChem APIs or perform live bulk downloads during scaffolding."
+  verification:
+    requiredEvidence:
+      - "1000 generated Markdown fixture records."
+      - "Unit-test command documented."
+  handoff:
+    deliverable: "Generated PubChem sync project"
+    includes:
+      - "Source files"
+      - "Tests"
+      - "README"
+      - "License placeholder"

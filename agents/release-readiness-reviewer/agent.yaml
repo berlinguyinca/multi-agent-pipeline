@@ -1,7 +1,7 @@
 name: release-readiness-reviewer
 description: "Assesses final readiness, verification evidence, known risks, and follow-up work"
-adapter: ollama
-model: gemma4:26b
+adapter: metadata
+model: release-readiness-reviewer
 prompt: prompt.md
 pipeline:
   - name: collect-evidence

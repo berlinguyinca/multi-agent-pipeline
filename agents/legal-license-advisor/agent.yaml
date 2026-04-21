@@ -1,7 +1,7 @@
 name: legal-license-advisor
 description: "Recommends compatible software license options after builds using language and dependency evidence"
-adapter: ollama
-model: gemma4:26b
+adapter: metadata
+model: legal-license-advisor
 prompt: prompt.md
 pipeline:
   - name: inspect-license-evidence

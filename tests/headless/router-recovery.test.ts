@@ -86,7 +86,7 @@ describe('routeWithAutonomousRecovery', () => {
       'spec-writer',
       'spec-qa-reviewer',
       'spec-writer',
-      'coder',
+      'implementation-coder',
       'code-qa-analyst',
       'legal-license-advisor',
       'docs-maintainer',
@@ -98,9 +98,57 @@ describe('routeWithAutonomousRecovery', () => {
     expect(result.decision.plan.plan[2]).toMatchObject({ id: 'step-3', agent: 'spec-writer', dependsOn: ['step-2'] });
     expect(result.decision.plan.plan[2]?.task).toContain('resolve all concrete blockers identified by spec QA');
     expect(result.decision.plan.plan[3]?.task).toContain('revised spec');
-    expect(result.decision.plan.plan[3]?.task).toContain('strict TDD');
-    expect(result.decision.plan.plan[3]?.task).toContain('isolated test services');
+    expect(result.decision.plan.plan[3]?.task).toContain('spec-to-code lifecycle');
+    expect(result.decision.plan.plan[3]?.task).toContain('isolated Docker-backed services');
     expect(result.decision.plan.plan[3]?.task).toContain('Do not return a protocol acknowledgment');
+    await fs.rm(agentsDir, { recursive: true, force: true });
+  });
+
+
+
+  it('uses the deterministic PubChem sync builder for PubChem software recovery', async () => {
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-pubchem-'));
+    const agents = new Map<string, AgentDefinition>([
+      ['spec-writer', makeAgent('spec-writer')],
+      ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
+      ['pubchem-sync-builder', makeAgent('pubchem-sync-builder', 'files')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst')],
+      ['legal-license-advisor', makeAgent('legal-license-advisor')],
+      ['docs-maintainer', makeAgent('docs-maintainer', 'files')],
+      ['release-readiness-reviewer', makeAgent('release-readiness-reviewer')],
+    ]);
+    const noMatch = JSON.stringify({ kind: 'no-match', reason: 'No specialist route exists for PubChem software.' });
+
+    const result = await routeWithAutonomousRecovery({
+      resolvedPrompt: 'Build PubChem FTP software that converts 1000 records to markdown',
+      basePrompt: 'Build PubChem FTP software that converts 1000 records to markdown',
+      agents,
+      agentsDir,
+      config: {
+        ...DEFAULT_CONFIG,
+        router: { ...DEFAULT_CONFIG.router, consensus: { enabled: false, models: [], scope: 'router', mode: 'majority' } },
+      },
+      routerConfig: { ...DEFAULT_CONFIG.router, consensus: { enabled: false, models: [], scope: 'router', mode: 'majority' } },
+      reloadAgents: async () => agents,
+      dependencies: {
+        createAdapterFn: () => noMatchAdapter(noMatch),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: false },
+          codex: { installed: false },
+          ollama: { installed: true, models: [] },
+          hermes: { installed: false },
+          metadata: { installed: true },
+          huggingface: { installed: false },
+        }),
+      },
+      maxRecoveryAttempts: 0,
+    });
+
+    expect(result.decision.kind).toBe('plan');
+    if (result.decision.kind !== 'plan') throw new Error('expected plan');
+    expect(result.decision.plan.plan.map((step) => step.agent)).toContain('pubchem-sync-builder');
+    expect(result.decision.plan.plan.map((step) => step.agent)).not.toContain('implementation-coder');
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 

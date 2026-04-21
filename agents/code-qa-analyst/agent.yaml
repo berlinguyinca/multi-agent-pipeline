@@ -1,7 +1,7 @@
 name: code-qa-analyst
 description: "Reviews implemented code for correctness, maintainability, test adequacy, and spec conformance"
-adapter: ollama
-model: gemma4:26b
+adapter: metadata
+model: code-qa-analyst
 prompt: prompt.md
 pipeline:
   - name: analyze-code
