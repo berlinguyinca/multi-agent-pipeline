@@ -25,6 +25,7 @@ describe('refine question generator', () => {
     });
 
     expect(prompt).toContain('Make questions specific to the user task');
+    expect(prompt).toContain('definition of done');
     expect(prompt).toContain('Build a PubChem sync tool');
     expect(prompt).toContain('codesight-metadata');
   });

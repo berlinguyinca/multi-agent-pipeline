@@ -12,9 +12,15 @@ export async function handleRefineCommand(args: string[]): Promise<RefineResult>
   const inputPrompt = prompt || (headless ? '' : await askPrompt());
   const initial = refinePromptHeadless({ prompt: inputPrompt, headless, outputPath });
   const answers = !headless ? await askRefineAnswers(initial.questionDetails) : [];
-  const result = answers.length > 0
+  const answered = answers.length > 0
     ? refinePromptHeadless({ prompt: inputPrompt, headless, outputPath, answers })
     : initial;
+  const successAnswers = !headless && answers.length > 0
+    ? await askRefineAnswers(answered.successQuestionDetails, 'MAP refine needs a definition of done before execution.')
+    : [];
+  const result = successAnswers.length > 0
+    ? refinePromptHeadless({ prompt: inputPrompt, headless, outputPath, answers, successAnswers })
+    : answered;
   if (outputPath) {
     await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
     await fs.writeFile(outputPath, `${result.refinedPrompt.trimEnd()}\n`, 'utf8');
@@ -32,12 +38,12 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 
-async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> {
+async function askRefineAnswers(questions: RefineQuestion[], intro = 'MAP refine needs a few answers before execution.'): Promise<string[]> {
   if (questions.length === 0) return [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answers: string[] = [];
-    console.log('MAP refine needs a few answers before execution.');
+    console.log(intro);
     for (const [index, entry] of questions.entries()) {
       answers.push(await rl.question(`${index + 1}. ${entry.question}\n> `));
     }

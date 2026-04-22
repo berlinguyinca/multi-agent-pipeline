@@ -641,6 +641,111 @@ describe('executeDAG', () => {
     expect(writerPrompt).toContain('[step-1-fact-check-1: usage-classification-fact-checker]');
   });
 
+  it('uses a three-agent evidence verification panel before downstream usage consumers when available', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['usage-classification-fact-checker', { ...makeAgent('usage-classification-fact-checker', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['evidence-source-reviewer', { ...makeAgent('evidence-source-reviewer', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['commonness-evidence-reviewer', { ...makeAgent('commonness-evidence-reviewer', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: Array<{ agent: string; prompt: string }> = [];
+    const createAdapter = vi.fn((config) => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Fact-check the usage-classification-tree report')) {
+          calls.push({ agent: String(config.model === 'bespoke-minicheck:7b' ? prompt.match(/\\(([^)]+)\\)\\./)?.[1] ?? 'fact-checker' : 'unknown'), prompt });
+          yield 'Fact-check verdict: supported\n\n| Claim | Verdict | Evidence | Caveat |\n| --- | --- | --- | --- |\n| claim | supported | independent source | unavailable |';
+          return;
+        }
+        if (prompt.includes('Classify usage')) {
+          calls.push({ agent: 'usage-classification-tree', prompt });
+          yield [
+            '# Usage Classification Tree',
+            '',
+            '## Usage Commonness Ranking',
+            '',
+            '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Commonness evidence | Caveat |',
+            '| --- | --- | --- | --- | --- | --- | --- | --- |',
+            '| 1 | Specialty medical use | drug | 40 | less common | current | source says current specialty use | conservative score |',
+            '',
+            '## Claim Evidence Ledger',
+            '',
+            '```json',
+            JSON.stringify({
+              claims: [{
+                id: 'claim-1',
+                claim: 'Specialty medical use has current commonness score 40.',
+                claimType: 'commonness-score',
+                confidence: 'medium',
+                timeframe: 'current',
+                recencyStatus: 'current',
+                commonnessScore: 40,
+                evidence: [{
+                  sourceType: 'document',
+                  title: 'Specialty use source',
+                  publishedAt: '2010',
+                  summary: 'Older evidence for specialty use.',
+                  supports: 'specialty use',
+                }],
+              }],
+            }),
+            '```',
+          ].join('\n');
+          return;
+        }
+        if (prompt.includes('Use verified usage')) {
+          calls.push({ agent: 'writer', prompt });
+          yield 'Verified report';
+        }
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+      'step-1-fact-check-2',
+      'step-1-fact-check-3',
+      'step-2',
+    ]);
+    expect(result.steps.slice(1, 4).map((step) => step.agent)).toEqual([
+      'usage-classification-fact-checker',
+      'evidence-source-reviewer',
+      'commonness-evidence-reviewer',
+    ]);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+      'step-1-fact-check-2',
+      'step-1-fact-check-3',
+    ]);
+    const factPrompts = calls.filter((call) => call.prompt.includes('Fact-check the usage-classification-tree report')).map((call) => call.prompt).join('\n---\n');
+    expect(factPrompts).toContain('Treat web-search findings as leads, not ground truth');
+    expect(factPrompts).toContain('Focus: cited database/web/source records');
+    expect(factPrompts).toContain('Focus: commonness scores');
+  });
+
   it('blocks usage classification downstream when claim evidence ledger is missing', async () => {
     const plan: DAGPlan = {
       plan: [
@@ -3446,7 +3551,7 @@ describe('executeDAG', () => {
         calls += 1;
         if (calls === 1) {
           const matchedDomain = /download ([A-Za-z ]+?) records/.exec(prompt)?.[1]?.trim() ?? 'external database';
-          const command = `python3 - <<'PYGEN'\nfrom pathlib import Path\ndomain = ${JSON.stringify(matchedDomain)}\nPath('src').mkdir(exist_ok=True)\nPath('tests').mkdir(exist_ok=True)\nPath('data/records').mkdir(parents=True, exist_ok=True)\nPath('src/downloader.py').write_text(f'def source_name():\\n    return {domain!r}\\n', encoding='utf8')\nPath('tests/test_downloader.py').write_text('from src.downloader import source_name\\n\\ndef test_source_name():\\n    assert source_name()\\n', encoding='utf8')\nPath('README.md').write_text(f'# {domain} downloader\\n\\nDownloads prompt-specific records and writes Markdown.\\n', encoding='utf8')\nPath('LICENSE').write_text('License choice pending.\\n', encoding='utf8')\nfor i in range(1000):\n    Path('data/records', f'{i}.md').write_text(f'# {domain} record {i}\\n', encoding='utf8')\nPYGEN`;
+          const command = `python3 - <<'PYGEN'\nfrom pathlib import Path\ndomain = ${JSON.stringify(matchedDomain)}\nPath('src').mkdir(exist_ok=True)\nPath('tests').mkdir(exist_ok=True)\nPath('data/records').mkdir(parents=True, exist_ok=True)\nPath('src/downloader.py').write_text(f'def source_name():\\n    return {domain!r}\\n', encoding='utf8')\nPath('tests/test_downloader.py').write_text('from src.downloader import source_name\\n\\ndef test_source_name():\\n    assert source_name()\\n', encoding='utf8')\nPath('README.md').write_text(f'# {domain} downloader\\n\\nDownloads prompt-specific records and writes Markdown.\\n', encoding='utf8')\nPath('LICENSE').write_text('License choice pending.\\n', encoding='utf8')\nfor i in range(1000):\n    Path('data/records', f'{i}.md').write_text(f'# {domain} record {i}\\n\\nRecord ID: {i}\\nSource: {domain}\\nData: converted {domain} payload for record {i}\\n', encoding='utf8')\nPYGEN`;
           yield JSON.stringify({ tool: 'shell', params: { command } });
           return;
         }
@@ -3462,7 +3567,9 @@ describe('executeDAG', () => {
 
     expect(result.success).toBe(true);
     expect(await fs.readFile(path.join(workingDir, 'README.md'), 'utf8')).toContain(domain);
-    expect(await countMarkdownFiles(path.join(workingDir, 'data', 'records'))).toBe(1000);
+    const recordsDir = path.join(workingDir, 'data', 'records');
+    expect(await countMarkdownFiles(recordsDir)).toBe(1000);
+    await expectMarkdownRecordsContainActualData(recordsDir, domain, 1000);
     await fs.rm(workingDir, { recursive: true, force: true });
   });
 
@@ -3503,6 +3610,7 @@ describe('executeDAG', () => {
   });
 
   it('retries once and then fails a file-output agent that repeats the same successful tool call without progress', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-duplicate-tool-loop-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'build-fixer', task: 'Run git diff --check', dependsOn: [] }],
     };
@@ -3524,12 +3632,14 @@ describe('executeDAG', () => {
     const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
       maxStepRetries: 0,
       retryDelayMs: 0,
+      workingDir,
     });
 
     expect(result.success).toBe(false);
     expect(result.steps[0]?.status).toBe('failed');
     expect(result.steps[0]?.error).toContain('identical successful tool call');
     expect(runCount).toBeGreaterThanOrEqual(4);
+    await fs.rm(workingDir, { recursive: true, force: true });
   });
 
   it('injects a no-progress remediation context before retrying a repeated identical tool call', async () => {
@@ -3815,4 +3925,28 @@ async function countMarkdownFiles(dir: string): Promise<number> {
     if (entry.isFile() && entry.name.endsWith('.md')) count += 1;
   }
   return count;
+}
+
+async function expectMarkdownRecordsContainActualData(dir: string, domain: string, expectedCount: number): Promise<void> {
+  const files = await collectMarkdownFiles(dir);
+  expect(files).toHaveLength(expectedCount);
+  for (const file of files) {
+    const content = await fs.readFile(file, 'utf8');
+    expect(content.trim()).not.toBe('');
+    expect(content).toContain(domain);
+    expect(content).toMatch(/Record ID:\s*\d+/);
+    expect(content).toMatch(/Source:\s*[^\n]+/);
+    expect(content).toMatch(/Data:\s*[^\n]+/);
+  }
+}
+
+async function collectMarkdownFiles(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...await collectMarkdownFiles(full));
+    if (entry.isFile() && entry.name.endsWith('.md')) files.push(full);
+  }
+  return files.sort();
 }

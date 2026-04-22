@@ -64,16 +64,17 @@ describe('real LLM agent integration contracts', () => {
     expect(output).not.toContain('\\text');
   }, 180_000);
 
-  it('usage-classification-tree produces usage hierarchy and keeps it separate from chemical taxonomy', async () => {
+  it('usage-classification-tree starts evidence-backed non-trivial usage work with web search and not chemical taxonomy', async () => {
     const output = await runAgent(
       'usage-classification-tree',
       'Create a usage classification tree for aspirin up to six levels when biologically or medically sensible. Do not create ClassyFire or ChemOnt taxonomy.',
     );
 
-    expectIncludesAll(output, ['Usage Classification', 'aspirin']);
-    expect(output.toLowerCase()).not.toContain('chemont');
-    expect(output.toLowerCase()).not.toContain('classyfire');
-    expect(output.toLowerCase()).not.toMatch(/\b(take|dose|dosage)\s+\d+/);
+    const normalized = normalizeTerminalText(output).toLowerCase();
+    expectIncludesAll(output, ['web-search', 'aspirin']);
+    expect(normalized).not.toContain('chemont');
+    expect(normalized).not.toContain('classyfire');
+    expect(normalized).not.toMatch(/\b(take|dose|dosage)\s+\d+/);
   }, 180_000);
 
   it('researcher output is normalized to plain-text chemical formulas in non-LaTeX contexts', async () => {

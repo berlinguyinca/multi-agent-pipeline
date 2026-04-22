@@ -1,7 +1,7 @@
 name: researcher
 description: "Synthesizes comprehensive answers from knowledge and analysis"
 adapter: ollama
-model: gemma4
+model: gemma4:26b
 prompt: prompt.md
 pipeline:
   - name: research

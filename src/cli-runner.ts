@@ -292,9 +292,15 @@ Commands:
       const questionDetails = generatedQuestions.length > 0 ? generatedQuestions : initial.questionDetails;
       const questioned = refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails });
       const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionDetails) : [];
-      const refined = answers.length > 0
+      const answered = answers.length > 0
         ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers })
         : questioned;
+      const successAnswers = !silent && process.stdin.isTTY && answers.length > 0
+        ? await askRefineAnswers(answered.successQuestionDetails, 'MAP refine needs a definition of done before execution.')
+        : [];
+      const refined = successAnswers.length > 0
+        ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers, successAnswers })
+        : answered;
       const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
       if (silent || !process.stdin.isTTY) {
         const output = silent
@@ -457,12 +463,12 @@ async function generateRefineQuestionDetails(options: {
   }
 }
 
-async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> {
+async function askRefineAnswers(questions: RefineQuestion[], intro = 'MAP refine needs a few answers before execution.'): Promise<string[]> {
   if (questions.length === 0) return [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answers: string[] = [];
-    process.stdout.write(`${paint('MAP refine needs a few answers before execution.', 'cyan', 'bold')}\n`);
+    process.stdout.write(`${paint(intro, 'cyan', 'bold')}\n`);
     for (const [index, entry] of questions.entries()) {
       answers.push(await rl.question(formatInteractiveQuestion(entry, index)));
     }
@@ -511,13 +517,17 @@ async function askSavedRefineHandoffChoice(refinedPromptPath: string): Promise<'
   }
 }
 
-function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; questionDetails?: RefineQuestion[]; assumptions: string[]; answers?: string[]; refinedPrompt: string }): string {
+function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; questionDetails?: RefineQuestion[]; successQuestionsAsked?: string[]; successQuestionDetails?: RefineQuestion[]; assumptions: string[]; successCriteria?: string[]; answers?: string[]; successAnswers?: string[]; refinedPrompt: string }): string {
   const questionDetails = result.questionDetails && result.questionDetails.length > 0
     ? result.questionDetails
     : result.questionsAsked.map((question) => ({ question }));
   const questions = questionDetails.length > 0
     ? questionDetails.flatMap(formatQuestionLines)
     : ['1. No clarification questions were generated; review the optimized prompt below before execution.'];
+  const successQuestionDetails = result.successQuestionDetails && result.successQuestionDetails.length > 0
+    ? result.successQuestionDetails
+    : (result.successQuestionsAsked ?? []).map((question) => ({ question }));
+  const successQuestions = successQuestionDetails.flatMap(formatQuestionLines);
   return [
     paint('# MAP Refine Questions', 'cyan', 'bold'),
     '',
@@ -535,6 +545,27 @@ function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: st
       ? [
           paint('## Answers collected', 'bold'),
           ...result.answers.map((answer, index) => `${index + 1}. ${result.questionsAsked[index] ?? `Question ${index + 1}`}\n   Answer: ${answer}`),
+          '',
+        ]
+      : []),
+    ...(successQuestions.length > 0
+      ? [
+          paint('## Follow-up success questions', 'bold'),
+          ...successQuestions,
+          '',
+        ]
+      : []),
+    ...(result.successAnswers && result.successAnswers.length > 0
+      ? [
+          paint('## Success answers collected', 'bold'),
+          ...result.successAnswers.map((answer, index) => `${index + 1}. ${result.successQuestionsAsked?.[index] ?? `Success question ${index + 1}`}\n   Answer: ${answer}`),
+          '',
+        ]
+      : []),
+    ...(result.successCriteria && result.successCriteria.length > 0
+      ? [
+          paint('## Definition of done', 'bold'),
+          ...result.successCriteria.map((criterion) => `- ${criterion}`),
           '',
         ]
       : []),

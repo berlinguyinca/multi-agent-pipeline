@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { loadAgentFromDirectory } from '../../src/agents/loader.js';
 import { loadAgentRegistry } from '../../src/agents/registry.js';
+import { ensureOllamaReadyForConfigs } from '../../src/adapters/ollama-runtime.js';
 import { buildRouterPrompt } from '../../src/router/prompt-builder.js';
 import { validateDAGPlan, type DAGPlan } from '../../src/types/dag.js';
 
@@ -26,6 +27,8 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'usage-classification-tree',
   'usage-classification-fact-checker',
   'research-fact-checker',
+  'evidence-source-reviewer',
+  'commonness-evidence-reviewer',
   'classyfire-taxonomy-classifier',
   'github-review-merge-specialist',
   'bug-debugger',
@@ -38,6 +41,8 @@ const SOFTWARE_DELIVERY_AGENTS = [
   'release-readiness-reviewer',
   'presentation-designer',
   'visualization-builder',
+  'goal-synthesizer',
+  'project-knowledge-curator',
 ] as const;
 
 describe('software delivery agent bundle', () => {
@@ -70,7 +75,7 @@ describe('software delivery agent bundle', () => {
         expect(agent.model).toBe('qwen3.6:latest');
       } else if (name === 'code-qa-glm') {
         expect(agent.model).toBe('glm-4.7-flash:latest');
-      } else if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker') {
+      } else if (name === 'usage-classification-fact-checker' || name === 'research-fact-checker' || name === 'evidence-source-reviewer' || name === 'commonness-evidence-reviewer') {
         expect(agent.model).toBe('bespoke-minicheck:7b');
       } else if (['tdd-engineer', 'implementation-coder', 'build-fixer', 'test-stabilizer'].includes(name)) {
         expect(agent.model).toBe('qwen3.6:latest');
@@ -176,8 +181,26 @@ describe('software delivery agent bundle', () => {
 
     expect(agent.prompt).toContain('You are a renderer, not a summarizer');
     expect(agent.prompt).toContain('Preserve every substantive detail');
+    expect(agent.prompt).toContain('Exact identifiers are protected strings');
+    expect(agent.prompt).toContain('usage-classification-tree');
     expect(agent.prompt).toContain('If the requested presentation format cannot hold all content cleanly');
     expect(agent.contract?.mission).toContain('without dropping substantive content');
+  });
+
+  it('loads goal and project-knowledge agents with knowledge-aware contracts', async () => {
+    const goal = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'goal-synthesizer'));
+    const curator = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'project-knowledge-curator'));
+
+    expect(goal.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['web-search', 'knowledge-search']));
+    expect(goal.prompt).toContain('Definition of done');
+    expect(goal.prompt).toContain('PubMed/NCBI');
+    expect(goal.prompt).toContain('DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL, MeSH/NCBI');
+    expect(goal.prompt).toContain('Evidence/Commonness evidence/Caveat');
+    expect(goal.prompt).toContain('at least three distinct verification perspectives');
+    expect(goal.contract?.mission).toContain('what done means');
+    expect(curator.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['web-search', 'knowledge-search']));
+    expect(curator.prompt).toContain('knowledge/');
+    expect(curator.contract?.mission).toContain('project-specific memory');
   });
 
   it('instructs researcher to use plain-text chemistry formulas unless LaTeX is requested', async () => {
@@ -213,14 +236,19 @@ describe('software delivery agent bundle', () => {
     expect(usage.prompt).toContain('personal care products');
     expect(usage.prompt).toContain('other exposure origins');
     expect(usage.prompt).toContain('cellular endogenous compound');
+    expect(usage.prompt).toContain('| Evidence | Caveat |');
     expect(usage.prompt).toContain('three most typical diseases');
     expect(usage.prompt).toContain('three most typical foods');
     expect(usage.prompt).toContain('three most typical species');
     expect(usage.prompt).toContain('three most typical organs');
     expect(usage.prompt).toContain('For common well-known endogenous compounds');
     expect(usage.prompt).toContain('Keep the report concise and XLS-friendly');
+    expect(usage.prompt).toContain('Populate every table cell');
     expect(usage.contract?.capabilities).toContain(
       'Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable.',
+    );
+    expect(usage.contract?.capabilities).toContain(
+      'Keep evidence and caveat values as separate populated fields in usage, LCB, and commonness tables.',
     );
     expect(usage.contract?.handoff.includes).toContain('LCB exposure summary');
   });
@@ -228,14 +256,18 @@ describe('software delivery agent bundle', () => {
   it('loads fact-checking agents on a separate minicheck model', async () => {
     const usageFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-fact-checker'));
     const researchFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'research-fact-checker'));
+    const sourceFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'evidence-source-reviewer'));
+    const commonnessFact = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'commonness-evidence-reviewer'));
 
-    for (const agent of [usageFact, researchFact]) {
+    for (const agent of [usageFact, researchFact, sourceFact, commonnessFact]) {
       expect(agent.adapter).toBe('ollama');
       expect(agent.model).toBe('bespoke-minicheck:7b');
       expect(agent.prompt).toContain('Fact-check verdict: <supported | rejected | needs-review>');
       expect(agent.contract?.handoff.includes).toContain('Fact-check verdict');
       expect(agent.contract?.nonGoals.join(' ')).toContain('format');
     }
+    expect(sourceFact.prompt).toContain('Treat web-search findings as leads, not ground truth');
+    expect(commonnessFact.prompt).toContain('targeted searches for commonness proxies');
   });
 
   it('requires the usage classifier to score and rank commonness without becoming a formatter', async () => {
@@ -284,6 +316,12 @@ describe('software delivery agent bundle', () => {
     expect(usage.prompt).toContain('Mandatory Tool-Use Protocol');
     expect(usage.prompt).toContain('your first response must be a single JSON tool call to `web-search`');
     expect(usage.prompt).toContain('use the available `web-search` tool');
+    expect(usage.prompt).toContain('PubMed/NCBI');
+    expect(usage.prompt).toContain('DrugBank PubChem ChEBI HMDB KEGG ChEMBL MeSH PubMed NCBI DailyMed FDA');
+    expect(usage.prompt).toContain('Publication or database evidence can support that a use exists while still being insufficient to score how common that use is');
+    expect(usage.prompt).toContain('cite the source-specific accession/record ID');
+    expect(usage.prompt).toContain('Treat web-search findings as unverified leads');
+    expect(usage.prompt).toContain('Commonness evidence');
     expect(usage.prompt).toContain('Never use `sourceType: "model-prior"` for high-confidence claims');
     expect(usage.prompt).toContain('"claimType": "commonness-score"');
     expect(usage.prompt).toContain('"recencyStatus": "current"');
@@ -293,10 +331,17 @@ describe('software delivery agent bundle', () => {
     expect(usage.contract?.verification.requiredEvidence).toContain(
       'Commonness scores account for current prevalence and recency/currentness evidence, not just historical existence.',
     );
+    expect(usage.contract?.verification.requiredEvidence).toContain(
+      'Medical and metabolomics usage/commonness claims are checked against PubMed/NCBI, DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI, FDA/DailyMed, metabolomics resources, or equivalent authoritative evidence when available.',
+    );
 
     expect(usageFact.prompt).toContain('current prevalence');
+    expect(usageFact.prompt).toContain('PubMed/NCBI');
+    expect(usageFact.prompt).toContain('DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL, MeSH/NCBI');
+    expect(usageFact.prompt).toContain('| Claim | Verdict | Evidence | Caveat |');
     expect(usageFact.prompt).toContain('historical or obsolete');
     expect(usageFact.prompt).toContain('reject high commonness scores');
+    expect(usageFact.prompt).toContain('targeted commonness/proxy searches');
   });
 
   it('requires fact-critical agents to emit claim evidence ledgers', async () => {
@@ -450,6 +495,31 @@ describe('software delivery agent bundle', () => {
     expect(consensus.model).toBe('code-qa-consensus');
   });
 
+  it('can prepare every Ollama model required by the software workflow', async () => {
+    const modelOwners = new Map<string, string[]>();
+
+    for (const name of SOFTWARE_DELIVERY_AGENTS) {
+      const agent = await loadAgentFromDirectory(path.join(AGENTS_DIR, name));
+      if (agent.adapter !== 'ollama' || !agent.model) continue;
+      modelOwners.set(agent.model, [...(modelOwners.get(agent.model) ?? []), agent.name]);
+    }
+
+    await ensureOllamaReadyForConfigs([...modelOwners.keys()].map((model) => ({
+      type: 'ollama',
+      model,
+    })));
+
+    const installedModels = installedOllamaModels();
+    const missing = [...modelOwners.entries()]
+      .filter(([model]) => !installedModels.has(model))
+      .map(([model, agents]) => `${model} (${agents.sort().join(', ')})`);
+
+    expect(
+      missing,
+      `Ollama runtime preparation completed but these software workflow models are still missing:\n${missing.map((item) => `- ${item}`).join('\n')}`,
+    ).toEqual([]);
+  }, 2_700_000);
+
   it('requires software development agents to run tests in isolated Docker-backed service environments when databases are needed', async () => {
     const agents = await Promise.all([
       'tdd-engineer',
@@ -500,6 +570,23 @@ describe('software delivery agent bundle', () => {
       type: 'builtin',
       name: 'shell',
     }));
+  });
+
+  it('locks researcher to the configured live-test Ollama model', async () => {
+    const researcher = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'researcher'));
+
+    expect(researcher.adapter).toBe('ollama');
+    expect(researcher.model).toBe('gemma4:26b');
+  });
+
+  it('bounds usage classification searches and scoped medical/metabolomics commonness', async () => {
+    const usage = await loadAgentFromDirectory(path.join(AGENTS_DIR, 'usage-classification-tree'));
+
+    expect(usage.prompt).toContain('If the prompt does not already include a `Tool execution result for web-search:` section');
+    expect(usage.prompt).toContain('use at most two web-search calls total');
+    expect(usage.prompt).toContain('output only medical/clinical-use and metabolomics/analytical-biomarker rows');
+    expect(usage.prompt).toContain('In scoped medical/metabolomics reports, do not assign any `commonnessScore` 65 or higher');
+    expect(usage.prompt).toContain('retrievedAt` means when you retrieved the source');
   });
 
   it('loads prompt-refiner as a gemma4-backed Socratic refinement agent', async () => {
@@ -568,4 +655,17 @@ describe('software delivery agent bundle', () => {
 
 function isExitCode(error: unknown, code: number): boolean {
   return typeof error === 'object' && error !== null && 'status' in error && error.status === code;
+}
+
+function installedOllamaModels(): Set<string> {
+  const output = execFileSync('ollama', ['list'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return new Set(output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter(Boolean));
 }

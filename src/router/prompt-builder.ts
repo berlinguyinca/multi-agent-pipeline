@@ -48,13 +48,14 @@ ${cleanTask}
 17. For large software tasks, split implementation into bounded slices handled by existing implementation agents instead of one broad file-output step; each slice should have a focused task, clear dependencies, and verification context. Prefer TDD/test-authoring, then implementation-coder/software-delivery slices, then QA/docs.
 18. For completed software builds, include legal-license-advisor when available to recommend compatible license options based on utilized languages and libraries before docs-maintainer finalizes license coverage. Then include a post-build docs step when docs-maintainer is available so the delivered tool gets a README explaining what the tool does and how to use the tool, plus LICENSE coverage or an explicit license-choice blocker.
 19. For software workflows that need databases or external services, require isolated test services with Docker or the project's existing test-compose/Testcontainers setup before implementation/QA. Do not use host databases or shared main-system services; route tasks so agents run the relevant test command and report service startup/teardown evidence.
-20. If the user task already contains a refined MAP prompt, an Answers provided section, or explicit user-provided answers from refine mode, do not route through prompt-refiner again. Treat refinement as complete and route directly to specification, implementation, QA, docs, and readiness work.
+20. If the user task already contains a refined MAP prompt, an Answers provided section, a Definition of done section, or explicit user-provided answers from refine mode, do not route through prompt-refiner again. Treat refinement as complete and route directly to specification, implementation, QA, docs, and readiness work.
+21. When available for software, research, or high-ambiguity tasks, use goal-synthesizer early to create a goal understanding and definition of done before specification or execution. Use project-knowledge-curator near the end of multi-step work, or after major milestones, to update outputDir/knowledge project memory with goals, assumptions, decisions, code/artifact facts, and verification evidence. When project-knowledge-curator runs after the main deliverable, mark the main deliverable/release-readiness step with final:true so final reports do not get replaced by memory-maintenance prose.
 
 ## Output Format
 
 Respond with ONLY valid JSON, no markdown fences, no explanation, and no thinking text:
 
-{"kind":"plan","plan":[{"id":"step-1","agent":"<agent-name>","task":"<sub-task description>","dependsOn":[]},{"id":"step-2","agent":"<agent-name>","task":"<sub-task description>","dependsOn":["step-1"]}],"rationale":{"selectedAgents":[{"agent":"<agent-name>","reason":"<why this agent helps>"}],"rejectedAgents":[{"agent":"<agent-name>","reason":"<why this agent was not needed>"}]}}
+{"kind":"plan","plan":[{"id":"step-1","agent":"<agent-name>","task":"<sub-task description>","dependsOn":[],"final":true},{"id":"step-2","agent":"<agent-name>","task":"<sub-task description>","dependsOn":["step-1"]}],"rationale":{"selectedAgents":[{"agent":"<agent-name>","reason":"<why this agent helps>"}],"rejectedAgents":[{"agent":"<agent-name>","reason":"<why this agent was not needed>"}]}}
 
 or
 

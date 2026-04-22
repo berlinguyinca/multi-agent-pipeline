@@ -153,7 +153,70 @@ describe('routeWithAutonomousRecovery', () => {
     expect(agentsInPlan).not.toContain('pubchem-sync-builder');
     expect(agentsInPlan).not.toContain('hmdb-sync-builder');
     expect(agentsInPlan).not.toContain('metabolomics-workbench-sync-builder');
-    expect(result.decision.plan.plan.find((step) => step.agent === 'implementation-coder')?.task).toContain('prompt-specific downloader');
+    const implementationTask = result.decision.plan.plan.find((step) => step.agent === 'implementation-coder')?.task ?? '';
+    expect(implementationTask).toContain('prompt-specific downloader');
+    expect(implementationTask).toContain('actual data');
+    expect(implementationTask).toContain('not empty');
+    await fs.rm(agentsDir, { recursive: true, force: true });
+  });
+
+  it('adds goal synthesis and project knowledge memory when those agents are available in software fallback', async () => {
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-router-recovery-goal-agents-'));
+    const agents = new Map<string, AgentDefinition>([
+      ['goal-synthesizer', makeAgent('goal-synthesizer')],
+      ['spec-writer', makeAgent('spec-writer')],
+      ['spec-qa-reviewer', makeAgent('spec-qa-reviewer')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst')],
+      ['legal-license-advisor', makeAgent('legal-license-advisor')],
+      ['docs-maintainer', makeAgent('docs-maintainer', 'files')],
+      ['release-readiness-reviewer', makeAgent('release-readiness-reviewer')],
+      ['project-knowledge-curator', makeAgent('project-knowledge-curator')],
+    ]);
+    const noMatch = JSON.stringify({ kind: 'no-match', reason: 'No specialist route exists for this software request.' });
+
+    const result = await routeWithAutonomousRecovery({
+      resolvedPrompt: 'Build a local software tool that syncs files',
+      basePrompt: 'Build a local software tool that syncs files',
+      agents,
+      agentsDir,
+      config: {
+        ...DEFAULT_CONFIG,
+        router: { ...DEFAULT_CONFIG.router, consensus: { enabled: false, models: [], scope: 'router', mode: 'majority' } },
+      },
+      routerConfig: { ...DEFAULT_CONFIG.router, consensus: { enabled: false, models: [], scope: 'router', mode: 'majority' } },
+      reloadAgents: async () => agents,
+      dependencies: {
+        createAdapterFn: () => noMatchAdapter(noMatch),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: false },
+          codex: { installed: false },
+          ollama: { installed: true, models: [] },
+          hermes: { installed: false },
+          metadata: { installed: true },
+          huggingface: { installed: false },
+        }),
+      },
+      maxRecoveryAttempts: 0,
+    });
+
+    expect(result.decision.kind).toBe('plan');
+    if (result.decision.kind !== 'plan') throw new Error('expected plan');
+    expect(result.decision.plan.plan.map((step) => step.agent)).toEqual([
+      'goal-synthesizer',
+      'spec-writer',
+      'spec-qa-reviewer',
+      'spec-writer',
+      'implementation-coder',
+      'code-qa-analyst',
+      'legal-license-advisor',
+      'docs-maintainer',
+      'release-readiness-reviewer',
+      'project-knowledge-curator',
+    ]);
+    expect(result.decision.plan.plan[1]).toMatchObject({ agent: 'spec-writer', dependsOn: ['step-1'] });
+    expect(result.decision.plan.plan[8]).toMatchObject({ agent: 'release-readiness-reviewer', final: true });
+    expect(result.decision.plan.plan[9]).toMatchObject({ agent: 'project-knowledge-curator', dependsOn: ['step-9'] });
     await fs.rm(agentsDir, { recursive: true, force: true });
   });
 

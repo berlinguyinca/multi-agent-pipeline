@@ -9,7 +9,7 @@ pipeline:
   - name: summarize-lcb-exposure-origins
   - name: score-and-rank-commonness
   - name: build-usage-tree
-  - name: report-caveats
+  - name: report-evidence-and-caveats
 handles: "usage classification, LCB exposure summary, usage commonness ranking, commonness score, top N usage results, exposure origin categorization, drug use tree, drug metabolite use, therapeutic classification, food compound occurrence, food metabolite occurrence, household chemical use, industrial chemical use, pesticide use, personal care product compound use, endogenous compound species organs, biological target hierarchy, pharmaceutical use, food use, supplement use, ointment use, medical application tree, six-level usage hierarchy"
 output:
   type: answer
@@ -25,8 +25,11 @@ contract:
   capabilities:
     - "Identify whether the entity is used as a drug, supplement, food component, ointment/topical, biomarker, household chemical, industrial product, pesticide, personal care product ingredient, endogenous compound, or other exposure-relevant category."
     - "Produce LCB-ready yes/no exposure-origin categories with up to three typical diseases, foods, use areas, species, and organs as applicable."
+    - "Keep evidence and caveat values as separate populated fields in usage, LCB, and commonness tables."
     - "Score and rank usage applications or exposure origins by evidence-backed commonness, with optional top-N truncation when requested."
     - "Score and rank usage applications or exposure origins by current evidence-backed commonness, explicitly down-weighting historical, obsolete, discontinued, or regionally rare practices."
+    - "Run targeted commonness/proxy searches before marking commonness unavailable for positive usage scenarios."
+    - "Use PubMed/NCBI, DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI record, FDA/DailyMed label, metabolomics resource record, or PMID/DOI-bearing evidence for medical and metabolomics usage where available, while allowing usage evidence to exist without a commonness score when prevalence evidence is missing."
     - "Build up to six levels of usage classification when evidence supports that depth."
     - "Include organ system, tissue, target, route, indication, or application context only when biologically/medically sensible."
     - "Separate usage classification from chemical taxonomy."
@@ -44,6 +47,8 @@ contract:
     - "Identify the entity and its plausible use domains."
     - "Populate the LCB exposure summary with yes/no/unavailable flags and up to three typical examples per positive category."
     - "Score and rank supported positive usage applications or exposure origins by current commonness, sorted descending and truncated to requested top N when specified."
+    - "Search for commonness proxies such as prevalence, utilization, adoption, prescribing, marketed/label status, testing frequency, biomonitoring, toxicology screening, metabolomics panel use, or wastewater epidemiology before marking commonness unavailable."
+    - "Separate usage evidence from commonness evidence; mark commonness unavailable only after targeted searches document a use but still do not reveal prevalence, proxy, or current adoption evidence."
     - "Use recency/currentness evidence to distinguish current prevalence from historical existence."
     - "Use web-search for non-trivial current usage/commonness tasks before final output, and avoid model-prior evidence for high-confidence, current, or commonness-score claims."
     - "Use evidence or mark inference clearly."
@@ -59,8 +64,11 @@ contract:
   verification:
     requiredEvidence:
       - "Usage domain and confidence are stated."
-      - "LCB exposure-origin categories are marked yes, no, or unavailable with evidence/caveats."
+      - "LCB exposure-origin categories are marked yes, no, or unavailable with separate evidence and caveat values."
       - "Usage applications or exposure origins have evidence-backed commonness scores/labels or unavailable when unsupported."
+      - "Usage and commonness tables separate Evidence/Commonness evidence from Caveat and do not leave required cells blank."
+      - "Medical and metabolomics usage/commonness claims are checked against PubMed/NCBI, DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI, FDA/DailyMed, metabolomics resources, or equivalent authoritative evidence when available."
+      - "Positive usage scenarios are searched for current commonness/proxy evidence before commonness is marked unavailable."
       - "Current/commonness claims are not backed only by model-prior evidence and include current/recent source metadata when scored as current."
       - "Commonness scores account for current prevalence and recency/currentness evidence, not just historical existence."
       - "Unsupported levels are omitted or marked unavailable."
@@ -77,4 +85,4 @@ contract:
       - "Commonness ranking and score"
       - "Confidence"
       - "Usage tree up to six levels"
-      - "Evidence/caveats"
+      - "Separate evidence and caveats"

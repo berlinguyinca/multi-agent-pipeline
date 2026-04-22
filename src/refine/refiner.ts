@@ -27,9 +27,13 @@ export interface RefineResult {
   score: SocraticScore;
   questionsAsked: string[];
   questionDetails: RefineQuestion[];
+  successQuestionsAsked: string[];
+  successQuestionDetails: RefineQuestion[];
   assumptions: string[];
+  successCriteria: string[];
   recommendedCapabilities: RefineCapabilityRecommendation[];
   answers: string[];
+  successAnswers: string[];
   outputPath?: string;
 }
 
@@ -37,6 +41,7 @@ export interface RefineOptions {
   prompt: string;
   headless?: boolean;
   answers?: string[];
+  successAnswers?: string[];
   questionDetails?: RefineQuestion[];
   outputPath?: string;
 }
@@ -89,6 +94,10 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
   const questions = questionDetails.map((entry) => entry.question);
   const assumptions = buildAssumptions(questions);
   const answers = normalizeAnswers(options.answers, questions.length);
+  const successQuestionDetails = buildSuccessQuestionDetails(options.prompt, questionDetails, answers);
+  const successQuestions = successQuestionDetails.map((entry) => entry.question);
+  const successAnswers = normalizeAnswers(options.successAnswers, successQuestions.length);
+  const successCriteria = buildSuccessCriteria(options.prompt, answers, successAnswers);
   const recommendedCapabilities = recommendCapabilities(options.prompt);
   const refinedPrompt = [
     '# Refined MAP Prompt',
@@ -118,8 +127,26 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
           '',
         ]
       : []),
+    '## Follow-up success questions',
+    ...successQuestionDetails.flatMap((entry, index) => [
+      `${index + 1}. ${entry.question}`,
+      ...(entry.reason ? [`   Why it matters: ${entry.reason}`] : []),
+      ...(entry.defaultAssumption ? [`   Default if unanswered: ${entry.defaultAssumption}`] : []),
+    ]),
+    '',
+    ...(successAnswers.length > 0
+      ? [
+          '## Follow-up success answers',
+          ...successAnswers.map((answer, index) => `${index + 1}. ${successQuestions[index] ?? `Success question ${index + 1}`}
+   Answer: ${answer}`),
+          '',
+        ]
+      : []),
+    '## Definition of done',
+    ...successCriteria.map((criterion) => `- ${criterion}`),
+    '',
     '## Optimized prompt',
-    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities, questions, answers),
+    buildOptimizedPrompt(options.prompt, assumptions, recommendedCapabilities, questions, answers, successCriteria),
   ].join('\n');
 
   return {
@@ -138,9 +165,13 @@ export function refinePromptHeadless(options: RefineOptions): RefineResult {
     },
     questionsAsked: questions,
     questionDetails,
+    successQuestionsAsked: successQuestions,
+    successQuestionDetails,
     assumptions,
+    successCriteria,
     recommendedCapabilities,
     answers,
+    successAnswers,
     ...(options.outputPath ? { outputPath: options.outputPath } : {}),
   };
 }
@@ -151,6 +182,7 @@ function buildOptimizedPrompt(
   capabilities: RefineCapabilityRecommendation[],
   questions: string[] = [],
   answers: string[] = [],
+  successCriteria: string[] = [],
 ): string {
   return [
     prompt.trim(),
@@ -162,6 +194,13 @@ function buildOptimizedPrompt(
           '',
           'Use these user-provided answers:',
           ...answers.map((answer, index) => `- ${questions[index] ?? `Question ${index + 1}`}: ${answer}`),
+        ]
+      : []),
+    ...(successCriteria.length > 0
+      ? [
+          '',
+          'Use this definition of done:',
+          ...successCriteria.map((criterion) => `- ${criterion}`),
         ]
       : []),
     ...(capabilities.length > 0
@@ -200,6 +239,69 @@ function normalizeAnswers(answers: string[] | undefined, questionCount: number):
     .filter(Boolean);
 }
 
+function buildSuccessQuestionDetails(
+  prompt: string,
+  questionDetails: RefineQuestion[],
+  answers: string[],
+): RefineQuestion[] {
+  const subject = summarizeTaskSubject(prompt);
+  const clarification = summarizeClarifications(questionDetails, answers);
+  const clarificationPhrase = clarification ? ` given: ${clarification}` : '';
+  return [
+    {
+      question: `For ${subject}, what 2-3 concrete outcomes define done${clarificationPhrase}?`,
+      reason: 'MAP needs explicit success conditions so planning, QA, and release-readiness agents can judge completion instead of guessing.',
+      defaultAssumption: `Treat the requested ${subject} artifact as done only when it exists, matches the clarified constraints, and is usable by the intended audience.`,
+    },
+    {
+      question: `What verification evidence should prove ${subject} works end-to-end${clarificationPhrase}?`,
+      reason: 'Verification requirements turn “done” into observable tests, commands, files, reports, or evidence checks.',
+      defaultAssumption: defaultVerificationAssumption(prompt),
+    },
+  ];
+}
+
+function buildSuccessCriteria(prompt: string, answers: string[], successAnswers: string[]): string[] {
+  if (successAnswers.length > 0) return successAnswers;
+  const subject = summarizeTaskSubject(prompt);
+  const clarification = answers.join('; ');
+  return [
+    `The requested ${subject} artifact is produced and matches the clarified constraints${clarification ? ` (${clarification})` : ''}.`,
+    defaultVerificationAssumption(prompt),
+  ];
+}
+
+function summarizeTaskSubject(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, ' ').trim();
+  if (/\bpubchem\b/i.test(compact)) return 'PubChem task';
+  if (/\bhmdb\b/i.test(compact)) return 'HMDB task';
+  if (/\bmetabolomics workbench\b/i.test(compact)) return 'Metabolomics Workbench task';
+  return compact.length > 90 ? `${compact.slice(0, 87).trimEnd()}...` : compact || 'this task';
+}
+
+function summarizeClarifications(questionDetails: RefineQuestion[], answers: string[]): string {
+  return answers
+    .map((answer, index) => {
+      const question = questionDetails[index]?.question;
+      return question ? `${question} ${answer}` : answer;
+    })
+    .join('; ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 240)
+    .trim();
+}
+
+function defaultVerificationAssumption(prompt: string): string {
+  const text = prompt.toLowerCase();
+  if (isSoftwareDevelopmentRequest(text)) {
+    return 'Relevant tests pass, a sample or fixture run succeeds, and generated outputs contain actual non-empty data when the task creates files or records.';
+  }
+  if (isChemicalTaxonomyUsageRequest(text)) {
+    return 'The output contains only the requested taxonomy/usage tables and graph plot; every table cell is populated; medical/metabolomics usage and commonness claims are fact-checked against PubMed/NCBI, DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI, FDA/DailyMed, metabolomics resources, or equivalent authoritative evidence; web-search findings are reviewed as leads by at least three distinct verification perspectives when available; usage evidence is separated from caveats and from commonness evidence, with commonness marked unavailable when prevalence/adoption evidence is missing.';
+  }
+  return 'Relevant evidence, tests, or review checks are run and their passing results are reported before completion.';
+}
+
 function recommendCapabilities(prompt: string): RefineCapabilityRecommendation[] {
   const text = prompt.toLowerCase();
   const capabilities: RefineCapabilityRecommendation[] = [];
@@ -219,6 +321,13 @@ function recommendCapabilities(prompt: string): RefineCapabilityRecommendation[]
 
 function isPubChemSoftwareSyncRequest(text: string): boolean {
   return /\bpubchem\b/.test(text) && isSoftwareDevelopmentRequest(text);
+}
+
+function isChemicalTaxonomyUsageRequest(text: string): boolean {
+  return /\b(classification|taxonomy|classyfire|chemont)\b/.test(text) &&
+    /\b(usage|usages|use|uses|medical|metabolomics|lcb|exposure)\b/.test(text) &&
+    /\b(report|table|tables|graph|plot|xls|customer|classification tree|usage tree)\b/.test(text) &&
+    !isSoftwareDevelopmentRequest(text);
 }
 
 function isSoftwareDevelopmentRequest(text: string): boolean {

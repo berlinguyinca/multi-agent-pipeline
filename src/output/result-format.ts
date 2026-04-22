@@ -1879,13 +1879,44 @@ function appendFactCheckVerification(data: Record<string, unknown>, final: strin
 }
 
 function normalizeUsageReportTables(markdown: string): string {
-  return normalizeUsageTreeRowIdentifiers(addMissingLcbRowsToCommonnessRanking(markdown));
+  return normalizeUsageTreeRowIdentifiers(addMissingLcbRowsToCommonnessRanking(fillEmptyUsageReportTableCells(markdown)));
 }
 
 interface LcbExposureRow {
   category: string;
   examples: string;
+  evidence: string;
   caveat: string;
+}
+
+function fillEmptyUsageReportTableCells(markdown: string): string {
+  const lines = markdown.split('\n');
+  const targetHeadings = [
+    /^##\s+LCB Exposure Summary\s*$/i,
+    /^##\s+Usage Commonness Ranking\s*$/i,
+    /^##\s+Usage Tree\s*$/i,
+  ];
+
+  for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
+    if (!targetHeadings.some((pattern) => pattern.test(lines[headingIndex]!.trim()))) continue;
+    const tableStart = findNextTableLine(lines, headingIndex + 1);
+    if (tableStart < 0 || tableStart + 1 >= lines.length || !isMarkdownSeparatorRow(lines[tableStart + 1]!)) continue;
+
+    const header = parseMarkdownTableCells(lines[tableStart]!);
+    if (header.length === 0) continue;
+    for (let index = tableStart + 2; index < lines.length; index += 1) {
+      const cells = parseMarkdownTableCells(lines[index]!);
+      if (cells.length === 0) break;
+      const normalized = [...cells];
+      while (normalized.length < header.length) normalized.push('unavailable');
+      for (let cellIndex = 0; cellIndex < normalized.length; cellIndex += 1) {
+        if (!normalized[cellIndex]?.trim()) normalized[cellIndex] = 'unavailable';
+      }
+      lines[index] = formatMarkdownTableRow(normalized);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function addMissingLcbRowsToCommonnessRanking(markdown: string): string {
@@ -1950,7 +1981,8 @@ function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
   const categoryIndex = header.findIndex((cell) => /category/i.test(cell));
   const applicableIndex = header.findIndex((cell) => /applicable|classification|yes/i.test(cell));
   const examplesIndex = header.findIndex((cell) => /example/i.test(cell));
-  const caveatIndex = header.findIndex((cell) => /evidence|caveat/i.test(cell));
+  const evidenceIndex = header.findIndex((cell) => /^evidence$/i.test(cell) || /^evidence\s*\/?\s*caveat$/i.test(cell));
+  const caveatIndex = header.findIndex((cell) => /^caveat$/i.test(cell) || /^evidence\s*\/?\s*caveat$/i.test(cell));
   if (categoryIndex < 0 || applicableIndex < 0) return [];
 
   const rows: LcbExposureRow[] = [];
@@ -1967,6 +1999,7 @@ function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
       rows.push({
         category,
         examples: scenario,
+        evidence: evidenceIndex >= 0 ? (cells[evidenceIndex] ?? '').trim() : '',
         caveat: caveatIndex >= 0 ? (cells[caveatIndex] ?? '').trim() : '',
       });
     }
@@ -1998,6 +2031,7 @@ function extractUsageTreeScenarioRows(markdown: string): LcbExposureRow[] {
     rows.push({
       category: inferUsageScenarioCategory(scenario),
       examples: scenario,
+      evidence: 'reported in Usage Tree',
       caveat: 'reported in Usage Tree',
     });
   }
@@ -2053,10 +2087,13 @@ function buildMissingCommonnessCells(options: {
     if (index >= 0) cells[index] = value;
   };
   const origin = meaningfulLcbValue(options.lcb.examples) ? options.lcb.examples : options.lcb.category;
-  const caveat = [
-    meaningfulLcbValue(options.lcb.caveat) ? options.lcb.caveat : '',
-    'reported usage scenario; commonness scoring evidence unavailable',
-  ].filter(Boolean).join('; ');
+  const evidence = meaningfulLcbValue(options.lcb.evidence)
+    ? options.lcb.evidence
+    : 'reported usage scenario';
+  const commonnessEvidence = `${evidence}; reported usage scenario; commonness scoring evidence unavailable`;
+  const caveat = meaningfulLcbValue(options.lcb.caveat)
+    ? `${options.lcb.caveat}; PubMed/DrugBank/source evidence may support usage without quantifying commonness`
+    : 'PubMed/DrugBank/source evidence may support usage without quantifying commonness';
 
   set(/^rank$/i, String(options.rank));
   set(/usage|application|exposure origin/i, origin);
@@ -2064,8 +2101,10 @@ function buildMissingCommonnessCells(options: {
   set(/commonness score/i, 'unavailable');
   set(/commonness label/i, 'unavailable');
   set(/timeframe/i, 'unavailable');
-  set(/recency|currentness/i, 'reported usage scenario; commonness scoring evidence unavailable');
-  set(/^evidence\s*\/?\s*caveat$/i, caveat);
+  set(/commonness evidence|recency|currentness/i, commonnessEvidence);
+  set(/^evidence$/i, evidence);
+  set(/^caveat$/i, caveat);
+  set(/^evidence\s*\/?\s*caveat$/i, `${commonnessEvidence}; ${caveat}`);
   return cells;
 }
 

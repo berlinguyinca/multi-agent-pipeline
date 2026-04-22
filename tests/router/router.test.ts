@@ -113,7 +113,10 @@ describe('routeTask', () => {
   });
 
 
-  it('drops prompt-refiner from plans when the task is already refined with answers', async () => {
+  it.each([
+    ['answers', '# Refined MAP Prompt\n\n## Answers provided\nFTP bulk dumps'],
+    ['definition of done', '# Refined MAP Prompt\n\n## Definition of done\n- 1000 non-empty Markdown records exist'],
+  ])('drops prompt-refiner from plans when the task is already refined with %s', async (_case, refinedPrompt) => {
     const localAgents = new Map<string, AgentDefinition>(agents);
     localAgents.set('prompt-refiner', {
       name: 'prompt-refiner',
@@ -154,7 +157,7 @@ describe('routeTask', () => {
     });
 
     const result = await routeTask(
-      '# Refined MAP Prompt\n\n## Answers provided\nFTP bulk dumps',
+      refinedPrompt,
       localAgents,
       mockAdapter(json),
       routerConfig,
@@ -212,6 +215,17 @@ describe('routeTask', () => {
     if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
     expect(result.plan.plan.map((step) => step.agent)).toEqual(['software-delivery', 'coder']);
     expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([]);
+  });
+
+  it('preserves explicit final markers from router plans', async () => {
+    const result = await routeTask('Build final report then update knowledge', agents, mockAdapter(JSON.stringify({
+      kind: 'plan',
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Build final report', dependsOn: [], final: true }],
+    })), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan[0]).toMatchObject({ final: true });
   });
 
   it('parses a multi-agent plan', async () => {
@@ -653,6 +667,10 @@ describe('routeTask', () => {
       'usage-classification-tree',
     ]);
     expect(result.plan.plan[1]?.task).toContain('Call web-search before the final answer');
+    expect(result.plan.plan[1]?.task).toContain('DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL');
+    expect(result.plan.plan[1]?.task).toContain('Populate every table cell');
+    expect(result.plan.plan[1]?.task).toContain('separate Evidence/Commonness evidence from Caveat columns');
+    expect(result.plan.plan[1]?.task).toContain('cite concrete database/regulatory/publication records as proof whenever available');
   });
 
 

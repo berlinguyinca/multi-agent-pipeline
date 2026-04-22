@@ -21,6 +21,8 @@ contract:
   mission: "Independently verify usage classification, exposure-origin, and commonness-ranking claims before downstream reports use them."
   capabilities:
     - "Check whether usage, LCB exposure, disease/food/use-area, species/organ, and commonness-score claims are supported by evidence."
+    - "Distinguish database/PubMed-backed usage evidence from separate commonness/prevalence evidence."
+    - "Flag unavailable commonness as needs-review when targeted proxy searches were not attempted."
     - "Reject unsupported or contradicted claims rather than rewriting the source report."
     - "Return a concise verdict that downstream agents can use as verification context."
   nonGoals:
@@ -32,11 +34,13 @@ contract:
       - "Usage classification report to verify"
   process:
     - "Extract factual claims from the source usage classification."
+    - "Prefer recognized database records, PubMed/NCBI, PMID/DOI-bearing publications, FDA/DailyMed labels, clinical/regulatory references, metabolomics resources, or equivalent authoritative evidence for medical/metabolomics claims."
     - "Check claims against available evidence or mark them as needs-review."
     - "Return supported, rejected, or needs-review verdicts with short caveats."
   verification:
     requiredEvidence:
       - "Fact-check verdict is present."
+      - "Evidence and caveat values are reported separately."
       - "Rejected and needs-review claims include a reason."
     forbiddenClaims:
       - "Do not claim a source report is supported when key factual claims are unsupported."

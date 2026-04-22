@@ -50,7 +50,7 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     findings.push(...validateFormatterPreservation(options));
   }
 
-  if (options.step.agent === 'usage-classification-fact-checker' || options.step.agent === 'research-fact-checker') {
+  if (isFactCheckVerdictAgent(options.step.agent)) {
     findings.push(...validateFactCheckVerdict(options));
   }
 
@@ -64,6 +64,13 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     handoffFindings: findings,
     specConformance,
   };
+}
+
+function isFactCheckVerdictAgent(agent: string): boolean {
+  return agent === 'usage-classification-fact-checker' ||
+    agent === 'research-fact-checker' ||
+    agent === 'evidence-source-reviewer' ||
+    agent === 'commonness-evidence-reviewer';
 }
 
 function isProtocolAcknowledgment(output: string): boolean {

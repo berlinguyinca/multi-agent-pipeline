@@ -169,7 +169,7 @@ function buildDomainFallbackDecision(
     plan.push({
       id: `step-${plan.length + 1}`,
       agent: 'usage-classification-tree',
-      task: `Generate concise evidence-backed usage, exposure, and commonness tables for the entity and context in this user request: ${requestContext}. Restrict the ranking to the requested medical and metabolomics context; do not rank broad illicit/recreational prevalence unless the user explicitly asks for it. Call web-search before the final answer using a query that covers current medical topical/local anesthetic use, toxicology/metabolomics biomarkers, and current prevalence evidence; include retrievedAt metadata for URL evidence, and do not assign commonnessScore >=65 unless retrieved current/recent prevalence or widespread-use evidence directly supports it. When in doubt, keep scores at 60 or below or mark unavailable.`,
+      task: `Generate concise evidence-backed usage, exposure, and commonness tables for the entity and context in this user request: ${requestContext}. Restrict the ranking to the requested medical and metabolomics context; do not rank broad illicit/recreational prevalence unless the user explicitly asks for it. Call web-search before the final answer using a query that covers DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL, MeSH/NCBI, PubMed/NCBI, FDA/DailyMed, current medical topical/local anesthetic use, toxicology/metabolomics biomarkers, and current prevalence/commonness evidence; include retrievedAt metadata for URL evidence. Do not stop after one broad search: run targeted searches for commonness/proxy evidence such as prevalence, utilization, adoption, prescribing, marketed/label status, testing frequency, biomonitoring, toxicology screening, metabolomics panel use, or wastewater epidemiology before marking positive scenarios unavailable. Populate every table cell, separate Evidence/Commonness evidence from Caveat columns, and cite concrete database/regulatory/publication records as proof whenever available. Treat usage evidence as insufficient for commonness when it does not quantify current prevalence, utilization, adoption, or testing frequency. Do not assign commonnessScore >=65 unless retrieved current/recent prevalence or widespread-use evidence directly supports it. When in doubt, keep scores at 60 or below or mark unavailable.`,
       dependsOn: taxonomyStepId ? [taxonomyStepId] : [],
     });
   }
@@ -774,7 +774,10 @@ function isAlreadyRefinedPrompt(userTask: string): boolean {
   const task = userTask.toLowerCase();
   return task.includes('# refined map prompt') ||
     task.includes('## answers provided') ||
+    task.includes('## definition of done') ||
+    task.includes('## follow-up success answers') ||
     task.includes('use these user-provided answers') ||
+    task.includes('use this definition of done') ||
     task.includes('questionsasked') ||
     task.includes('"mode":"refine"') ||
     task.includes('"mode": "refine"');
@@ -1056,6 +1059,7 @@ function normalizePlanSteps(plan: unknown[]): DAGPlan['plan'] {
       agent,
       task,
       dependsOn,
+      ...(obj['final'] === true ? { final: true } : {}),
     };
   });
 }

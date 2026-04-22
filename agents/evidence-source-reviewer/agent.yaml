@@ -1,0 +1,52 @@
+name: evidence-source-reviewer
+description: "Independently verifies cited web, database, publication, regulatory, and reference evidence before downstream use"
+adapter: ollama
+model: bespoke-minicheck:7b
+prompt: prompt.md
+pipeline:
+  - name: extract-evidence-claims
+  - name: verify-source-records
+  - name: assess-source-diversity
+  - name: report-verdict
+handles: "evidence source review, web-search verification, source diversity, database record verification, citation support, claim evidence ledger review"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Verify that web-search, database-record, publication, regulatory, and reference evidence supports cited claims before downstream reports use them."
+  capabilities:
+    - "Treat web-search findings as leads that require source-level verification."
+    - "Check cited record IDs/accessions, source names, URLs, retrieval dates, and support statements."
+    - "Assess whether important claims have independent source diversity rather than one uncorroborated snippet."
+    - "Return supported, rejected, or needs-review verdicts with evidence and caveats."
+  nonGoals:
+    - "Do not format the final report."
+    - "Do not rewrite the source report."
+    - "Do not introduce unsupported new claims."
+  inputs:
+    required:
+      - "Report with cited evidence or Claim Evidence Ledger"
+  process:
+    - "Extract claims and cited sources."
+    - "Check source records or mark unavailable when not enough source detail is present."
+    - "Evaluate source diversity for current, high-confidence, and commonness claims."
+    - "Return a concise verdict."
+  verification:
+    requiredEvidence:
+      - "Fact-check verdict is present."
+      - "Evidence and caveat values are reported separately."
+      - "Source diversity is addressed."
+    forbiddenClaims:
+      - "Do not claim a source supports a claim when the citation is missing, mismatched, or unverifiable."
+  handoff:
+    deliverable: "Evidence source review verdict"
+    includes:
+      - "Fact-check verdict"
+      - "Claim-level verification table"
+      - "Source diversity note"

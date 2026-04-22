@@ -1332,6 +1332,75 @@ Exceptions are allowed only for explicitly requested binary or media artifacts.`
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
+  it('persists goal and project knowledge agent outputs under outputDir/knowledge', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-knowledge-'));
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+      constructor(readonly type: AdapterConfig['type']) {}
+      async detect() { return { installed: true }; }
+      async *run(prompt: string): AsyncGenerator<string, void, void> {
+        if (prompt.includes('You are a task router')) {
+          yield JSON.stringify({
+            kind: 'plan',
+            plan: [
+              { id: 'step-1', agent: 'goal-synthesizer', task: 'Synthesize goal', dependsOn: [], final: true },
+              { id: 'step-2', agent: 'project-knowledge-curator', task: 'Update project memory', dependsOn: ['step-1'] },
+            ],
+          });
+          return;
+        }
+        if (prompt.includes('Goal Synthesizer Agent')) {
+          yield '# Goal Understanding\n\n## Definition of done\n- [ ] Working CLI exists';
+          return;
+        }
+        if (prompt.includes('Project Knowledge Curator Agent')) {
+          yield '# Project Knowledge Update\n\n## New confirmed knowledge\n- Goal memory exists.';
+          return;
+        }
+        yield 'Fallback output';
+      }
+      cancel() {}
+    }
+
+    const result = await runHeadlessV2(
+      { prompt: 'Build a tested CLI', outputDir },
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir,
+          router: {
+            adapter: 'ollama',
+            model: 'gemma4',
+            maxSteps: 10,
+            timeoutMs: 30_000,
+            stepTimeoutMs: 30_000,
+            maxStepRetries: 0,
+            retryDelayMs: 0,
+          },
+          agentOverrides: {},
+          adapterDefaults: {},
+          agentCreation: { adapter: 'ollama', model: 'gemma4' },
+          evidence: { enabled: true, mode: 'strict', requiredAgents: [], currentClaimMaxSourceAgeDays: 730, freshnessProfiles: {}, requireRetrievedAtForWebClaims: true, blockUnsupportedCurrentClaims: true, remediationMaxRetries: 0 },
+          security: { enabled: false, maxRemediationRetries: 0, adapter: 'ollama', model: 'gemma4', staticPatternsEnabled: false, llmReviewEnabled: false },
+        }),
+        detectAllAdaptersFn: async () => ({ claude: { installed: true }, codex: { installed: true }, ollama: { installed: true, models: [] } }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+      },
+    );
+
+    expect(result.markdownFiles).toEqual(expect.arrayContaining([
+      path.join(outputDir, 'knowledge', 'goal.md'),
+      path.join(outputDir, 'knowledge', 'progress-log.md'),
+    ]));
+    await expect(fs.readFile(path.join(outputDir, 'knowledge', 'goal.md'), 'utf8'))
+      .resolves.toContain('Working CLI exists');
+    await expect(fs.readFile(path.join(outputDir, 'knowledge', 'progress-log.md'), 'utf8'))
+      .resolves.toContain('Goal memory exists');
+
+    await fs.rm(outputDir, { recursive: true, force: true });
+  });
+
 
   it('emphasizes workspace-relative file writes when workspaceDir differs from outputDir', async () => {
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-v2-output-'));

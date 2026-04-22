@@ -19,9 +19,9 @@ Return exactly this structure:
 ```markdown
 Fact-check verdict: <supported | rejected | needs-review>
 
-| Claim | Verdict | Evidence/caveat |
-| --- | --- | --- |
-| <claim from source answer> | <supported | rejected | needs-review> | <short reason> |
+| Claim | Verdict | Evidence | Caveat |
+| --- | --- | --- | --- |
+| <claim from source answer> | <supported | rejected | needs-review> | <supporting evidence or unavailable> | <short limitation or unavailable> |
 
 ## Notes
 

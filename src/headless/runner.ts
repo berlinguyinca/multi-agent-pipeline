@@ -76,6 +76,7 @@ import {
   saveStageMarkdown,
   saveStepMarkdown,
 } from '../output/markdown-artifacts.js';
+import { saveTaskKnowledgeArtifacts } from '../output/knowledge-artifacts.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -1377,6 +1378,7 @@ export async function runHeadlessV2(
         }),
       );
     }
+    markdownFiles.push(...await saveTaskKnowledgeArtifacts({ outputDir, steps: dagResult.steps, pipelineId }));
     const finalStep = selectFinalCompletedStep(dagResult.plan, dagResult.steps);
     markdownFiles.push(
       await saveFinalReportMarkdown({

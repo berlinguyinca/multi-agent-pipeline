@@ -166,9 +166,19 @@ describe('buildRouterPrompt', () => {
   });
 
   it('tells the router not to schedule prompt-refiner for already refined prompts', () => {
-    const prompt = buildRouterPrompt(new Map(), '# Refined MAP Prompt\n\n## Answers provided\nFTP', 5);
+    const prompt = buildRouterPrompt(new Map(), '# Refined MAP Prompt\n\n## Definition of done\n- Tests pass', 5);
     expect(prompt).toContain('do not route through prompt-refiner again');
+    expect(prompt).toContain('Definition of done');
     expect(prompt).toContain('Treat refinement as complete');
+  });
+
+  it('tells the router to use goal and knowledge agents around software delivery when available', () => {
+    const prompt = buildRouterPrompt(new Map(), 'Build a tested CLI', 5);
+
+    expect(prompt).toContain('goal-synthesizer');
+    expect(prompt).toContain('project-knowledge-curator');
+    expect(prompt).toContain('outputDir/knowledge');
+    expect(prompt).toContain('final:true');
   });
 
 });

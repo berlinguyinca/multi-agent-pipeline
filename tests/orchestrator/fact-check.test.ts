@@ -117,7 +117,7 @@ describe('maybeScheduleFactCheck', () => {
     expect(plan.plan).toHaveLength(1);
     expect(reporter.agentDecision).toHaveBeenCalledWith(expect.objectContaining({
       by: 'step-1 [usage-classification-tree]',
-      agent: 'usage-classification-fact-checker',
+      agent: 'usage-classification-fact-checker,evidence-source-reviewer,commonness-evidence-reviewer',
       decision: 'not-needed',
       reason: expect.stringContaining('evidence gate passed cleanly'),
     }));

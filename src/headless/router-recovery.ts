@@ -209,37 +209,48 @@ function buildSoftwareLifecycleFallbackPlan(
 
   const plan: DAGPlan['plan'] = [];
   const requestContext = JSON.stringify(userTask.replace(/\s+/g, ' ').trim().slice(0, 1200));
-  const add = (agent: string, task: string, dependsOn: string[]): void => {
-    if (!agents.has(agent)) return;
-    plan.push({ id: `step-${plan.length + 1}`, agent, task, dependsOn });
+  const add = (agent: string, task: string, dependsOn: string[], final = false): string | undefined => {
+    if (!agents.has(agent)) return undefined;
+    const id = `step-${plan.length + 1}`;
+    plan.push({ id, agent, task, dependsOn, ...(final ? { final: true } : {}) });
+    return id;
   };
 
-  add(
-    'spec-writer',
-    `Create an implementation-ready specification from this original request: ${requestContext}. Router recovery reason: ${decision.reason}. Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
+  const goalStepId = add(
+    'goal-synthesizer',
+    `Synthesize the project goal, non-goals, assumptions, and definition of done from this original request: ${requestContext}. Use local knowledge first and web search only when current external behavior matters. Produce goal memory for the spec, implementation, QA, docs, and readiness agents.`,
     [],
   );
-  add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria. Surface concrete blockers and missing verification requirements.', ['step-1']);
-  add('spec-writer', 'Revise the specification to resolve all concrete blockers identified by spec QA. Preserve valid prior content, close missing acceptance criteria, and make the spec implementation-ready without returning protocol prose.', ['step-2']);
+  const initialSpecStepId = add(
+    'spec-writer',
+    `Create an implementation-ready specification from this original request: ${requestContext}. Router recovery reason: ${decision.reason}. Incorporate goal-synthesizer memory when present. Do not return a protocol acknowledgment; produce concrete requirements, acceptance criteria, and verification notes.`,
+    goalStepId ? [goalStepId] : [],
+  );
+  if (!initialSpecStepId) return null;
+  const specQaStepId = add('spec-qa-reviewer', 'Review the specification for ambiguity, testability, edge cases, and missing acceptance criteria. Surface concrete blockers and missing verification requirements.', [initialSpecStepId]);
+  if (!specQaStepId) return null;
+  const revisedSpecStepId = add('spec-writer', 'Revise the specification to resolve all concrete blockers identified by spec QA. Preserve valid prior content, close missing acceptance criteria, and make the spec implementation-ready without returning protocol prose.', [specQaStepId]);
+  if (!revisedSpecStepId) return null;
   let qaStepId = '';
   if (hasImplementationCoder) {
-    add('implementation-coder', 'Execute the full spec-to-code lifecycle from the revised spec for this prompt-specific downloader/tool request, incorporating the spec QA findings as required constraints. Write focused tests, implement the smallest coherent change, and document usage. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.', ['step-3']);
-    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. End with the Structured QA Verdict JSON.', ['step-4']);
-    qaStepId = 'step-5';
+    const implementationStepId = add('implementation-coder', 'Execute the full spec-to-code lifecycle from the revised spec for this prompt-specific downloader/tool request, incorporating the goal memory, spec QA findings, and definition of done as required constraints. Write focused tests, implement the smallest coherent change, and document usage. For downloader/conversion results, write actual data into generated result artifacts and verify they are not empty placeholders. Do not return a protocol acknowledgment; edit files, run the relevant test command, and use isolated Docker-backed services instead of host databases when needed.', [revisedSpecStepId]);
+    if (!implementationStepId) return null;
+    const qaId = add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the goal memory, revised spec, definition of done, and spec QA blockers. End with the Structured QA Verdict JSON.', [implementationStepId]);
+    if (!qaId) return null;
+    qaStepId = qaId;
   } else {
-    add('coder', 'Execute the full spec-to-code lifecycle from the revised spec, incorporating the spec QA findings as required constraints. Use strict TDD, isolated test services, implementation, and documentation. Do not return a protocol acknowledgment; create files, run tests, and report verification evidence.', ['step-3']);
-    add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the revised spec plus spec QA blockers. End with the Structured QA Verdict JSON.', ['step-4']);
-    qaStepId = 'step-5';
+    const coderStepId = add('coder', 'Execute the full spec-to-code lifecycle from the revised spec, incorporating the goal memory, spec QA findings, and definition of done as required constraints. Use strict TDD, isolated test services, implementation, and documentation. For downloader/conversion results, write actual data into generated result artifacts and verify they are not empty placeholders. Do not return a protocol acknowledgment; create files, run tests, and report verification evidence.', [revisedSpecStepId]);
+    if (!coderStepId) return null;
+    const qaId = add('code-qa-analyst', 'Review implementation correctness, test adequacy, isolated service usage, and conformance to the goal memory, revised spec, definition of done, and spec QA blockers. End with the Structured QA Verdict JSON.', [coderStepId]);
+    if (!qaId) return null;
+    qaStepId = qaId;
   }
-  add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', [qaStepId]);
-  const legalStepId = `step-${plan.findIndex((step) => step.agent === 'legal-license-advisor') + 1}`;
-  add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [agents.has('legal-license-advisor') ? legalStepId : qaStepId]);
-  const readinessDependency = agents.has('docs-maintainer')
-    ? `step-${plan.findIndex((step) => step.agent === 'docs-maintainer') + 1}`
-    : agents.has('legal-license-advisor')
-      ? legalStepId
-      : qaStepId;
-  add('release-readiness-reviewer', 'Assess final readiness, verification evidence, residual risk, and handoff status.', [readinessDependency]);
+  const legalStepId = add('legal-license-advisor', 'Recommend compatible license options from language and dependency evidence after implementation QA.', [qaStepId]);
+  const docsDependency = legalStepId ?? qaStepId;
+  const docsStepId = add('docs-maintainer', 'Update README usage documentation and license coverage after verified implementation and license recommendation.', [docsDependency]);
+  const readinessDependency = docsStepId ?? legalStepId ?? qaStepId;
+  const readinessStepId = add('release-readiness-reviewer', 'Assess final readiness, verification evidence, residual risk, and handoff status against the goal memory and definition of done.', [readinessDependency], true) ?? readinessDependency;
+  add('project-knowledge-curator', 'Update outputDir/knowledge project memory with the goal, assumptions, key decisions, code/artifact facts, verification evidence, and any goal drift from this completed software lifecycle.', [readinessStepId]);
 
   return { plan };
 }
