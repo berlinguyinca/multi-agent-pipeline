@@ -145,6 +145,71 @@ describe('VerboseReporter', () => {
     expect(line).toContain('5 steps');
   });
 
+  it('uses distinct colors for different agents and step ids', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.dagStepStart('step-1', 'implementation-coder', 'Implement');
+    colorReporter.dagStepStart('step-2', 'legal-license-advisor', 'Recommend licenses');
+
+    const output = colorWriter.output.join('');
+    const implementationColor = output.match(/\x1b\[([0-9;]+)mimplementation-coder\x1b\[0m/)?.[1];
+    const legalColor = output.match(/\x1b\[([0-9;]+)mlegal-license-advisor\x1b\[0m/)?.[1];
+    const stepOneColor = output.match(/\x1b\[([0-9;]+)mstep-1\x1b\[0m/)?.[1];
+    const stepTwoColor = output.match(/\x1b\[([0-9;]+)mstep-2\x1b\[0m/)?.[1];
+
+    expect(implementationColor).toBeDefined();
+    expect(legalColor).toBeDefined();
+    expect(implementationColor).not.toBe(legalColor);
+    expect(stepOneColor).toBeDefined();
+    expect(stepTwoColor).toBeDefined();
+    expect(stepOneColor).not.toBe(stepTwoColor);
+  });
+
+  it('colorizes agent decisions, agents, and verdicts when color is supported', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.agentDecision({
+      by: 'router',
+      agent: 'implementation-coder',
+      decision: 'selected',
+      reason: 'best fit for code changes',
+    });
+    colorReporter.dagStepStart('step-1', 'implementation-coder', 'Implement the fix');
+    colorReporter.crossReviewDecision({
+      stepId: 'step-1',
+      gate: 'fileOutputs',
+      decision: 'revise',
+      round: 1,
+      reason: 'missing test',
+    });
+
+    const output = colorWriter.output.join('');
+    expect(output).toContain('\x1b[');
+    expect(output).toMatch(/\x1b\[[0-9;]+mimplementation-coder\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[[0-9;]+mselected\x1b\[0m/);
+    expect(output).toMatch(/decision=\x1b\[[0-9;]+mrevise\x1b\[0m/);
+  });
+
+  it('renders failures as red with an indented why line', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.dagStepFailed('step-9', 'code-qa-analyst', 'missing implementation artifacts\nsecondary detail');
+
+    const output = colorWriter.output.join('');
+    expect(output).toMatch(/\x1b\[31m✘\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[31mfailed\x1b\[0m/);
+    expect(output).toContain('  ');
+    expect(output).toContain('↳ Why:');
+    expect(output).toContain('missing implementation artifacts');
+    expect(output).not.toContain('secondary detail');
+  });
+
   it('logs agent routing and helper decisions', () => {
     reporter.agentDecision({
       by: 'router',
@@ -236,10 +301,58 @@ describe('VerboseReporter', () => {
     expect(line).toBeDefined();
   });
 
-  it('logs DAG step failed', () => {
-    reporter.dagStepFailed('s2', 'tester', 'timeout');
+  it('logs DAG step failed with an indented one-line reason', () => {
+    reporter.dagStepFailed('s2', 'tester', 'timeout\nfull stack trace');
     const line = writer.output.find((s) => s.includes('Step s2') && s.includes('failed'));
-    expect(line).toContain('timeout');
+    expect(line).toContain('↳ Why: timeout');
+    expect(line).not.toContain('full stack trace');
+  });
+
+  it('prints every failure helper as red headline plus indented one-line reason', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.stageFailed('execute', 'adapter crashed\nstack');
+    colorReporter.modelPreparationFailed('gemma4', 'pull failed\nmore detail');
+    colorReporter.dagRecoveryUnavailable({ stepId: 'step-7', failureKind: 'evidence', reason: 'round limit reached\nsecondary' });
+    colorReporter.securityGateFailed('step-8', 0);
+
+    const failures = colorWriter.output.filter((line) => line.includes('\x1b[31m'));
+    expect(failures.join('')).toContain('Execution');
+    expect(failures.join('')).toContain('Could not prepare Ollama model');
+    expect(failures.join('')).toContain('Cannot recover');
+    expect(failures.join('')).toContain('Security gate failed');
+    for (const line of failures) {
+      expect(line).toMatch(/\x1b\[31m/);
+      expect(line).toContain('↳ Why:');
+    }
+    expect(colorWriter.output.join('')).not.toContain('more detail');
+    expect(colorWriter.output.join('')).not.toContain('secondary');
+  });
+
+  it('logs security gate findings with red headline and indented details', () => {
+    const colorWriter = createTestWriter();
+    colorWriter.supportsColor = true;
+    const colorReporter = new VerboseReporter(colorWriter);
+
+    colorReporter.securityGateFailed('step-1', 1, [{
+      rule: 'dangerous-shell',
+      severity: 'high',
+      message: 'Command downloads and executes remote script without verification',
+      line: 12,
+      snippet: 'curl https://example.test/install.sh | bash',
+    }]);
+
+    const output = colorWriter.output.join('');
+    expect(output).toMatch(/\x1b\[31m✘\x1b\[0m/);
+    expect(output).toMatch(/\x1b\[31mSecurity gate failed\x1b\[0m/);
+    expect(output).toContain('  \x1b[33m↳ Finding 1:');
+    expect(output).toContain('high');
+    expect(output).toContain('dangerous-shell');
+    expect(output).toContain('Command downloads and executes remote script without verification');
+    expect(output).toContain('line 12');
+    expect(output).toContain('curl https://example.test/install.sh | bash');
   });
 
   it('logs DAG step skipped', () => {

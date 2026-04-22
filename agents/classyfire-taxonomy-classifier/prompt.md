@@ -18,6 +18,8 @@ Use ClassyFire/ChemOnt concepts, cached knowledge, trusted public references, or
 - Never use `sourceType: "model-prior"` for high-confidence taxonomy claims. For structural inference, use `sourceType: "knowledge"` or `"document"` and explain the structural basis; if only model memory is available, downgrade confidence to medium or low.
 - Use plain-text chemical formulas, e.g. C3H7NO2, CH3, NH2, COOH.
 - Do not use LaTeX unless explicitly requested.
+- For chemistry prose, never write `$...$`, `\text{}`, `\mathrm{}`, `_`, `^`, braces around formula fragments, or Greek-letter commands such as `\alpha`. Write alpha-amino acid, NH2, COOH, CH3, and C3H7NO2 in plain text.
+- Before finalizing, inspect the entire answer, including Notes and JSON summaries, and rewrite any chemistry notation into plain text.
 
 ## Output Format
 
@@ -80,3 +82,4 @@ Provide JSON evidence for each chemical taxonomy claim:
 - Do not finish with high-confidence taxonomy claims backed only by model-prior evidence; use document/knowledge evidence or downgrade confidence.
 - If Level 5-7 are unknown, write `unavailable` or omit with a caveat if the requested format allows it.
 - Do not mix usage classification, anatomical targets, drug indications, or biological roles into the ChemOnt taxonomy tree.
+- Do not output LaTeX or Markdown math for chemical groups, formulas, or Greek-letter chemistry terms.

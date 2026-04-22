@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { AgentAdapter, AdapterConfig } from '../types/adapter.js';
 import type { AgentDefinition } from '../types/agent-definition.js';
 import type { AdapterDefaultsMap, AgentConsensusConfig, CrossReviewConfig, EvidenceConfig } from '../types/config.js';
-import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, StepResult, StepStatus } from '../types/dag.js';
+import type { CrossReviewLedger, CrossReviewParticipant, DAGPlan, DAGStep, HandoffFinding, StepResult, StepStatus } from '../types/dag.js';
 import { getReadySteps } from '../types/dag.js';
 import { createToolRegistry } from '../tools/registry.js';
 import { injectToolCatalog } from '../tools/inject.js';
@@ -16,7 +16,7 @@ import { shouldGateStep } from '../security/should-gate.js';
 import { isAbortError } from '../utils/error.js';
 import { recordLearningCandidate } from '../knowledge/index.js';
 import { normalizeTerminalText } from '../utils/terminal-text.js';
-import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent } from '../adviser/workflow.js';
+import { applyAdviserWorkflow, parseAdviserWorkflow, type AdviserReplanEvent, type AdviserWorkflowPayload } from '../adviser/workflow.js';
 import { maybeScheduleGrammarReview } from './grammar-review.js';
 import { maybeScheduleFactCheck } from './fact-check.js';
 import { appendSecurityRemediationContext, buildSecurityRemediationContext } from './security-remediation.js';
@@ -68,11 +68,15 @@ export interface DAGRetryOptions {
   agentConsensus?: AgentConsensusConfig;
   evidence?: EvidenceConfig;
   crossReview?: CrossReviewConfig;
+  qaRepairMaxRounds?: number;
   localModelConcurrency?: number;
 }
 
-const MAX_TOOL_CALLS = 4;
+const DEFAULT_MAX_TOOL_CALLS = 4;
+const FILE_OUTPUT_MAX_TOOL_CALLS = 12;
+const TDD_ENGINEER_MAX_TOOL_CALLS = 4;
 const MAX_RECOVERY_ROUNDS = 2;
+const DEFAULT_QA_REPAIR_ROUNDS = 3;
 const DEFAULT_STEP_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STEP_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 3_000;
@@ -99,6 +103,71 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+
+const CODE_QA_PANEL_AGENTS = ['code-qa-gemma', 'code-qa-qwen', 'code-qa-glm'];
+
+function hasCodeQaPanel(agents: Map<string, AgentDefinition>): boolean {
+  return CODE_QA_PANEL_AGENTS.every((agent) => agents.has(agent)) && agents.has('code-qa-analyst');
+}
+
+function expandCodeQaPanel(plan: DAGPlan, agents: Map<string, AgentDefinition>): DAGPlan {
+  const panelAgents = CODE_QA_PANEL_AGENTS;
+  if (!hasCodeQaPanel(agents)) return plan;
+  const expanded: DAGStep[] = [];
+  const existingIds = new Set(plan.plan.map((step) => step.id));
+  for (const step of plan.plan) {
+    if (step.agent !== 'code-qa-analyst' || isCrossReviewHelperStep(step) || step.parentStepId) {
+      expanded.push(step);
+      continue;
+    }
+    const panelSteps = panelAgents.map((agent) => ({
+      id: nextPanelStepId(step.id, agent, existingIds),
+      agent,
+      task: buildIndependentQaPanelTask(step),
+      dependsOn: [...step.dependsOn],
+    }));
+    for (const panelStep of panelSteps) existingIds.add(panelStep.id);
+    expanded.push(...panelSteps);
+    expanded.push({
+      ...step,
+      task: buildQaConsensusTask(step),
+      dependsOn: panelSteps.map((panelStep) => panelStep.id),
+    });
+  }
+  return { plan: expanded };
+}
+
+function nextPanelStepId(stepId: string, agent: string, existingIds: Set<string>): string {
+  const suffix = agent.replace(/^code-qa-/, 'qa-');
+  const base = `${stepId}-${suffix}`;
+  if (!existingIds.has(base)) return base;
+  for (let index = 1; ; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!existingIds.has(candidate)) return candidate;
+  }
+}
+
+function buildIndependentQaPanelTask(step: DAGStep): string {
+  return [
+    `Independent QA review for downstream QA step ${step.id}.`,
+    `Original QA task: ${step.task}`,
+    'Review the implementation artifacts, tests, generated files, and prior step evidence independently from the other QA models.',
+    'You must end with a structured JSON verdict block: {"verdict":"accept|revise|reject","blockingFindings":[],"verificationRequired":[]}.',
+    'Use accept only when there are no critical/high/medium blockers and test evidence is adequate.',
+  ].join('\n');
+}
+
+function buildQaConsensusTask(step: DAGStep): string {
+  return [
+    `Synthesize the three independent QA model verdicts for ${step.id}.`,
+    `Original QA task: ${step.task}`,
+    'The previous context contains verdicts from Gemma, Qwen, and GLM/Kimi-slot QA agents.',
+    'Accept only if all three independent QA agents accept and local artifact/test evidence is also acceptable.',
+    'If any model returns revise or reject, return revise/reject with combined actionable findings for the developer repair loop.',
+    'End with the Structured QA Verdict JSON shape: {"verdict":"accept|revise|reject","blockingFindings":[],"verificationRequired":[]}.',
+  ].join('\n');
+}
+
 export async function executeDAG(
   plan: DAGPlan,
   agents: Map<string, AgentDefinition>,
@@ -109,9 +178,9 @@ export async function executeDAG(
   onOutputChunk?: (stepId: string, chunk: string) => void,
   retry?: DAGRetryOptions,
 ): Promise<DAGExecutionResult> {
-  const mutablePlan: DAGPlan = {
+  const mutablePlan: DAGPlan = expandCodeQaPanel({
     plan: plan.plan.map((step) => ({ ...step, dependsOn: [...step.dependsOn] })),
-  };
+  }, agents);
   const configuredMaxRetries = retry?.maxStepRetries;
   const maxRetries = configuredMaxRetries ?? DEFAULT_MAX_STEP_RETRIES;
   const retryDelayMs = retry?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -200,7 +269,7 @@ export async function executeDAG(
         let lastError: string | undefined;
         let attempts = 0;
         let stepTimedOut = false;
-        let timeoutMsForAttempt = Math.max(stepTimeoutMs, adaptiveTimeouts.get(step.agent) ?? 0);
+        let timeoutMsForAttempt = Math.max(stepTimeoutMsForAgent(agent, stepTimeoutMs), adaptiveTimeouts.get(step.agent) ?? 0);
         let sawTimeoutBeforeSuccess = false;
         let errorRetries = 0;
         let securityRemediationRetries = 0;
@@ -209,6 +278,11 @@ export async function executeDAG(
         let evidenceRemediationContext: string | undefined;
         let fileOutputRemediationRetries = 0;
         let fileOutputRemediationContext: string | undefined;
+        let duplicateToolRemediationRetries = 0;
+        let duplicateToolRemediationContext: string | undefined;
+        const stepWorkspaceBefore = agent.output.type === 'files'
+          ? await captureWorkspaceSnapshot(workingDir)
+          : null;
 
         while (true) {
           if (signal?.aborted) break;
@@ -220,6 +294,8 @@ export async function executeDAG(
             await delay(retryDelayMs, signal);
             if (signal?.aborted) break;
           }
+
+          let workspaceBefore: WorkspaceSnapshot | null = null;
 
           try {
             const baseContext = buildStepContext(step.task, step.dependsOn, results);
@@ -236,6 +312,9 @@ export async function executeDAG(
             const fullContext = fileOutputRemediationContext
               ? `${evidenceAwareContext}\n\n${fileOutputRemediationContext}`
               : evidenceAwareContext;
+            const progressAwareContext = duplicateToolRemediationContext
+              ? `${fullContext}\n\n${duplicateToolRemediationContext}`
+              : fullContext;
 
             const configs: AdapterConfig[] = [
               { type: stepAdapter, model: stepModel },
@@ -252,6 +331,7 @@ export async function executeDAG(
             // local-model responses can keep running while they stream output.
             const stepController = new AbortController();
             let stepTimer: ReturnType<typeof setTimeout> | undefined;
+            let hardStepTimer: ReturnType<typeof setTimeout> | undefined;
             const abortFromParent = () => stepController.abort();
             signal?.addEventListener('abort', abortFromParent, { once: true });
             const consensusConfig = resolveAgentConsensus(agent, agentConsensus);
@@ -259,6 +339,13 @@ export async function executeDAG(
             const currentBaseTimeoutMs = timeoutMsForAttempt;
             const currentTimeoutMs =
               currentBaseTimeoutMs * (fileConsensusConfig?.runs ?? consensusConfig?.runs ?? 1);
+            const hardTimeoutMs = hardStepTimeoutMsForAgent(agent);
+            if (hardTimeoutMs !== null) {
+              hardStepTimer = setTimeout(() => {
+                stepTimedOut = true;
+                stepController.abort();
+              }, hardTimeoutMs);
+            }
             const armStepTimer = () => {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
               if (currentTimeoutMs <= 0) return;
@@ -273,15 +360,16 @@ export async function executeDAG(
             const resolvedThink = agent.think ?? adapterDefaults?.[stepAdapter]?.think;
             const resolvedTemperature = adapterDefaults?.[stepAdapter]?.temperature;
             const resolvedSeed = adapterDefaults?.[stepAdapter]?.seed;
-            const workspaceBefore = agent.output.type === 'files'
+            workspaceBefore = agent.output.type === 'files'
               ? await captureWorkspaceSnapshot(workingDir)
               : null;
             const runOnce = (candidateWorkingDir: string, seedOffset = 0) => {
               const tools = createToolRegistry(agent, candidateWorkingDir);
-              const context = injectToolCatalog(fullContext, tools, agent.prompt);
+              const context = injectToolCatalog(progressAwareContext, tools, agent.prompt);
               return runStepWithTools({
                 context,
                 tools,
+                maxToolCalls: maxToolCallsForAgent(agent),
                 configs,
                 createAdapter,
                 stepId: step.id,
@@ -328,11 +416,13 @@ export async function executeDAG(
               }
             } finally {
               if (stepTimer !== undefined) clearTimeout(stepTimer);
+              if (hardStepTimer !== undefined) clearTimeout(hardStepTimer);
               signal?.removeEventListener('abort', abortFromParent);
             }
 
-            const changedFiles = workspaceBefore
-              ? await diffWorkspaceSnapshot(workingDir, workspaceBefore)
+            const snapshotForChangedFiles = stepWorkspaceBefore ?? workspaceBefore;
+            const changedFiles = snapshotForChangedFiles
+              ? await diffWorkspaceSnapshot(workingDir, snapshotForChangedFiles)
               : [];
             const duration = Date.now() - startedAt;
             if (sawTimeoutBeforeSuccess && currentBaseTimeoutMs > (adaptiveTimeouts.get(step.agent) ?? 0)) {
@@ -387,7 +477,7 @@ export async function executeDAG(
                   securityResult.findings,
                   output,
                 );
-                reporter?.securityGateFailed(step.id, securityResult.findings.length);
+                reporter?.securityGateFailed(step.id, securityResult.findings.length, securityResult.findings);
 
                 if (securityRemediationRetries < security.config.maxRemediationRetries) {
                   securityRemediationRetries += 1;
@@ -463,17 +553,56 @@ export async function executeDAG(
               fileOutputRemediationContext = buildFileOutputRemediationContext(step, result);
               continue;
             }
-            result.handoffPassed = handoffValidation.handoffPassed;
-            result.handoffFindings = handoffValidation.handoffFindings;
+            if (shouldRetryDuplicateToolLoop(result, handoffValidation) && duplicateToolRemediationRetries < 1) {
+              duplicateToolRemediationRetries += 1;
+              lastError = 'step repeated an identical successful tool call without producing substantive output';
+              duplicateToolRemediationContext = buildDuplicateToolLoopRemediationContext(step, result);
+              continue;
+            }
+            let effectiveHandoffPassed = handoffValidation.handoffPassed;
+            let effectiveHandoffFindings = handoffValidation.handoffFindings;
+            if (shouldPreserveDuplicateToolLoopFileArtifacts(result, handoffValidation)) {
+              const changedFiles = result.filesCreated ?? [];
+              result.output = buildToolLoopPartialFileOutput(
+                step,
+                changedFiles,
+                'repeated identical successful tool call without producing substantive output',
+              );
+              effectiveHandoffPassed = true;
+              effectiveHandoffFindings = handoffValidation.handoffFindings.filter(
+                (finding) => !finding.message.includes('identical successful tool call'),
+              );
+            }
+            result.handoffPassed = effectiveHandoffPassed;
+            result.handoffFindings = effectiveHandoffFindings;
             result.specConformance = handoffValidation.specConformance;
 
             results.set(step.id, result);
-            if (!handoffValidation.handoffPassed) {
-              result.status = 'failed';
+            if (!effectiveHandoffPassed) {
               result.error = handoffValidation.handoffFindings
                 .filter((finding) => finding.severity === 'high')
                 .map((finding) => finding.message)
                 .join('; ') || 'Handoff validation failed';
+              if (shouldDecomposeFailedFileOutput(step, result)) {
+                result.status = 'completed';
+                completed.add(step.id);
+                settled.add(step.id);
+                maybeScheduleNoDiffDecomposition({
+                  step,
+                  result,
+                  plan: mutablePlan,
+                  allIds,
+                  agents,
+                  results,
+                  settled,
+                  reporter,
+                });
+                reporter?.dagStepOutput(step.id, step.agent, result.output ?? result.error ?? '');
+                reporter?.dagStepComplete(step.id, step.agent, duration);
+                lastError = undefined;
+                break;
+              }
+              result.status = 'failed';
               failed.add(step.id);
               settled.add(step.id);
               reporter?.dagStepFailed(step.id, step.agent, result.error);
@@ -548,6 +677,18 @@ export async function executeDAG(
               crossReviewRounds,
               reporter,
             });
+            maybeScheduleCodeQaRepair({
+              step,
+              result,
+              plan: mutablePlan,
+              allIds,
+              agents,
+              results,
+              settled,
+              failed,
+              maxRounds: retry?.qaRepairMaxRounds ?? DEFAULT_QA_REPAIR_ROUNDS,
+              reporter,
+            });
             maybeScheduleNoDiffDecomposition({
               step,
               result,
@@ -604,6 +745,33 @@ export async function executeDAG(
               : (configuredMaxRetries ?? 0);
             if (!isRetryable(err) || errorRetries >= retryBudget) {
               const duration = Date.now() - startedAt;
+              const snapshotForFailureChanges = stepWorkspaceBefore ?? workspaceBefore;
+              if (agent.output.type === 'files' && isPreservableFileOutputRuntimeFailure(lastError) && snapshotForFailureChanges) {
+                const changedFiles = await diffWorkspaceSnapshot(workingDir, snapshotForFailureChanges);
+                if (changedFiles.length > 0) {
+                  const partialResult: StepResult = {
+                    id: step.id,
+                    agent: step.agent,
+                    provider: stepAdapter,
+                    model: stepModel,
+                    task: step.task,
+                    dependsOn: [...step.dependsOn],
+                    status: 'completed',
+                    outputType: agent.output.type,
+                    output: buildToolLoopPartialFileOutput(step, changedFiles, lastError),
+                    duration,
+                    attempts,
+                    filesCreated: changedFiles,
+                  };
+                  results.set(step.id, partialResult);
+                  completed.add(step.id);
+                  settled.add(step.id);
+                  reporter?.dagStepOutput(step.id, step.agent, partialResult.output ?? '');
+                  reporter?.dagStepComplete(step.id, step.agent, duration);
+                  lastError = undefined;
+                  break;
+                }
+              }
               const baseFailure: StepResult = {
                 id: step.id,
                 agent: step.agent,
@@ -691,6 +859,30 @@ export async function executeDAG(
 }
 
 
+
+function isToolLoopExceeded(error: string | undefined): boolean {
+  return /Tool loop exceeded \d+ rounds/.test(error ?? '');
+}
+
+function isPreservableFileOutputRuntimeFailure(error: string | undefined): boolean {
+  const message = error ?? '';
+  return isToolLoopExceeded(message) || /timed out|Operation aborted|Step timed out/i.test(message);
+}
+
+function buildToolLoopPartialFileOutput(step: DAGStep, changedFiles: string[], error: string | undefined): string {
+  return [
+    'File-output agent reached its tool-call limit after modifying the workspace.',
+    `Original step: ${step.id}`,
+    `Original task: ${step.task}`,
+    `Tool-loop condition: ${error ?? 'tool-call limit reached'}`,
+    '',
+    'Changed files detected:',
+    ...changedFiles.map((file) => `- ${file}`),
+    '',
+    'Continuing with these file artifacts so downstream implementation or QA can evaluate and repair them instead of discarding the work.',
+  ].join('\n');
+}
+
 function shouldRetryEmptyFileOutput(
   agent: AgentDefinition,
   result: StepResult,
@@ -703,12 +895,51 @@ function shouldRetryEmptyFileOutput(
   );
 }
 
+
+function shouldPreserveDuplicateToolLoopFileArtifacts(
+  result: StepResult,
+  handoffValidation: ReturnType<typeof validateStepHandoff>,
+): boolean {
+  if ((result.filesCreated?.length ?? 0) === 0) return false;
+  if (!result.output?.includes('already returned the same successful result for identical parameters')) return false;
+  return handoffValidation.handoffFindings.some((finding) =>
+    finding.severity === 'high' && finding.message.includes('identical successful tool call'),
+  );
+}
+
+function shouldRetryDuplicateToolLoop(
+  result: StepResult,
+  handoffValidation: ReturnType<typeof validateStepHandoff>,
+): boolean {
+  if (!result.output?.includes('already returned the same successful result for identical parameters')) return false;
+  return handoffValidation.handoffFindings.some((finding) =>
+    finding.severity === 'high' && finding.message.includes('identical successful tool call'),
+  );
+}
+
 function buildFileOutputRemediationContext(step: DAGStep, result: StepResult): string {
   return [
     '--- File-Output Remediation Required ---',
     'Your previous file-output response was empty or did not provide usable file evidence.',
     'You must create or modify files in the workspace using the available tools, then report changed files and verification evidence.',
     'If you are blocked from editing files, return a concrete blocker with the exact missing information, command failure, or missing authority.',
+    '',
+    `Original step: ${step.id}`,
+    `Original task: ${step.task}`,
+    '',
+    'Previous output:',
+    result.output?.trim() || '(empty)',
+  ].join('\n');
+}
+
+function buildDuplicateToolLoopRemediationContext(step: DAGStep, result: StepResult): string {
+  return [
+    '--- No-Progress Tool Loop Remediation Required ---',
+    'Your previous response repeated a tool call that had already succeeded with identical parameters.',
+    'This remediation overrides any first-response inspection rule in the agent prompt.',
+    'Do not repeat the same tool call again, especially not the same workspace inspection/listing command.',
+    'Either use the previous tool result to produce the final answer, or make a different tool call that materially advances the task.',
+    'If you are a file-output agent, you must create or modify files in the workspace before claiming success; for a greenfield workspace, create the minimal project files immediately with shell heredocs.',
     '',
     `Original step: ${step.id}`,
     `Original task: ${step.task}`,
@@ -760,11 +991,41 @@ interface AdviserWorkflowOptions {
   reporter?: VerboseReporter;
 }
 
+
+function normalizeDecompositionAdviserWorkflow(
+  adviserStepId: string,
+  workflow: AdviserWorkflowPayload,
+): AdviserWorkflowPayload {
+  if (!adviserStepId.includes('-decompose-')) return workflow;
+  const hasImplementationLane = workflow.plan.some((step) =>
+    ['implementation-coder', 'coder', 'software-delivery', 'build-fixer'].includes(step.agent),
+  );
+  if (!hasImplementationLane) return workflow;
+
+  const removedTddIds = new Set(workflow.plan
+    .filter((step) => step.agent === 'tdd-engineer')
+    .map((step) => step.id));
+  if (removedTddIds.size === 0) return workflow;
+
+  const normalizedPlan = workflow.plan
+    .filter((step) => !removedTddIds.has(step.id))
+    .map((step) => ({
+      ...step,
+      dependsOn: [...new Set(step.dependsOn.map((dep) => removedTddIds.has(dep) ? adviserStepId : dep))],
+    }));
+
+  return {
+    ...workflow,
+    plan: normalizedPlan,
+  };
+}
+
 async function maybeApplyAdviserWorkflow(
   options: AdviserWorkflowOptions,
 ): Promise<AdviserReplanEvent | null> {
-  const workflow = parseAdviserWorkflow(options.output);
-  if (!workflow) return null;
+  const parsedWorkflow = parseAdviserWorkflow(options.output);
+  if (!parsedWorkflow) return null;
+  const workflow = normalizeDecompositionAdviserWorkflow(options.adviserStepId, parsedWorkflow);
 
   const refreshedAgents =
     workflow.refreshAgents && options.refreshAgents
@@ -837,13 +1098,32 @@ interface NoDiffDecompositionOptions {
   reporter?: VerboseReporter;
 }
 
+
+function isNoProgressDecompositionFinding(agent: string, finding: HandoffFinding): boolean {
+  if (finding.severity === 'high' && (
+    finding.message.includes('file-output step completed without usable output or file evidence') ||
+    finding.message.includes('identical successful tool call')
+  )) {
+    return true;
+  }
+  return agent !== 'implementation-coder' && finding.message.includes('workspace file changes');
+}
+
+function shouldDecomposeFailedFileOutput(step: DAGStep, result: StepResult): boolean {
+  if (!requiresDecompositionForNoDiff(step.agent)) return false;
+  if (result.outputType !== 'files') return false;
+  return result.handoffFindings?.some((finding) =>
+    isNoProgressDecompositionFinding(step.agent, finding),
+  ) ?? false;
+}
+
 function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): void {
   if (!options.agents.has('adviser')) return;
   if (!requiresDecompositionForNoDiff(options.step.agent)) return;
-  const hasNoDiffFinding = options.result.handoffFindings?.some((finding) =>
-    finding.message.includes('workspace file changes'),
+  const hasDecompositionFinding = options.result.handoffFindings?.some((finding) =>
+    isNoProgressDecompositionFinding(options.step.agent, finding),
   ) ?? false;
-  if (!hasNoDiffFinding) return;
+  if (!hasDecompositionFinding) return;
   const decomposeId = nextAvailableRuntimeId(`${options.step.id}-decompose`, options.allIds);
   const decomposeStep: DAGStep = {
     id: decomposeId,
@@ -875,7 +1155,7 @@ function maybeScheduleNoDiffDecomposition(options: NoDiffDecompositionOptions): 
 }
 
 function requiresDecompositionForNoDiff(agent: string): boolean {
-  return new Set(['software-delivery', 'tdd-engineer']).has(agent);
+  return new Set(['software-delivery', 'tdd-engineer', 'implementation-coder']).has(agent);
 }
 
 function buildNoDiffDecompositionTask(step: DAGStep, result: StepResult): string {
@@ -884,9 +1164,9 @@ function buildNoDiffDecompositionTask(step: DAGStep, result: StepResult): string
     `Original agent: ${step.agent}`,
     `Original task: ${step.task}`,
     '',
-    'Decompose the remaining implementation into bounded file-scoped tasks using only registered agents.',
+    'Return ONLY adviser-workflow JSON that decomposes the remaining implementation into bounded file-scoped tasks using registered agents.',
     'Prefer test authoring, focused implementation slices, verification, then docs/QA.',
-    'If returning adviser-workflow JSON, use exact registered agent names only.',
+    'Use exact registered agent names only and make every dependency executable.',
     'Do not invent implementation-engineer or qa-engineer agents.',
     '',
     'Previous output:',
@@ -1250,6 +1530,285 @@ function contentDependencyForJudgeStep(
   return judgeStep.dependsOn.find((dep) => dep !== reviewStepId) ?? null;
 }
 
+interface CodeQaRepairOptions {
+  step: DAGStep;
+  result: StepResult;
+  plan: DAGPlan;
+  allIds: Set<string>;
+  agents: Map<string, AgentDefinition>;
+  results: Map<string, StepResult>;
+  settled: Set<string>;
+  failed: Set<string>;
+  maxRounds: number;
+  reporter?: VerboseReporter;
+}
+
+interface CodeQaVerdict {
+  verdict: 'accept' | 'revise' | 'reject';
+  blockingFindings: string[];
+  verificationRequired: string[];
+}
+
+function isCodeQaConsensusAgent(agent: string): boolean {
+  return agent === 'code-qa-analyst';
+}
+
+function maybeScheduleCodeQaRepair(options: CodeQaRepairOptions): boolean {
+  if (!isCodeQaConsensusAgent(options.step.agent)) return false;
+  if (isCrossReviewHelperStep(options.step)) return false;
+  if (options.result.status !== 'completed') return false;
+
+  const verdict = parseCodeQaVerdict(options.result.output ?? '');
+  if (!verdict || verdict.verdict === 'accept') return false;
+
+  const rootId = options.step.parentStepId ?? options.step.id;
+  const round = nextCodeQaRepairRound(options.plan, rootId);
+  const reason = `Code QA verdict ${verdict.verdict} requires developer repair.`;
+
+  if (round > options.maxRounds) {
+    options.result.status = 'failed';
+    options.result.error = `${reason} QA repair round limit (${options.maxRounds}) was reached.`;
+    options.result.failureKind = 'test';
+    options.results.set(options.step.id, options.result);
+    options.failed.add(options.step.id);
+    options.reporter?.dagStepFailed(options.step.id, options.step.agent, options.result.error);
+    return true;
+  }
+
+  const developerStep = findDeveloperStepForQa(options.step, options.plan, options.agents);
+  if (!developerStep) {
+    options.result.status = 'failed';
+    options.result.error = `${reason} No upstream file-output developer step was found.`;
+    options.result.failureKind = 'test';
+    options.results.set(options.step.id, options.result);
+    options.failed.add(options.step.id);
+    options.reporter?.dagStepFailed(options.step.id, options.step.agent, options.result.error);
+    return true;
+  }
+
+  const fixId = `${rootId}-fix-${round}`;
+  const retryId = `${rootId}-retry-${round}`;
+  if (options.allIds.has(fixId) || options.allIds.has(retryId)) return false;
+
+  const fixTask = buildCodeQaFixTask({
+    qaStep: options.step,
+    developerStep,
+    verdict,
+    qaOutput: options.result.output ?? '',
+  });
+  const retryTask = buildCodeQaRetryTask(options.step, fixId);
+  const fixStep: DAGStep = {
+    id: fixId,
+    agent: developerStep.agent,
+    task: fixTask,
+    dependsOn: [...new Set([options.step.id, ...developerStep.dependsOn])],
+    parentStepId: rootId,
+  };
+  const retryPanelSteps: DAGStep[] = hasCodeQaPanel(options.agents)
+    ? CODE_QA_PANEL_AGENTS.map((agent) => ({
+        id: nextPanelStepId(retryId, agent, options.allIds),
+        agent,
+        task: buildIndependentQaPanelTask({ ...options.step, id: retryId, task: retryTask }),
+        dependsOn: [fixId],
+        parentStepId: rootId,
+      }))
+    : [];
+  const retryStep: DAGStep = {
+    id: retryId,
+    agent: options.step.agent,
+    task: retryTask,
+    dependsOn: retryPanelSteps.length > 0 ? retryPanelSteps.map((step) => step.id) : [fixId],
+    parentStepId: rootId,
+  };
+
+  insertAfter(options.plan, options.step.id, [fixStep, ...retryPanelSteps, retryStep]);
+  options.allIds.add(fixId);
+  for (const panelStep of retryPanelSteps) options.allIds.add(panelStep.id);
+  options.allIds.add(retryId);
+  for (const candidate of options.plan.plan) {
+    if (candidate.id === options.step.id || candidate.id === fixId || candidate.id === retryId || options.settled.has(candidate.id)) {
+      continue;
+    }
+    candidate.dependsOn = candidate.dependsOn.map((dep) => (dep === options.step.id ? retryId : dep));
+  }
+
+  options.result.status = 'failed';
+  options.result.error = reason;
+  options.result.failureKind = 'test';
+  options.result.replacementStepId = retryId;
+  options.results.set(options.step.id, options.result);
+  options.results.set(fixId, {
+    id: fixId,
+    agent: fixStep.agent,
+    task: fixTask,
+    dependsOn: [...fixStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    spawnedByAgent: options.step.agent,
+    failureKind: 'test',
+  });
+  for (const panelStep of retryPanelSteps) {
+    options.results.set(panelStep.id, {
+      id: panelStep.id,
+      agent: panelStep.agent,
+      task: panelStep.task,
+      dependsOn: [...panelStep.dependsOn],
+      status: 'pending',
+      parentStepId: rootId,
+      edgeType: 'feedback',
+      spawnedByAgent: fixStep.agent,
+      failureKind: 'test',
+    });
+  }
+  options.results.set(retryId, {
+    id: retryId,
+    agent: retryStep.agent,
+    task: retryTask,
+    dependsOn: [...retryStep.dependsOn],
+    status: 'pending',
+    parentStepId: rootId,
+    edgeType: 'feedback',
+    spawnedByAgent: fixStep.agent,
+    failureKind: 'test',
+  });
+  options.reporter?.dagRecoveryScheduled?.({
+    failedStepId: options.step.id,
+    helperStepId: fixId,
+    helperAgent: fixStep.agent,
+    retryStepId: retryId,
+    failureKind: 'test',
+    reason,
+  });
+  return true;
+}
+
+function parseCodeQaVerdict(output: string): CodeQaVerdict | null {
+  const parsed = parseFirstJsonObjectLocal(output);
+  const rawVerdict = typeof parsed?.['verdict'] === 'string' ? parsed['verdict'].trim().toLowerCase() : '';
+  if (rawVerdict !== 'accept' && rawVerdict !== 'revise' && rawVerdict !== 'reject') {
+    return null;
+  }
+  return {
+    verdict: rawVerdict,
+    blockingFindings: normalizeQaFindingList(parsed?.['blockingFindings']),
+    verificationRequired: normalizeStringArray(parsed?.['verificationRequired']),
+  };
+}
+
+function normalizeQaFindingList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const record = item as Record<string, unknown>;
+      return [
+        record['severity'] ? `Severity: ${String(record['severity'])}` : '',
+        record['file'] ? `File: ${String(record['file'])}` : '',
+        record['issue'] ? `Issue: ${String(record['issue'])}` : '',
+        record['requiredFix'] ? `Required fix: ${String(record['requiredFix'])}` : '',
+      ].filter(Boolean).join(' | ');
+    })
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function parseFirstJsonObjectLocal(output: string): Record<string, unknown> | null {
+  for (let start = output.indexOf('{'); start !== -1; start = output.indexOf('{', start + 1)) {
+    for (let end = output.length; end > start; end -= 1) {
+      const candidate = output.slice(start, end).trim();
+      if (!candidate.endsWith('}')) continue;
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : null;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+function nextCodeQaRepairRound(plan: DAGPlan, rootId: string): number {
+  const prefix = `${rootId}-retry-`;
+  const existing = plan.plan
+    .map((step) => step.id)
+    .filter((id) => id.startsWith(prefix))
+    .map((id) => Number.parseInt(id.slice(prefix.length), 10))
+    .filter((round) => Number.isFinite(round));
+  return existing.length > 0 ? Math.max(...existing) + 1 : 1;
+}
+
+function findDeveloperStepForQa(
+  qaStep: DAGStep,
+  plan: DAGPlan,
+  agents: Map<string, AgentDefinition>,
+): DAGStep | null {
+  const visited = new Set<string>();
+  const queue = [...qaStep.dependsOn].reverse();
+  while (queue.length > 0) {
+    const depId = queue.shift()!;
+    if (visited.has(depId)) continue;
+    visited.add(depId);
+    const depStep = plan.plan.find((candidate) => candidate.id === depId);
+    if (!depStep) continue;
+    if (agents.get(depStep.agent)?.output.type === 'files') return depStep;
+    queue.push(...[...depStep.dependsOn].reverse());
+  }
+  return null;
+}
+
+function buildCodeQaFixTask(options: {
+  qaStep: DAGStep;
+  developerStep: DAGStep;
+  verdict: CodeQaVerdict;
+  qaOutput: string;
+}): string {
+  const findings = options.verdict.blockingFindings.length > 0
+    ? options.verdict.blockingFindings.map((finding) => `- ${finding}`).join('\n')
+    : '- QA requested revision but did not provide structured blocking findings. Read the QA output and fix the concrete blocker.';
+  const verification = options.verdict.verificationRequired.length > 0
+    ? options.verdict.verificationRequired.map((command) => `- ${command}`).join('\n')
+    : '- Run the most relevant tests/build checks for the files you change.';
+  return [
+    'Fix implementation issues found by code QA.',
+    '',
+    `Original developer step: ${options.developerStep.id} [${options.developerStep.agent}]`,
+    `QA step: ${options.qaStep.id}`,
+    `QA verdict: ${options.verdict.verdict}`,
+    '',
+    'Blocking findings to fix:',
+    findings,
+    '',
+    'Verification required after the fix:',
+    verification,
+    '',
+    'Return changed files and verification evidence. Do not merely explain the fix.',
+    '',
+    'Full QA output:',
+    options.qaOutput.slice(0, 6_000),
+  ].join('\n');
+}
+
+function buildCodeQaRetryTask(step: DAGStep, fixId: string): string {
+  return [
+    'Re-run code QA after the developer repair step.',
+    '',
+    `Original QA step: ${step.id}`,
+    `Developer repair step: ${fixId}`,
+    '',
+    'Review the repaired implementation against the original requirements and previous blocking findings.',
+    'End with the Structured QA Verdict JSON block using verdict accept, revise, or reject.',
+  ].join('\n');
+}
+
 function crossReviewParticipant(
   role: CrossReviewParticipant['role'],
   agentName: string,
@@ -1483,6 +2042,7 @@ async function saveAdaptiveTimeouts(workingDir: string, timeouts: Map<string, nu
 interface RunStepWithToolsOptions {
   context: string;
   tools: ReturnType<typeof createToolRegistry>;
+  maxToolCalls: number;
   configs: AdapterConfig[];
   createAdapter: AdapterFactory;
   stepId: string;
@@ -1498,11 +2058,31 @@ interface RunStepWithToolsOptions {
   onProgress?: () => void;
 }
 
+
+
+
+function hardStepTimeoutMsForAgent(agent: AgentDefinition): number | null {
+  if (agent.name === 'tdd-engineer') return 60_000;
+  if (agent.name === 'software-delivery') return 120_000;
+  return null;
+}
+
+function stepTimeoutMsForAgent(agent: AgentDefinition, defaultTimeoutMs: number): number {
+  if (agent.name === 'software-delivery') return Math.min(defaultTimeoutMs, 60_000);
+  return defaultTimeoutMs;
+}
+
+function maxToolCallsForAgent(agent: AgentDefinition): number {
+  if (agent.name === 'tdd-engineer') return TDD_ENGINEER_MAX_TOOL_CALLS;
+  return agent.output.type === 'files' ? FILE_OUTPUT_MAX_TOOL_CALLS : DEFAULT_MAX_TOOL_CALLS;
+}
+
 async function runStepWithTools(options: RunStepWithToolsOptions): Promise<string> {
   let prompt = options.context;
   const successfulToolResults = new Map<string, string>();
+  const duplicateToolCalls = new Map<string, number>();
 
-  for (let toolRound = 0; toolRound <= MAX_TOOL_CALLS; toolRound += 1) {
+  for (let toolRound = 0; toolRound <= options.maxToolCalls; toolRound += 1) {
     const output = await runWithFailover(options.configs, options.createAdapter, async (adapter) => {
       options.activeAdapters.add(adapter);
       try {
@@ -1545,6 +2125,28 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
     const toolCallKey = stableToolCallKey(toolCall);
     const previousSuccessfulOutput = successfulToolResults.get(toolCallKey);
     if (previousSuccessfulOutput !== undefined) {
+      const duplicateCount = (duplicateToolCalls.get(toolCallKey) ?? 0) + 1;
+      duplicateToolCalls.set(toolCallKey, duplicateCount);
+      if (options.maxToolCalls > DEFAULT_MAX_TOOL_CALLS && duplicateCount <= 2) {
+        prompt = [
+          options.context,
+          '',
+          '--- Repeated tool call blocked ---',
+          output,
+          '',
+          `Tool execution result for ${toolCall.tool}:`,
+          previousSuccessfulOutput,
+          '',
+          'You already executed this exact tool call successfully.',
+          'This overrides any first-response inspection rule in the agent prompt.',
+          'Do not repeat it.',
+          'Do not repeat the same inspection/listing/read command again.',
+          'For this file-output task, your next response must either:',
+          '- emit a different tool call that materially advances the task, preferably writing/editing files now (for greenfield workspaces use shell heredocs such as cat > package.json <<\'EOF\'), or',
+          '- return the final answer that names changed files and verification evidence.',
+        ].join('\n');
+        continue;
+      }
       return [
         `Tool ${toolCall.tool} already returned the same successful result for identical parameters.`,
         'Returning that result instead of repeating the tool call.',
@@ -1574,7 +2176,7 @@ async function runStepWithTools(options: RunStepWithToolsOptions): Promise<strin
     ].join('\n');
   }
 
-  throw new Error(`Tool loop exceeded ${MAX_TOOL_CALLS} rounds`);
+  throw new Error(`Tool loop exceeded ${options.maxToolCalls} rounds`);
 }
 
 
@@ -1612,13 +2214,33 @@ function extractToolCall(output: string): { tool: string; params: Record<string,
     };
   }
 
+  const malformedShell = parseMalformedShellToolCall(fenced);
+  if (malformedShell) return malformedShell;
+
   return null;
+}
+
+function parseMalformedShellToolCall(text: string): { tool: string; params: Record<string, unknown> } | null {
+  if (!/"tool"\s*:\s*"shell"/.test(text)) return null;
+  const match = text.match(/^[\s\S]*"params"\s*:\s*\{[\s\S]*"command"\s*:\s*"([\s\S]*)"\s*\}\s*\}\s*$/);
+  if (!match) return null;
+  const command = match[1]!
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+  if (command.trim().length === 0) return null;
+  return { tool: 'shell', params: { command } };
 }
 
 function parseToolCallCandidate(candidate: string): { tool?: unknown; params?: unknown } | null {
   try {
     return JSON.parse(candidate) as { tool?: unknown; params?: unknown };
   } catch {
+    if (/"tool"\s*:\s*"shell"/.test(candidate) && /"command"\s*:/.test(candidate)) {
+      return null;
+    }
     try {
       return JSON.parse(candidate.replace(/[\r\n]+/g, ' ')) as { tool?: unknown; params?: unknown };
     } catch {
@@ -1671,7 +2293,7 @@ function sliceJsonObjects(text: string): string[] {
 
 type WorkspaceSnapshot = Map<string, string>;
 
-const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', '.map', '.worktrees']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', '.map', '.worktrees', 'venv', '.venv', '__pycache__', '.pytest_cache']);
 const MAX_SNAPSHOT_FILES = 20_000;
 
 async function captureWorkspaceSnapshot(rootDir: string): Promise<WorkspaceSnapshot> {

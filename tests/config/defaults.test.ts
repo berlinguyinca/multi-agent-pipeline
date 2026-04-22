@@ -59,6 +59,7 @@ describe('DEFAULT_CONFIG', () => {
       'researcher',
       'classyfire-taxonomy-classifier',
       'security-advisor',
+      'legal-license-advisor',
       'release-readiness-reviewer',
     ]);
     expect(DEFAULT_CONFIG.evidence.freshnessProfiles).toMatchObject({

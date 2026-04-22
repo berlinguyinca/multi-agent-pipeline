@@ -105,6 +105,71 @@ describe('Socratic prompt refiner', () => {
     expect(result.refinedPrompt).toContain('Answer for: What is the primary goal');
   });
 
+  it('adds follow-up success questions from existing clarifications', () => {
+    const result = refinePromptHeadless({
+      prompt: 'Build a PubChem sync tool that converts records to Markdown',
+      headless: true,
+      questionDetails: [
+        {
+          question: 'Which PubChem distribution source should be authoritative?',
+          reason: 'The source controls file layout and rate limits.',
+          defaultAssumption: 'Use FTP bulk dumps.',
+        },
+      ],
+      answers: ['Use FTP bulk dumps for compound and substance data.'],
+    });
+
+    expect(result.successQuestionsAsked.length).toBeGreaterThanOrEqual(2);
+    expect(result.successQuestionsAsked.join('\n')).toContain('PubChem');
+    expect(result.successQuestionsAsked.join('\n')).toContain('FTP bulk dumps');
+    expect(result.refinedPrompt).toContain('Follow-up success questions');
+    expect(result.refinedPrompt).toContain('Definition of done');
+    expect(result.refinedPrompt).toContain('Use FTP bulk dumps for compound and substance data.');
+  });
+
+  it('incorporates success follow-up answers into the definition of done', () => {
+    const result = refinePromptHeadless({
+      prompt: 'Build a HMDB downloader that converts metabolite records to Markdown',
+      headless: true,
+      answers: ['Use HMDB XML exports and write Markdown files.'],
+      successAnswers: [
+        'Done means 1000 non-empty Markdown records with HMDB accession, name, formula, and source fields.',
+        'Verification must run unit tests plus a fixture conversion command and inspect generated files.',
+      ],
+    });
+
+    expect(result.successAnswers).toHaveLength(2);
+    expect(result.successCriteria).toEqual(expect.arrayContaining([
+      expect.stringContaining('1000 non-empty Markdown records'),
+      expect.stringContaining('fixture conversion command'),
+    ]));
+    expect(result.refinedPrompt).toContain('Follow-up success answers');
+    expect(result.refinedPrompt).toContain('Done means 1000 non-empty Markdown records');
+    expect(result.refinedPrompt).toContain('Definition of done');
+    expect(result.refinedPrompt).toContain('Use this definition of done');
+  });
+
+  it('adds PubMed-backed done criteria for concise chemical taxonomy and usage reports', () => {
+    const result = refinePromptHeadless({
+      prompt: 'please provide a classification and taxonomy report for cocaine as well as usages for it on the medical and metabolomics field. Keep this short and assume this will presented to a customer inside a handful of XLS cells. Ensure that correctness is judged fairly and only report the output tables and the graph plot. Nothing else',
+      headless: true,
+    });
+
+    expect(result.successCriteria).toEqual(expect.arrayContaining([
+      expect.stringContaining('PubMed/NCBI'),
+    ]));
+    expect(result.successCriteria).toEqual(expect.arrayContaining([
+      expect.stringContaining('DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI'),
+    ]));
+    expect(result.refinedPrompt).toContain('every table cell is populated');
+    expect(result.refinedPrompt).toContain('at least three distinct verification perspectives');
+    expect(result.refinedPrompt).toContain('usage evidence is separated from caveats and from commonness evidence');
+    expect(result.recommendedCapabilities.map((capability) => capability.agent)).toEqual(expect.arrayContaining([
+      'classyfire-taxonomy-classifier',
+      'usage-classification-tree',
+    ]));
+  });
+
   it('does not recommend chemical classification agents for PubChem software sync requests', () => {
     const result = refinePromptHeadless({
       prompt: 'Develop local software to synchronize PubChem compound and substance files and convert them to Markdown',

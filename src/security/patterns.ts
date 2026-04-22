@@ -19,7 +19,7 @@ export function regexPattern(
     description,
     test(content: string): SecurityFinding[] {
       const findings: SecurityFinding[] = [];
-      const lines = content.split('\n');
+      const lines = content.split(/\r?\n/);
       for (let i = 0; i < lines.length; i++) {
         if (regex.test(lines[i])) {
           findings.push({
@@ -68,12 +68,44 @@ const commandInjection = regexPattern(
   /(?:exec|execSync|spawn|spawnSync)\s*\(\s*`[^`]*\$\{/,
 );
 
-const pathTraversal = regexPattern(
-  'path-traversal',
-  'high',
-  'Path traversal via ../ can access files outside intended directory',
-  /\.\.[\\/]/,
-);
+const pathTraversal: SecurityPattern = {
+  rule: 'path-traversal',
+  severity: 'high',
+  description: 'Path traversal via ../ can access files outside intended directory',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      if (!/\.\.[\\/]/.test(line)) continue;
+      if (isBenignRelativeModuleSpecifier(line)) continue;
+      if (!hasPathTraversalRiskContext(line)) continue;
+      findings.push({
+        rule: 'path-traversal',
+        severity: 'high',
+        message: 'Path traversal via ../ can access files outside intended directory',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
+
+
+function hasPathTraversalRiskContext(line: string): boolean {
+  return /\b(?:readFile|writeFile|appendFile|createReadStream|createWriteStream|open|unlink|rename|copyFile|mkdir|readdir|stat|access|path\.(?:join|resolve)|basePath|filePath|filename|outputPath|targetPath|downloadPath|uploadPath)\b/i.test(line) ||
+    /\bconst\s+file\s*=/.test(line);
+}
+
+function isBenignRelativeModuleSpecifier(line: string): boolean {
+  const trimmed = line.trim();
+  if (/^import\s+(?:type\s+)?[\s\S]+\s+from\s+['"]\.\.[\\/][^'"]+['"];?$/.test(trimmed)) return true;
+  if (/^import\s*\(\s*['"]\.\.[\\/][^'"]+['"]\s*\)/.test(trimmed)) return true;
+  if (/^export\s+(?:type\s+)?[\s\S]+\s+from\s+['"]\.\.[\\/][^'"]+['"];?$/.test(trimmed)) return true;
+  if (/^const\s+[^=]+?=\s*require\(\s*['"]\.\.[\\/][^'"]+['"]\s*\);?$/.test(trimmed)) return true;
+  return false;
+}
 
 const hardcodedSecret = regexPattern(
   'hardcoded-secret',
@@ -103,12 +135,30 @@ const ssrfPattern = regexPattern(
   /(?:fetch|axios|http\.(?:get|request)|got)\s*\(\s*(?:req|request|params|query|userInput|url)/,
 );
 
-const weakCrypto = regexPattern(
-  'weak-crypto',
-  'medium',
-  'MD5/SHA1 are cryptographically weak hash algorithms',
-  /(?:createHash|crypto\.(?:MD5|SHA1))\s*\(\s*['"`](?:md5|sha1)['"`]/i,
-);
+const weakCrypto: SecurityPattern = {
+  rule: 'weak-crypto',
+  severity: 'medium',
+  description: 'MD5/SHA1 are cryptographically weak hash algorithms',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const regex = /(?:createHash|crypto\.(?:MD5|SHA1))\s*\(\s*['"`](?:md5|sha1)['"`]/i;
+    const checksumContext = /(?:checksum|integrity|etag|digest|hash fixture|md5sum|sha1sum|file verification|data verification)/i;
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      if (!regex.test(line)) continue;
+      if (checksumContext.test(line)) continue;
+      findings.push({
+        rule: 'weak-crypto',
+        severity: 'medium',
+        message: 'MD5/SHA1 are cryptographically weak hash algorithms',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
 
 // ---------------------------------------------------------------------------
 // CWE Top 25 patterns (11-15)
@@ -174,12 +224,28 @@ const systemDirWrite = regexPattern(
   /(?:writeFile|writeFileSync|appendFile|appendFileSync)\s*\(\s*['"`]\/(?:etc|usr|sys|boot|sbin)\//,
 );
 
-const promptInjectionMarker = regexPattern(
-  'prompt-injection-marker',
-  'critical',
-  'Prompt injection marker detected in generated code',
-  /(?:IGNORE\s+(?:ALL\s+)?PREVIOUS|SYSTEM\s*:|ACT\s+AS\s+|DISREGARD\s+(?:ALL\s+)?(?:PREVIOUS|ABOVE))/i,
-);
+const promptInjectionMarker: SecurityPattern = {
+  rule: 'prompt-injection-marker',
+  severity: 'critical',
+  description: 'Prompt injection marker detected in generated code',
+  test(content: string): SecurityFinding[] {
+    const findings: SecurityFinding[] = [];
+    const lines = content.split(/\r?\n/);
+    const marker = /(?:IGNORE\s+(?:ALL\s+)?PREVIOUS|SYSTEM\s*:|DISREGARD\s+(?:ALL\s+)?(?:PREVIOUS|ABOVE)|\bACT\s+AS\s+(?:admin|root|system|developer|user|assistant)\b)/i;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (!marker.test(line)) continue;
+      findings.push({
+        rule: 'prompt-injection-marker',
+        severity: 'critical',
+        message: 'Prompt injection marker detected in generated code',
+        line: i + 1,
+        snippet: line.trim(),
+      });
+    }
+    return findings;
+  },
+};
 
 const toolScopeBypass = regexPattern(
   'tool-scope-bypass',

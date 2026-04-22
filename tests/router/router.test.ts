@@ -112,6 +112,122 @@ describe('routeTask', () => {
     });
   });
 
+
+  it.each([
+    ['answers', '# Refined MAP Prompt\n\n## Answers provided\nFTP bulk dumps'],
+    ['definition of done', '# Refined MAP Prompt\n\n## Definition of done\n- 1000 non-empty Markdown records exist'],
+  ])('drops prompt-refiner from plans when the task is already refined with %s', async (_case, refinedPrompt) => {
+    const localAgents = new Map<string, AgentDefinition>(agents);
+    localAgents.set('prompt-refiner', {
+      name: 'prompt-refiner',
+      description: 'Prompt refinement agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You refine prompts.',
+      pipeline: [{ name: 'refine' }],
+      handles: 'prompt refinement',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    localAgents.set('spec-writer', {
+      name: 'spec-writer',
+      description: 'Specification writer',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You write specs.',
+      pipeline: [{ name: 'spec' }],
+      handles: 'software specifications',
+      output: { type: 'answer' },
+      tools: [],
+    });
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'prompt-refiner', task: 'Ask more refine questions', dependsOn: [] },
+        { id: 'step-2', agent: 'spec-writer', task: 'Write the spec', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'coder', task: 'Implement', dependsOn: ['step-2'] },
+      ],
+      rationale: {
+        selectedAgents: [
+          { agent: 'prompt-refiner', reason: 'Refine more' },
+          { agent: 'spec-writer', reason: 'Write spec' },
+          { agent: 'coder', reason: 'Build it' },
+        ],
+      },
+    });
+
+    const result = await routeTask(
+      refinedPrompt,
+      localAgents,
+      mockAdapter(json),
+      routerConfig,
+    );
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual(['spec-writer', 'coder']);
+    expect(result.plan.plan[0]).toMatchObject({ id: 'step-2', dependsOn: [] });
+    expect(result.rationale?.selectedAgents.map((entry) => entry.agent)).toEqual(['spec-writer', 'coder']);
+  });
+
+
+  it('drops tdd-engineer from already refined software plans when implementation lanes are present', async () => {
+    const localAgents = new Map<string, AgentDefinition>(agents);
+    localAgents.set('tdd-engineer', {
+      name: 'tdd-engineer',
+      description: 'TDD agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You write tests.',
+      pipeline: [{ name: 'tdd' }],
+      handles: 'test writing',
+      output: { type: 'files' },
+      tools: [],
+    });
+    localAgents.set('software-delivery', {
+      name: 'software-delivery',
+      description: 'Software delivery agent',
+      adapter: 'ollama',
+      model: 'gemma4',
+      prompt: 'You implement software.',
+      pipeline: [{ name: 'deliver' }],
+      handles: 'software delivery',
+      output: { type: 'files' },
+      tools: [],
+    });
+    const json = JSON.stringify({
+      kind: 'plan',
+      plan: [
+        { id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] },
+        { id: 'step-2', agent: 'software-delivery', task: 'Implement the software', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'coder', task: 'Review implementation', dependsOn: ['step-2'] },
+      ],
+    });
+
+    const result = await routeTask(
+      '# Refined MAP Prompt\n\n## Answers provided\nFTP\nBuild a local software tool that syncs files to Markdown',
+      localAgents,
+      mockAdapter(json),
+      routerConfig,
+    );
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan.map((step) => step.agent)).toEqual(['software-delivery', 'coder']);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([]);
+  });
+
+  it('preserves explicit final markers from router plans', async () => {
+    const result = await routeTask('Build final report then update knowledge', agents, mockAdapter(JSON.stringify({
+      kind: 'plan',
+      plan: [{ id: 'step-1', agent: 'researcher', task: 'Build final report', dependsOn: [], final: true }],
+    })), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected router to return a plan');
+    expect(result.plan.plan[0]).toMatchObject({ final: true });
+  });
+
   it('parses a multi-agent plan', async () => {
     const json = '{"plan":[{"id":"step-1","agent":"researcher","task":"Research","dependsOn":[]},{"id":"step-2","agent":"coder","task":"Implement","dependsOn":["step-1"]}]}';
     const adapter = mockAdapter(json);
@@ -551,6 +667,10 @@ describe('routeTask', () => {
       'usage-classification-tree',
     ]);
     expect(result.plan.plan[1]?.task).toContain('Call web-search before the final answer');
+    expect(result.plan.plan[1]?.task).toContain('DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL');
+    expect(result.plan.plan[1]?.task).toContain('Populate every table cell');
+    expect(result.plan.plan[1]?.task).toContain('separate Evidence/Commonness evidence from Caveat columns');
+    expect(result.plan.plan[1]?.task).toContain('cite concrete database/regulatory/publication records as proof whenever available');
   });
 
 
@@ -977,6 +1097,28 @@ describe('routeTask', () => {
         mode: 'majority',
       },
     })).rejects.toThrow('Router consensus failed');
+  });
+
+  it('converts no-match suggestedAgent to a plan when the suggested agent already exists', async () => {
+    const json = JSON.stringify({
+      kind: 'no-match',
+      reason: 'The coder agent is better suited for this software implementation.',
+      suggestedAgent: {
+        name: 'coder',
+        description: 'Implement code changes',
+      },
+    });
+
+    const result = await routeTask('Build a tested CLI tool', agents, mockAdapter(json), routerConfig);
+
+    expect(result.kind).toBe('plan');
+    if (result.kind !== 'plan') throw new Error('Expected plan');
+    expect(result.plan.plan).toEqual([{
+      id: 'step-1',
+      agent: 'coder',
+      task: 'Execute with the existing suggested agent. Router reason: The coder agent is better suited for this software implementation.',
+      dependsOn: [],
+    }]);
   });
 
   it('returns an explicit no-match result when no suitable agent exists', async () => {

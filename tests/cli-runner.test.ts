@@ -762,6 +762,8 @@ describe('runCli', () => {
     expect(output).toContain('# MAP Refine Questions');
     expect(output).toContain('Please answer these questions before execution');
     expect(output).toContain('Which PubChem distribution source should be authoritative');
+    expect(output).toContain('Follow-up success questions');
+    expect(output).toContain('Definition of done');
     expect(output).toContain('Different sources have different rate limits');
     expect(output).not.toContain('What evidence or verification should be required for success?');
     expect(generateRefineQuestionsMock).toHaveBeenCalled();
@@ -819,6 +821,8 @@ describe('runCli', () => {
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     questionMock
       .mockResolvedValueOnce('Use FTP bulk downloads')
+      .mockResolvedValueOnce('Done means 1000 non-empty Markdown records')
+      .mockResolvedValueOnce('Run unit tests and a fixture conversion command')
       .mockResolvedValueOnce('s');
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -839,6 +843,12 @@ describe('runCli', () => {
         refinedPrompt: expect.stringContaining('Use FTP bulk downloads'),
       }),
     );
+    expect(saveRefineHandoffMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pubchem$/),
+      expect.objectContaining({
+        refinedPrompt: expect.stringContaining('Done means 1000 non-empty Markdown records'),
+      }),
+    );
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Saved refined spec'));
     if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
     else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
@@ -849,6 +859,8 @@ describe('runCli', () => {
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     questionMock
       .mockResolvedValueOnce('Use FTP bulk downloads')
+      .mockResolvedValueOnce('Done means 1000 non-empty Markdown records')
+      .mockResolvedValueOnce('Run unit tests and a fixture conversion command')
       .mockResolvedValueOnce('i');
     const { runCli } = await import('../src/cli-runner.js');
 
@@ -867,7 +879,7 @@ describe('runCli', () => {
     }));
     expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
       outputDir: 'pubchem',
-      prompt: expect.stringContaining('Use FTP bulk downloads'),
+      prompt: expect.stringContaining('Done means 1000 non-empty Markdown records'),
     }));
     if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
     else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
@@ -916,6 +928,32 @@ describe('runCli', () => {
       outputDir: 'pubchem',
       prompt: expect.stringContaining('Use FTP bulk downloads'),
     }));
+    if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
+    else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
+  });
+
+
+
+  it('executes a saved refine spec in non-interactive --refine mode instead of asking questions again', async () => {
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+    loadRefineHandoffMock.mockResolvedValueOnce({
+      result: { refinedPrompt: '# Saved refined prompt\n\nUse FTP bulk downloads with collected answers' },
+      refinedPromptPath: '/tmp/pubchem/.map/refine/refined-prompt.md',
+    });
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--refine', '--ouputDir', 'pubchem', 'ignored prompt']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(generateRefineQuestionsMock).not.toHaveBeenCalled();
+    expect(saveRefineHandoffMock).not.toHaveBeenCalled();
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      outputDir: 'pubchem',
+      prompt: expect.stringContaining('Use FTP bulk downloads with collected answers'),
+    }));
+    expect(stderrWriteSpy).toHaveBeenCalledWith(expect.stringContaining('Saved refined spec found'));
     if (originalIsTty) Object.defineProperty(process.stdin, 'isTTY', originalIsTty);
     else delete (process.stdin as typeof process.stdin & { isTTY?: boolean }).isTTY;
   });

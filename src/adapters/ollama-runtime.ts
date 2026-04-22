@@ -63,12 +63,15 @@ export async function ensureOllamaReady(
 
   await assertOllamaBinary();
 
-  if (!(await canListModels(host, resolvedOptions))) {
+  let listing = await listModels(host, resolvedOptions);
+  if (listing === null) {
     startOllamaServe(host, resolvedOptions);
-    await waitForOllamaServer(host, resolvedOptions);
+    listing = await waitForOllamaServer(host, resolvedOptions);
   }
 
-  await pullModel(model, host, resolvedOptions);
+  if (!modelIsInstalled(model, listing)) {
+    await pullModel(model, host, resolvedOptions);
+  }
   preparedModels.add(key);
 }
 
@@ -85,12 +88,12 @@ async function assertOllamaBinary(): Promise<void> {
   }
 }
 
-async function canListModels(host?: string, options?: OllamaServerOptions): Promise<boolean> {
+async function listModels(host?: string, options?: OllamaServerOptions): Promise<string | null> {
   try {
-    await execFileAsync('ollama', ['list'], { env: buildOllamaEnv(host, options) });
-    return true;
+    const result = await execFileAsync('ollama', ['list'], { env: buildOllamaEnv(host, options) });
+    return result.stdout ?? '';
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -103,14 +106,25 @@ function startOllamaServe(host?: string, options?: OllamaServerOptions): void {
   child.unref();
 }
 
-async function waitForOllamaServer(host?: string, options?: OllamaServerOptions): Promise<void> {
+async function waitForOllamaServer(host?: string, options?: OllamaServerOptions): Promise<string> {
   const attempts = 10;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    if (await canListModels(host, options)) return;
+    const listing = await listModels(host, options);
+    if (listing !== null) return listing;
     await delay(250);
   }
 
   throw new Error('Ollama server did not become available after starting `ollama serve`');
+}
+
+function modelIsInstalled(model: string, listing: string): boolean {
+  const target = model.trim();
+  if (!target) return false;
+  return listing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line, index) => index > 0 && line.split(/\s+/)[0] === target);
 }
 
 async function pullModel(model: string, host?: string, options?: OllamaServerOptions): Promise<void> {

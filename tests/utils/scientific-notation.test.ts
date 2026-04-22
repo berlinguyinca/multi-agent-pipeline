@@ -12,6 +12,11 @@ describe('normalizeScientificNotation', () => {
     expect(normalizeScientificNotation('It is an $\\alpha$-amino acid.')).toBe('It is an alpha-amino acid.');
   });
 
+
+  it('converts mixed chemical side-chain expressions without preserving LaTeX', () => {
+    expect(normalizeScientificNotation('Side chain ($\\text{R} = \\text{CH}_3$).')).toBe('Side chain (R = CH3).');
+  });
+
   it('does not aggressively rewrite general equations', () => {
     const input = 'The equation $E = mc^2$ is not a chemical formula.';
 

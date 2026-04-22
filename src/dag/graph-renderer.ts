@@ -1,8 +1,8 @@
 import type { ConsensusParticipant, DAGEdge, DAGEdgeType, DAGNode, DAGResult } from '../types/dag.js';
 
-export type DAGRenderLayout = 'auto' | 'stage' | 'metro' | 'matrix' | 'cluster';
+export type DAGRenderLayout = 'auto' | 'stage' | 'metro' | 'matrix' | 'cluster' | 'circular';
 export type ResolvedDAGRenderLayout = Exclude<DAGRenderLayout, 'auto'>;
-export const DAG_RENDER_LAYOUTS: DAGRenderLayout[] = ['auto', 'stage', 'metro', 'matrix', 'cluster'];
+export const DAG_RENDER_LAYOUTS: DAGRenderLayout[] = ['auto', 'stage', 'metro', 'matrix', 'cluster', 'circular'];
 export const LARGE_DAG_MATRIX_THRESHOLD = 12;
 
 const EDGE_LABELS: Record<DAGEdgeType, string> = {

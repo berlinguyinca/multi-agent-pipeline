@@ -39,7 +39,8 @@ describe('extended result formats', () => {
     expect(parseDagLayoutOption('metro')).toBe('metro');
     expect(parseDagLayoutOption('matrix')).toBe('matrix');
     expect(parseDagLayoutOption('cluster')).toBe('cluster');
-    expect(() => parseDagLayoutOption('radial')).toThrow('auto, stage, metro, matrix, cluster');
+    expect(parseDagLayoutOption('circular')).toBe('circular');
+    expect(() => parseDagLayoutOption('radial')).toThrow('auto, stage, metro, matrix, cluster, circular');
   });
 
 

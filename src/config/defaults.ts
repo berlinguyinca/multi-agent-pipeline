@@ -48,6 +48,7 @@ export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
     'researcher',
     'classyfire-taxonomy-classifier',
     'security-advisor',
+    'legal-license-advisor',
     'release-readiness-reviewer',
   ],
   currentClaimMaxSourceAgeDays: 730,

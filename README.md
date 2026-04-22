@@ -18,6 +18,28 @@ MAP supports two execution modes:
 
 The core idea is the same in both modes: invest in the spec and verification path before spending expensive implementation cycles.
 
+For software builds, smart routing and adviser guidance now treat licensing and post-build documentation as part of delivery: after implementation and QA, `legal-license-advisor` should recommend compatible license options from the utilized languages, libraries, package manifests, and existing license evidence, then `docs-maintainer` should update or create a README that explains what the tool does and how to use it and should document license coverage. If no repository license exists and the requested license is unspecified, the docs agent reports an explicit license-choice blocker instead of inventing legal terms.
+
+Code QA can also drive an autonomous repair loop. `code-qa-analyst` ends implementation reviews with a structured `accept|revise|reject` verdict; when it returns `revise` or `reject`, MAP rewires downstream steps through the upstream file-producing developer agent, reruns QA after the repair, and repeats up to `quality.maxCodeQaIterations`.
+
+Software-development workflows are expected to run verification tests in isolated environments. When a feature needs databases or service dependencies, agents should use Docker-backed project test services (`docker compose`, Testcontainers, devcontainers, or equivalent project scripts), disposable volumes, random/free ports, and test-only credentials. Agents must not point tests at host databases, shared developer services, production endpoints, or main-system state; if Docker or the project test service setup is unavailable, they should report that blocker instead of silently testing against the host.
+
+For greenfield software prompts, headless v2 now defaults the execution workspace to `<outputDir>/workspace` unless `--workspace-dir` or `workspaceDir` is set explicitly. This keeps generated source/test files separate from MAP reports, PDFs, graphs, and prior output artifacts.
+
+Smart-routing software recovery is also more execution-biased now: when the router cannot build a valid plan for a software task, MAP synthesizes a concrete software lifecycle fallback with deterministic `spec-writer -> spec-qa-reviewer -> spec-writer revision` handoff before coding. It then prefers the unified `coder` agent when that agent is registered; otherwise it falls back to the `tdd-engineer` + `implementation-coder` path.
+
+To reduce no-progress loops, file-output agents no longer get to silently succeed by repeating the same successful inspection tool call. MAP injects explicit remediation context, requires a materially different tool call or final verified answer, and fails the handoff if the agent still only returns a duplicate-tool placeholder.
+If a file-output agent reaches the tool-call cap after actually changing workspace files, MAP preserves those file artifacts and lets downstream implementation or QA evaluate/repair them instead of discarding the work as a total failure.
+TDD agents use a smaller tool-call cap than implementation agents so partial test artifacts are handed off quickly instead of spending many minutes in repeated inspection loops.
+TDD and broad software-delivery lanes also have hard wall-clock guards so continuous streaming without convergence cannot reset the no-progress timer forever.
+When adviser decomposes a no-output broad implementation after TDD artifacts already exist, MAP normalizes the workflow toward implementation lanes instead of adding another round of TDD-first loops.
+Broad `software-delivery` steps also use a shorter no-progress timeout than focused implementation lanes so the workflow decomposes faster when broad delivery stalls without file changes.
+Security scanning treats MD5/SHA1 checksum/integrity fixtures differently from password or cryptographic use so data-ingestion tests for upstream checksum formats do not block the workflow as weak-crypto findings.
+Low-severity LLM-only security findings are reported as warnings instead of blocking remediation, reserving hard security stops for medium-or-higher LLM findings or static critical/high patterns.
+
+When executing a saved refined prompt, MAP treats the refine answers as complete input. Router cleanup removes accidental `prompt-refiner` steps from already-refined plans, and agent conduct instructs downstream agents to use the provided answers plus reasonable assumptions instead of asking the same blocking questions again.
+For already-refined software plans, router cleanup also removes initial TDD-only gates when an implementation lane is already present, allowing implementation/QA repair to proceed instead of re-entering long test-authoring loops.
+
 ## Quick Start
 
 Install the `map` command:
@@ -311,7 +333,7 @@ If you `Ctrl+C` at any point, MAP saves a git checkpoint. Resume later with `map
 
 ## Headless Service
 
-Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and the final output directory is reported on stderr unless `--silent` is set. Progress (when `--verbose` is set) also goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Reports also include an **Agent Contributions** section that explains how each agent improved the result, what evidence it produced for downstream steps, and how to manually rerun the same prompt while disabling a specific agent for comparison. Use `--dag-layout auto|stage|metro|matrix|cluster` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. Use `--graph` to additionally write easy-to-understand agent-network images for every supported graph layout (`auto`, `stage`, `metro`, `matrix`, and `cluster`) as PNG files when Chrome/Chromium is available, with SVG fallbacks otherwise. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
+Headless mode runs the full pipeline without user interaction: every approval is automatic, output is written to stdout in a readable format, and the final output directory is reported on stderr unless `--silent` is set. Progress (when `--verbose` is set) also goes to stderr. JSON is the default stdout format; use `--output-format markdown`, `yaml`, `html`, `text`, or `pdf` when those are easier for people or downstream tools to read. HTML/PDF output renders Markdown as polished report HTML, escapes raw HTML emitted by agents, and embeds validated deterministic visual artifacts such as the agent flowchart, usage commonness ranking plot, and taxonomy tree diagram when source data is available. Reports also include an **Agent Contributions** section that explains how each agent improved the result, what evidence it produced for downstream steps, and how to manually rerun the same prompt while disabling a specific agent for comparison. Use `--dag-layout auto|stage|metro|matrix|cluster|circular` to choose the agent-network visualization style for HTML/PDF reports and generated SVG artifacts. Use `--graph` to additionally write easy-to-understand agent-network images for every supported graph layout (`auto`, `stage`, `metro`, `matrix`, `cluster`, and `circular`) as PNG files when Chrome/Chromium is available, with SVG fallbacks otherwise. PDF output writes a polished print-ready HTML file without raw JSON result dumps, defaults the inline DAG section to a terse pipeline summary to avoid oversized flowcharts, and when Chrome/Chromium is available, also writes a PDF artifact. This makes it suitable for three deployment patterns: one-shot CLI invocations, cron-scheduled jobs, and long-running daemons.
 
 ### One-Shot Invocation
 
@@ -506,12 +528,13 @@ Headless mode enforces three timeout budgets to prevent runaway runs:
 | `--ollama-context-length` | `ollama.contextLength` | `100000` | Set `OLLAMA_CONTEXT_LENGTH` when MAP starts `ollama serve` |
 | `--ollama-num-parallel` | `ollama.numParallel` | `2` | Set `OLLAMA_NUM_PARALLEL` for parallel requests per loaded model |
 | `--ollama-max-loaded-models` | `ollama.maxLoadedModels` | `2` | Set `OLLAMA_MAX_LOADED_MODELS` for concurrently loaded models |
-| `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
+| `--workspace-dir` / `--target-dir` | `workspaceDir` | `outputDir` (or `<outputDir>/workspace` for greenfield software prompts) | Directory where smart-routing agents execute, inspect existing source/data, and apply code changes |
 
 Durations accept human-readable strings: `30s`, `10m`, `2h`. The relationship must be `totalTimeout > inactivityTimeout > pollInterval`.
 
 Use `--workspace-dir` when MAP should build on an existing project or collected-data directory. The workspace becomes the agent/tool/adaptor working directory, while `--output-dir` remains the location for MAP reports, run Markdown, PDFs, and visual artifacts. If `--workspace-dir` is omitted, smart-routing mode preserves the previous behavior and executes agents in `--output-dir`.
 Execution steps also use `router.stepTimeoutMs` and `router.maxStepRetries`. `router.stepTimeoutMs` is a per-step no-progress timeout: MAP aborts a step only when no output chunk arrives within that window. When a step times out, MAP retries it and doubles the next step timeout budget. If the retried step succeeds, MAP records the larger per-agent timeout in `.map/adaptive-timeouts.json` and uses it for later runs in the same checkout. The default retry count is intentionally low to avoid hour-scale local-model stalls.
+When `code-qa-analyst` emits a structured `revise` or `reject` verdict for an implementation review, v2 schedules a developer repair step using the upstream file-output agent, reruns code QA, and rewires downstream dependencies to the passing QA retry. The loop budget is `quality.maxCodeQaIterations`.
 
 ### Agent contribution reports and self-optimization
 
@@ -535,7 +558,7 @@ map refine --run "Analyze this repo and make it better"
 map --headless --refine "Analyze this repo and make it better"
 ```
 
-`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. `map --headless --refine ...` is a question gate: when a router model is available, MAP first asks that model to generate task-specific questions that are not already answered by the request; in an interactive terminal it asks those questions and incorporates your answers into the refined prompt. After answers are collected, MAP asks whether to implement immediately, save the refined spec for the next session, or print only. Saved specs are stored under the output folder at `.map/refine/refined-prompt.md` plus `.map/refine/refined-result.json`; starting another headless run with the same output folder prompts you to execute the saved spec, refine it further, or ignore it. In non-interactive use it prints the questions and stops. Use `--silent` when automation needs machine-readable refinement JSON. Execution flags such as `--output-format`, `--open-output`, and `--graph` are ignored unless you choose immediate execution or use `--run`.
+`map refine --run` refines first and then runs smart-routing v2 with the optimized prompt. `map --headless --refine ...` is a question gate: when a router model is available, MAP first asks that model to generate task-specific questions that are not already answered by the request; in an interactive terminal it asks those questions and incorporates your answers into the refined prompt. Once clarification answers exist, MAP asks a short follow-up set focused on task-specific success conditions and verification evidence, then writes those answers into a **Definition of done** section so downstream planning, QA, and release-readiness agents have observable completion criteria. After answers are collected, MAP asks whether to implement immediately, save the refined spec for the next session, or print only. Saved specs are stored under the output folder at `.map/refine/refined-prompt.md` plus `.map/refine/refined-result.json`; starting another headless run with the same output folder prompts you to execute the saved spec, refine it further, or ignore it. In non-interactive use it prints the questions and stops unless a saved refine handoff already exists for the output folder; in that case `map --headless --refine ...` executes the saved spec instead of overwriting it with unanswered questions. Use `--silent` when automation needs machine-readable refinement JSON. Execution flags such as `--output-format`, `--open-output`, and `--graph` are ignored unless you choose immediate execution or use `--run`.
 
 Evidence gates are configurable under `evidence`:
 
@@ -547,6 +570,7 @@ evidence:
     - researcher
     - classyfire-taxonomy-classifier
     - security-advisor
+    - legal-license-advisor
     - release-readiness-reviewer
   currentClaimMaxSourceAgeDays: 730
   requireRetrievedAtForWebClaims: true
@@ -588,22 +612,22 @@ Connections:
 <final output from the last completed agent>
 ````
 
-The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports five layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), and `cluster` (D summary-first grouped stages). PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
+The graph is built from the runtime DAG after dynamic changes, so it includes adviser replans, recovery steps, automatic grammar/spelling polishing steps, and consensus metadata attached to the executed steps. Visual HTML/SVG DAG rendering supports six layouts: `auto` (default; stage for small/medium and matrix for large DAGs), `stage` (A layered stage swimlane), `metro` (B route/branch map), `matrix` (C role-by-stage grid), `cluster` (D summary-first grouped stages), and `circular` (E radial route map). Circular SVG output uses a larger zoomable canvas, curved colored dependency routes, and label backgrounds so multi-agent handoffs such as the QA panel remain readable without text overlap. PDF generation uses a terse pipeline summary for auto layout regardless of graph size, includes an agent-acronym legend below the summary, suppresses the full inline graph and steps table, and avoids embedding the duplicate `agent-network.svg` figure in the artifact gallery; explicit `--dag-layout` values still force the requested detailed inline layout.
 
-`--graph` writes standalone graph image artifacts for all five supported layouts directly in the request output directory and adds `graphArtifacts` plus `graphArtifactManifestPath` to JSON/YAML output. PNG rendering uses Chrome/Chromium when available (`MAP_GRAPH_BROWSER` can point to a browser binary); when no compatible browser is found, MAP writes deterministic SVG fallbacks and records the reason in `graphWarnings`.
+`--graph` writes standalone graph image artifacts for all six supported layouts directly in the request output directory and adds `graphArtifacts` plus `graphArtifactManifestPath` to JSON/YAML output. PNG rendering uses Chrome/Chromium when available (`MAP_GRAPH_BROWSER` can point to a browser binary); when no compatible browser is found, MAP writes deterministic SVG fallbacks and records the reason in `graphWarnings`.
 
 For ClassyFire/ChemOnt plus usage/LCB runs, compact Markdown/HTML/PDF reports preserve the two source reports as the customer-facing final result. Deterministic rendering combines the completed taxonomy and usage outputs instead of letting optional judge or formatter steps replace them with rubrics, candidate-selection notes, or lossy spreadsheet summaries.
 
-For chemical taxonomy-plus-usage prompts, MAP treats router outputs that merely explain why `researcher` was skipped in favor of specialized taxonomy/usage agents as a recoverable routing hint, not as a terminal no-match. The deterministic fallback routes to `classyfire-taxonomy-classifier` and `usage-classification-tree`, and reports suppress that implementation-detail `researcher` skip rationale once the specialist plan is selected. This fallback is intentionally disabled for software-development or data-engineering requests, even when they mention PubChem, compounds, substances, or Markdown conversion; those should route through software delivery agents instead of chemical classification agents.
+For chemical taxonomy-plus-usage prompts, MAP treats router outputs that merely explain why `researcher` was skipped in favor of specialized taxonomy/usage agents as a recoverable routing hint, not as a terminal no-match. The deterministic fallback routes to `classyfire-taxonomy-classifier` and `usage-classification-tree`, and reports suppress that implementation-detail `researcher` skip rationale once the specialist plan is selected. This fallback is intentionally disabled for software-development or data-engineering requests, even when they mention PubChem, HMDB, Metabolomics Workbench, compounds, substances, or Markdown conversion; those should route through generic software delivery agents instead of chemical classification agents or hardcoded database-specific builders. Downloader/conversion software results must write actual non-empty data artifacts rather than empty placeholder records.
 
-For other router no-match cases with a `suggestedAgent`, MAP now attempts bounded autonomous agent discovery before falling back. It researches local Ollama/Hugging Face GGUF model candidates, rejects models that do not fit the detected local memory budget and configured Ollama load/concurrency settings, generates three candidate agent definitions, selects one with a local consensus judge, then pulls/verifies the selected hardware-fit model before writing the winner under `agents/<name>/`, reloading the registry, and rerouting. Discovery refuses to overwrite hand-written agents or unexpected existing agent directories. The recovery loop is capped at three discovery/reroute cycles per run; if it cannot produce a specialist route, MAP uses the best available fallback agent and reports degraded-success warnings rather than failing only because routing had no match.
+For other router no-match cases with a `suggestedAgent`, MAP first uses that agent directly when it already exists in the enabled registry; this prevents software-development prompts from degrading into generic researcher fallbacks. When the suggested agent does not exist, MAP attempts bounded autonomous agent discovery before falling back. It researches local Ollama/Hugging Face GGUF model candidates, rejects models that do not fit the detected local memory budget and configured Ollama load/concurrency settings, generates three candidate agent definitions, selects one with a local consensus judge, then pulls/verifies the selected hardware-fit model before writing the winner under `agents/<name>/`, reloading the registry, and rerouting. Discovery refuses to overwrite hand-written agents or unexpected existing agent directories. The recovery loop is capped at three discovery/reroute cycles per run; if it cannot produce a specialist route, MAP uses the best available fallback agent and reports degraded-success warnings rather than failing only because routing had no match.
 
 Autonomous discovery diagnostics are included in human-readable and machine-readable outputs under **Autonomous Agent Discovery** / `agentDiscovery`, including selected model, rejected hardware/model candidates, generated agent path, consensus candidates, selected candidate, and warnings.
 
 When HTML or PDF artifacts are written to disk, MAP also creates a `manifest.json` in the same request output directory as the HTML/PDF and deterministic SVG visuals. Current generated visuals include:
 
 - `agent-network.svg`: the executed runtime DAG using the selected `--dag-layout`; `auto` renders a compact layered flowchart for small/medium DAGs and a matrix lane view for large DAGs. PDF reports generate this file for inspection but do not embed it as a second full-size figure because the inline pipeline summary is the print-safe DAG representation. Concurrent stages, edge types, and consensus-enabled nodes are visually distinguished where the layout supports them.
-- `agent-network-{auto,stage,metro,matrix,cluster}.png`: standalone agent-network graphs generated by `--graph` for all supported layouts in the same folder as the other outputs. If PNG rendering is unavailable, SVG files with the same layout suffix are written instead.
+- `agent-network-{auto,stage,metro,matrix,cluster,circular}.png`: standalone agent-network graphs generated by `--graph` for all supported layouts in the same folder as the other outputs. If PNG rendering is unavailable, SVG files with the same layout suffix are written instead.
 - `usage-commonness-ranking.svg`: a 0-100 commonness score bar chart when a usage agent emits `Usage Commonness Ranking`.
 - `taxonomy-tree.svg`: a ClassyFire/ChemOnt hierarchy diagram when a taxonomy table is present.
 
@@ -611,7 +635,7 @@ These visuals are derived from validated run data and are embedded as figures in
 
 ### Verbose Progress
 
-Pass `--verbose` (or `-V`) to emit human-readable progress on stderr while pretty-printed JSON goes to stdout. By default MAP also prints the final output directory to stderr after a headless run; pass `--silent` to suppress all non-format status/path output, with `--silent` taking precedence over `--verbose`. Verbose mode reports each DAG step, router-selected agents, router-skipped agents, helper agents added during execution, why optional helpers such as fact-checkers or grammar reviewers were not needed, why retries or recovery loops are scheduled, why MAP cannot recover automatically when no helper/model is available, and router self-recovery events such as generated-agent reroutes and Ollama model preparation/pulls. Useful for cron logs and daemon monitoring:
+Pass `--verbose` (or `-V`) to emit human-readable progress on stderr while pretty-printed JSON goes to stdout. By default MAP also prints the final output directory to stderr after a headless run; pass `--silent` to suppress all non-format status/path output, with `--silent` taking precedence over `--verbose`. Verbose mode reports each DAG step, router-selected agents, router-skipped agents, helper agents added during execution, why optional helpers such as fact-checkers or grammar reviewers were not needed, why retries or recovery loops are scheduled, why MAP cannot recover automatically when no helper/model is available, and router self-recovery events such as generated-agent reroutes and Ollama model preparation/pulls. When stderr supports color, verbose output highlights each agent and step with stable distinct colors, highlights selected/skipped/added decisions and QA/review verdicts, and renders every failure in red with an indented one-line `↳ Why:` reason below the failure headline so errors are easy to spot. Security gate failures also print each finding as an indented line with severity, rule, message, line, and snippet when available. Useful for cron logs and daemon monitoring:
 
 ```bash
 map --headless --verbose "Explain a technical concept" > result.json 2> progress.log
@@ -910,7 +934,11 @@ Every consensus path reports diagnostics in the result graph/report. Reports inc
 
 ### Autonomous cross-model review
 
-MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are planning, spec QA, adviser-style outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
+### Three-model QA panel
+
+Software implementation QA is expanded at execution time into three independent model reviewers before consensus: `code-qa-gemma` (`gemma4:26b`), `code-qa-qwen` (`qwen3.6:latest`), and `code-qa-glm` (`glm-4.7-flash:latest`, the local Kimi-slot alternative until a Kimi Ollama model is installed). The original `code-qa-analyst` step becomes a deterministic consensus gate: all three model verdicts must accept and local generated-project tests must pass, otherwise MAP sends the work back to the developer repair loop with combined findings.
+
+MAP enables cross-model review for runtime-enforced high-impact software-delivery gates by default. The always-on gates are adviser planning outputs, file-changing agents, security-sensitive outputs, and release-readiness. A proposer can plan or change files, a different model critiques the proposal, and a hybrid judge decides the next autonomous action. Disagreement does not ask the user to pick a model opinion; instead MAP creates bounded remediation work, runs or requests verification through remediation where available, and records the decision trail in output. Routing remains handled by router consensus; the `routing`, `architecture`, `apiContract`, and `verificationFailure` keys remain config surface for future cross-review expansion, but they are not described here as always-on gates.
 
 The default remediation budget is two judge-steered rounds, capped at five. Configured judge models drive cross-review helper model overrides, and reviewer/judge roles remain distinct when possible so the critique path is not the same as the arbitration path. Outputs include `crossReview` metadata so downstream tooling can inspect the gate, judge, and remediation state.
 
@@ -988,6 +1016,11 @@ Supported tool declarations:
 
 Built-ins currently include `shell`, `file-read`, `web-search`, `knowledge-search`, `http-api`, and `db-connection`.
 
+Goal and project-memory support is provided by two first-party agents:
+
+- `goal-synthesizer` runs early for software, research, or ambiguous tasks when available. It combines refined prompt content, local `knowledge-search` entries, and web search when current external behavior matters to produce a goal understanding, non-goals, assumptions, and an observable definition of done.
+- `project-knowledge-curator` runs near the end of multi-step work or after major milestones. MAP persists its output, plus goal-synthesizer output, under `<outputDir>/knowledge/` as per-task memory (`goal.md` and `progress-log.md`) so later agents and future sessions can reuse project-specific goals, assumptions, code/artifact facts, decisions, and verification evidence. When the curator follows the main deliverable, router plans should mark the main deliverable or readiness step with `final:true` so final reports remain user-facing rather than memory-maintenance prose.
+
 Deployment overrides live in `pipeline.yaml` under `agentOverrides`. Scalar fields replace the agent definition; tools are merged by name.
 
 ```yaml
@@ -1035,6 +1068,7 @@ spec-writer
   -> tdd-engineer
   -> implementation-coder
   -> code-qa-analyst
+  -> legal-license-advisor
   -> docs-maintainer / stabilization-reviewer / release-readiness-reviewer as needed
 ```
 
@@ -1067,8 +1101,9 @@ These tests exercise the grammar/spelling, ClassyFire/ChemOnt taxonomy, usage-cl
 MAP includes two separate classification specialists:
 
 - `classyfire-taxonomy-classifier` produces ClassyFire/ChemOnt-style chemical ontology trees. It must never use the ClassyFire API; that API is treated as broken/unreliable for this workflow.
-- `usage-classification-tree` produces evidence-backed usage trees, an LCB-ready exposure summary, and a Usage Commonness Ranking. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries. Usage Tree rows use unique identifiers; repeated depths are branch-suffixed (for example, `Level 2.1`, `Level 2.2`) rather than reusing the same bare `Level 2` identifier. It also ranks supported usage applications or exposure origins by an ordinal 0-100 commonness score plus a label (`very common`, `common`, `less common`, `rare`, or `unavailable`), and every individual positive LCB Exposure Summary usage scenario and important Usage Tree scenario is represented in the ranking even when the score is `unavailable`; prompts that request the top N rows are honored after preserving those positive-category rows. Commonness means current prevalence/exposure, so historical, obsolete, discontinued, or mainly centuries-old practices must be down-weighted and marked with timeframe plus recency/currentness evidence instead of being treated as common today.
+- `usage-classification-tree` produces evidence-backed usage trees, an LCB-ready exposure summary, and a Usage Commonness Ranking. It categorizes whether an entity is a drug/drug metabolite, food compound/food metabolite, household chemical, industrial chemical, pesticide, personal-care-product compound, other exposure-origin compound, or cellular endogenous compound. For positive categories, it reports up to three typical diseases, foods, use areas, species, and organs/tissues as applicable, using `unavailable` instead of inventing unsupported entries. Usage Tree rows use unique identifiers; repeated depths are branch-suffixed (for example, `Level 2.1`, `Level 2.2`) rather than reusing the same bare `Level 2` identifier. It also ranks supported usage applications or exposure origins by an ordinal 0-100 commonness score plus a label (`very common`, `common`, `less common`, `rare`, or `unavailable`), and every individual positive LCB Exposure Summary usage scenario and important Usage Tree scenario is represented in the ranking even when the score is `unavailable`; prompts that request the top N rows are honored after preserving those positive-category rows. Commonness means current prevalence/exposure, so historical, obsolete, discontinued, or mainly centuries-old practices must be down-weighted and marked with timeframe plus recency/currentness evidence instead of being treated as common today. Medical/metabolomics usage runs prefer PubMed/NCBI, DrugBank/PubChem/ChEBI/HMDB/KEGG/ChEMBL/MeSH/NCBI record, FDA/DailyMed label, metabolomics resource record, or PMID/DOI-backed evidence, keep `Evidence`/`Commonness evidence` separate from `Caveat`, and allow rows where database/publication records support a usage but commonness remains `unavailable` because prevalence, adoption, utilization, or testing-frequency evidence is missing. Short customer-facing medical/metabolomics prompts are capped at two web searches, stay inside the requested medical/metabolomics domains, and must not assign high commonness scores to restricted clinical or metabolomics/detection-only contexts. Concrete database/regulatory/publication record IDs and URLs should be cited whenever available.
 - Usage outputs must include a machine-readable `Claim Evidence Ledger`; MAP rejects fact-critical usage outputs before downstream use when the ledger is missing, when high current commonness scores lack current/recent evidence, or when historical/obsolete practices are scored as common today. Persistent evidence failures trigger an evidence feedback loop that gathers/downgrades the missing evidence and retries the usage agent before downstream rendering.
+- Web-search findings are treated as leads, not ground truth. When the verification agents are available, fact-critical usage/research outputs receive a three-agent review panel before downstream consumers run: the domain fact-checker verifies usage/research claims, `evidence-source-reviewer` checks cited database/publication/regulatory records and source diversity, and `commonness-evidence-reviewer` checks prevalence/utilization/adoption/testing-frequency proxy evidence and unavailable-commonness decisions.
 
 Keep these outputs separate: ClassyFire/ChemOnt is chemical taxonomy, while usage classification describes what an entity is used for. MAP's compact report renderer knows this pairing and will display both reports together when both branches complete, even if a downstream judge/formatter step exists in the graph.
 
@@ -1091,6 +1126,10 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `tdd-engineer` | `files` | Test plans and failing tests from acceptance criteria. |
 | `implementation-coder` | `files` | Minimal code changes that satisfy tests and reviewed specs. |
 | `code-qa-analyst` | `answer` | Code QA, maintainability, test adequacy, spec conformance. |
+| `code-qa-gemma` | `answer` | Independent Gemma model QA verdict for software implementations. |
+| `code-qa-qwen` | `answer` | Independent Qwen model QA verdict for software implementations. |
+| `code-qa-glm` | `answer` | Independent GLM/Kimi-slot model QA verdict for software implementations. |
+| `legal-license-advisor` | `answer` | Deterministic post-build license option recommendations from utilized languages, package manifests, existing license files, and local evidence ledger. |
 | `grammar-spelling-specialist` | `answer` | Automatic grammar, spelling, punctuation, readability, and terminal-artifact cleanup for generated text. |
 | `output-formatter` | `answer` | Optional LLM formatter for custom report transformations. Disabled by default; MAP's deterministic local renderers handle normal Markdown/HTML/PDF output. |
 | `usage-classification-tree` | `answer` | Evidence-backed usage trees plus LCB-ready exposure summaries and commonness rankings/scores for drugs/metabolites, food compounds/metabolites, household/industrial chemicals, pesticides, personal-care compounds, other exposure origins, and endogenous compounds. |
@@ -1105,9 +1144,9 @@ MAP ships with a software-delivery bundle. These agents default to `adapter: oll
 | `build-fixer` | `files` | Build, typecheck, lint, and toolchain failures. |
 | `test-stabilizer` | `files` | Flaky, brittle, missing, or low-signal tests. |
 | `refactor-cleaner` | `files` | Behavior-preserving cleanup using existing patterns. |
-| `docs-maintainer` | `files` | Markdown docs updates after implementation and QA. |
+| `docs-maintainer` | `files` | Deterministic post-build README, license coverage, and Markdown docs updates after implementation and QA. |
 | `stabilization-reviewer` | `answer` | Capability truth, spec/doc mismatch checks, integration risks, and hardening recommendations. |
-| `release-readiness-reviewer` | `answer` | Final readiness, evidence, risk, and handoff status. |
+| `release-readiness-reviewer` | `answer` | Deterministic final readiness, evidence, risk, and handoff status with Claim Evidence Ledger. |
 
 Example DAG flows are documented in [docs/agents/software-delivery-flows.md](docs/agents/software-delivery-flows.md).
 
@@ -1254,7 +1293,7 @@ Options:
   --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result
   --graph                Write PNG agent-network graphs for all DAG layouts
-  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster
+  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster, circular
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -1337,10 +1376,10 @@ npm run build
 
 Verification baseline:
 
-- `npm test` / `npm run test:core`: core suite, excluding `tests/tui/**`, `tests/spike/**`, and broad live LLM integration tests; includes the always-on cocaine report e2e regression so customer-report failures surface by default
+- `npm test` / `npm run test:core`: core suite, excluding `tests/tui/**`, `tests/spike/**`, and broad live LLM integration tests; includes the always-on cocaine report e2e regression so customer-report failures surface by default, verifies that required software-workflow Ollama models can be prepared/downloaded, and serializes core test files so live model work does not starve short unit tests
 - `npm run test:tui`: TUI suite through `scripts/run-with-timeout.mjs` with a 60s process timeout and 10s Vitest test/hook timeouts
 - `npm run test:spike`: opt-in exploratory spike tests through the same timeout wrapper
-- `npm run test:llm-agents`: opt-in live Ollama agent contract tests through a 120s process timeout
+- `npm run test:llm-agents`: opt-in live Ollama agent contract tests through a 15 minute process timeout
 - `npm run test:e2e-cocaine-report`: always-on live standard cocaine classification/taxonomy/usage report regression through a 15 minute process timeout
 - `npm run test:all`: raw `vitest run` for local debugging when you explicitly want every suite in one process
 - `npm run test:ci`: `typecheck` + `test:core` + `test:tui`

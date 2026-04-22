@@ -245,6 +245,7 @@ describe('executeDAG', () => {
   });
 
   it('does not repeat file-output agents during local agent consensus', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-repeat-file-consensus-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement X', dependsOn: [] }],
     };
@@ -252,6 +253,7 @@ describe('executeDAG', () => {
     const createAdapter = vi.fn(() => mockAdapter('Created files'));
 
     const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
       agentConsensus: {
         enabled: true,
         runs: 3,
@@ -264,6 +266,7 @@ describe('executeDAG', () => {
     expect(createAdapter).toHaveBeenCalledTimes(1);
     expect(result.steps[0].output).toBe('Created files');
     expect(result.steps[0].consensus).toBeUndefined();
+    await fs.rm(workingDir, { recursive: true, force: true });
   });
 
   it('runs file-output consensus in isolated git worktrees and applies the best verified patch', async () => {
@@ -636,6 +639,111 @@ describe('executeDAG', () => {
     const writerPrompt = calls.find((call) => call.agent === 'writer')?.prompt ?? '';
     expect(writerPrompt).toContain('[step-1: usage-classification-tree]');
     expect(writerPrompt).toContain('[step-1-fact-check-1: usage-classification-fact-checker]');
+  });
+
+  it('uses a three-agent evidence verification panel before downstream usage consumers when available', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'usage-classification-tree', task: 'Classify usage', dependsOn: [] },
+        { id: 'step-2', agent: 'writer', task: 'Use verified usage', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['usage-classification-tree', makeAgent('usage-classification-tree', 'answer')],
+      ['usage-classification-fact-checker', { ...makeAgent('usage-classification-fact-checker', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['evidence-source-reviewer', { ...makeAgent('evidence-source-reviewer', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['commonness-evidence-reviewer', { ...makeAgent('commonness-evidence-reviewer', 'answer'), adapter: 'ollama' as const, model: 'bespoke-minicheck:7b' }],
+      ['writer', makeAgent('writer', 'answer')],
+    ]);
+    const calls: Array<{ agent: string; prompt: string }> = [];
+    const createAdapter = vi.fn((config) => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        if (prompt.includes('Fact-check the usage-classification-tree report')) {
+          calls.push({ agent: String(config.model === 'bespoke-minicheck:7b' ? prompt.match(/\\(([^)]+)\\)\\./)?.[1] ?? 'fact-checker' : 'unknown'), prompt });
+          yield 'Fact-check verdict: supported\n\n| Claim | Verdict | Evidence | Caveat |\n| --- | --- | --- | --- |\n| claim | supported | independent source | unavailable |';
+          return;
+        }
+        if (prompt.includes('Classify usage')) {
+          calls.push({ agent: 'usage-classification-tree', prompt });
+          yield [
+            '# Usage Classification Tree',
+            '',
+            '## Usage Commonness Ranking',
+            '',
+            '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Commonness evidence | Caveat |',
+            '| --- | --- | --- | --- | --- | --- | --- | --- |',
+            '| 1 | Specialty medical use | drug | 40 | less common | current | source says current specialty use | conservative score |',
+            '',
+            '## Claim Evidence Ledger',
+            '',
+            '```json',
+            JSON.stringify({
+              claims: [{
+                id: 'claim-1',
+                claim: 'Specialty medical use has current commonness score 40.',
+                claimType: 'commonness-score',
+                confidence: 'medium',
+                timeframe: 'current',
+                recencyStatus: 'current',
+                commonnessScore: 40,
+                evidence: [{
+                  sourceType: 'document',
+                  title: 'Specialty use source',
+                  publishedAt: '2010',
+                  summary: 'Older evidence for specialty use.',
+                  supports: 'specialty use',
+                }],
+              }],
+            }),
+            '```',
+          ].join('\n');
+          return;
+        }
+        if (prompt.includes('Use verified usage')) {
+          calls.push({ agent: 'writer', prompt });
+          yield 'Verified report';
+        }
+      },
+    }));
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { maxStepRetries: 0, retryDelayMs: 0 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+      'step-1-fact-check-2',
+      'step-1-fact-check-3',
+      'step-2',
+    ]);
+    expect(result.steps.slice(1, 4).map((step) => step.agent)).toEqual([
+      'usage-classification-fact-checker',
+      'evidence-source-reviewer',
+      'commonness-evidence-reviewer',
+    ]);
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual([
+      'step-1',
+      'step-1-fact-check-1',
+      'step-1-fact-check-2',
+      'step-1-fact-check-3',
+    ]);
+    const factPrompts = calls.filter((call) => call.prompt.includes('Fact-check the usage-classification-tree report')).map((call) => call.prompt).join('\n---\n');
+    expect(factPrompts).toContain('Treat web-search findings as leads, not ground truth');
+    expect(factPrompts).toContain('Focus: cited database/web/source records');
+    expect(factPrompts).toContain('Focus: commonness scores');
   });
 
   it('blocks usage classification downstream when claim evidence ledger is missing', async () => {
@@ -2389,7 +2497,6 @@ describe('executeDAG', () => {
       },
     );
 
-    if (!result.success) console.error(JSON.stringify(result.steps, null, 2));
     expect(result.success).toBe(true);
     expect(calls).toEqual([
       'spec-qa-reviewer',
@@ -2654,6 +2761,92 @@ describe('executeDAG', () => {
   });
 
 
+
+
+  it('normalizes no-diff decomposition workflows to implementation lanes when TDD artifacts already exist', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-decompose-normalize-'));
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'software-delivery', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['software-delivery', makeAgent('software-delivery', 'files')],
+      ['adviser', makeAgent('adviser', 'answer')],
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['tdd-engineer', makeAgent('tdd-engineer', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+    ]);
+    const adviserWorkflow = JSON.stringify({
+      kind: 'adviser-workflow',
+      refreshAgents: false,
+      plan: [
+        { id: 'new-tdd', agent: 'tdd-engineer', task: 'Write more tests', dependsOn: ['step-1-decompose-1'] },
+        { id: 'new-impl', agent: 'implementation-coder', task: 'Implement from existing tests', dependsOn: ['new-tdd'] },
+      ],
+    });
+    const createAdapter = createQueueAdapter([
+      'Implementation complete but no files changed.',
+      adviserWorkflow,
+      'implementation done',
+      'qa done',
+    ]);
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      adaptiveReplanning: { enabled: true },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.map((step) => step.id)).toContain('new-impl');
+    expect(result.plan.plan.map((step) => step.id)).not.toContain('new-tdd');
+    expect(result.plan.plan.find((step) => step.id === 'new-impl')?.dependsOn).toEqual(['step-1-decompose-1']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('decomposes broad file-output work that returns no usable output or file evidence', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-empty-file-output-decompose-'));
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'software-delivery', task: 'Implement broad feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const agents = new Map([
+      ['software-delivery', makeAgent('software-delivery', 'files')],
+      ['adviser', makeAgent('adviser', 'answer')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+    ]);
+    const createAdapter = createQueueAdapter([
+      '',
+      '',
+      'Return a valid implementation-coder slice plan.',
+      'QA sees decomposition guidance.',
+    ]);
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      workingDir,
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.plan.plan.map((step) => step.id)).toEqual([
+      'step-1',
+      'step-1-decompose-1',
+      'step-2',
+    ]);
+    expect(result.steps.find((step) => step.id === 'step-1')).toMatchObject({
+      status: 'completed',
+      error: expect.stringContaining('file-output step completed without usable output'),
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-2')?.dependsOn).toEqual(['step-1-decompose-1']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
   it('inserts an adviser decomposition lane before downstream work when implementation produces no diff', async () => {
     const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-no-diff-decompose-'));
     const plan: DAGPlan = {
@@ -2691,7 +2884,116 @@ describe('executeDAG', () => {
       parentStepId: 'step-1',
       edgeType: 'feedback',
     });
+    expect(result.plan.plan.find((step) => step.id === 'step-1-decompose-1')?.task).toContain('Return ONLY adviser-workflow JSON');
     await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('allows implementation file-output agents enough tool rounds to inspect, edit, and verify', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount <= 7) {
+          yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log('round-${runCount}')"` } });
+          return;
+        }
+        yield 'Created tests/pubchem-sync.test.ts and ran targeted test command.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.output).toContain('Created tests/pubchem-sync.test.ts');
+    expect(runCount).toBe(8);
+  });
+
+
+  it('caps tdd-engineer tool loops lower so partial tests hand off quickly', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tdd-tool-cap-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'node -e "require(\'fs\').writeFileSync(\'quick.test.js\', \'test\')"' } });
+          return;
+        }
+        yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log(${runCount})"` } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.output).toContain('Tool-loop condition: Tool loop exceeded 4 rounds');
+    expect(result.steps[0]?.filesCreated).toEqual(['quick.test.js']);
+    expect(runCount).toBeLessThanOrEqual(6);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('keeps non-TDD file-output agents in the same tool loop when they repeat an identical successful inspection call', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    const prompts: string[] = [];
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        runCount += 1;
+        if (runCount <= 2) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'printf inspect' } });
+          return;
+        }
+        yield 'Created tests/pubchem-sync.test.ts and ran targeted test command.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.output).toContain('Created tests/pubchem-sync.test.ts');
+    expect(runCount).toBe(3);
+    expect(prompts[2]).toContain('Repeated tool call blocked');
+    expect(prompts[2]).toContain('Do not repeat it.');
   });
 
   it('executes declared tools before returning the final step output', async () => {
@@ -2839,6 +3141,87 @@ describe('executeDAG', () => {
     expect(createAdapter).toHaveBeenCalledTimes(7);
   });
 
+  it('routes structured code QA revise verdicts back to the developer and re-runs QA', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+        { id: 'step-3', agent: 'release-readiness-reviewer', task: 'Assess readiness', dependsOn: ['step-2'] },
+      ],
+    };
+    const agents = new Map([
+      ['implementation-coder', makeAgent('implementation-coder', 'files')],
+      ['code-qa-analyst', makeAgent('code-qa-analyst', 'answer')],
+      ['release-readiness-reviewer', makeAgent('release-readiness-reviewer', 'answer')],
+    ]);
+    const prompts: string[] = [];
+    const createAdapter = createCapturingQueueAdapter([
+      'initial implementation',
+      JSON.stringify({
+        verdict: 'revise',
+        blockingFindings: [
+          {
+            severity: 'high',
+            file: 'src/sync.ts',
+            issue: 'Resume path drops partial downloads',
+            requiredFix: 'Persist byte offsets and verify checksum after resume',
+          },
+        ],
+        verificationRequired: ['npm test -- pubchem-sync'],
+      }),
+      'fixed implementation',
+      JSON.stringify({ verdict: 'accept', blockingFindings: [], verificationRequired: [] }),
+      'ready',
+    ], prompts);
+
+    const result = await executeDAG(
+      plan,
+      agents,
+      createAdapter,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        crossReview: { ...DEFAULT_CROSS_REVIEW_CONFIG, enabled: false },
+        localModelConcurrency: 1,
+        maxStepRetries: 0,
+        retryDelayMs: 0,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.steps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      'step-1',
+      'step-2',
+      'step-2-fix-1',
+      'step-2-retry-1',
+      'step-3',
+    ]));
+    expect(result.steps.find((step) => step.id === 'step-2')).toMatchObject({
+      status: 'recovered',
+      replacementStepId: 'step-2-retry-1',
+    });
+    expect(result.steps.find((step) => step.id === 'step-2-fix-1')).toMatchObject({
+      agent: 'implementation-coder',
+      parentStepId: 'step-2',
+      edgeType: 'feedback',
+    });
+    expect(result.steps.find((step) => step.id === 'step-2-retry-1')).toMatchObject({
+      agent: 'code-qa-analyst',
+      parentStepId: 'step-2',
+      edgeType: 'feedback',
+    });
+    expect(result.plan.plan.find((step) => step.id === 'step-3')?.dependsOn).toEqual(['step-2-retry-1']);
+    const fixPrompt = prompts.find((prompt) => prompt.includes('Your task: Fix implementation issues found by code QA'));
+    expect(fixPrompt).toContain('Resume path drops partial downloads');
+    expect(fixPrompt).toContain('Persist byte offsets and verify checksum after resume');
+    expect(fixPrompt).toContain('npm test -- pubchem-sync');
+    const readinessPrompt = prompts.find((prompt) => prompt.includes('Your task: Assess readiness'));
+    expect(readinessPrompt).toContain('[step-2-retry-1: code-qa-analyst]');
+    expect(readinessPrompt).toContain('"verdict":"accept"');
+  });
+
   it('passes both accepted source output and terminal judge decision to downstream steps', async () => {
     const plan: DAGPlan = {
       plan: [
@@ -2953,7 +3336,281 @@ describe('executeDAG', () => {
 
 
 
-  it('returns a final answer after a repeated identical successful tool request', async () => {
+
+
+
+  it('preserves file-output changes created before a later retry exhausts tool calls', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tool-loop-cross-retry-files-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'node -e "require(\'fs\').writeFileSync(\'generated.test.js\', \'test\')"' } });
+          return;
+        }
+        yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log(${runCount})"` } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 1,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.filesCreated).toEqual(['generated.test.js']);
+    expect(result.steps[0]?.output).toContain('tool-call limit');
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('continues file-output work when repeated duplicate tool calls still leave changed files', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-duplicate-tool-partial-files-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    const command = 'node -e "require(\'fs\').writeFileSync(\'generated.test.js\', \'test\')"';
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        yield JSON.stringify({ tool: 'shell', params: { command } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.output).toContain('repeated identical successful tool call');
+    expect(result.steps[0]?.filesCreated).toEqual(['generated.test.js']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('continues file-output work when the tool loop cap is reached after workspace changes', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-tool-loop-partial-files-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'tdd-engineer', task: 'Write failing tests', dependsOn: [] }],
+    };
+    const tdd = makeAgent('tdd-engineer', 'files');
+    tdd.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['node'] } }];
+    const agents = new Map([['tdd-engineer', tdd]]);
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        runCount += 1;
+        if (runCount === 1) {
+          yield JSON.stringify({ tool: 'shell', params: { command: 'node -e "require(\'fs\').writeFileSync(\'generated.test.js\', \'test\')"' } });
+          return;
+        }
+        yield JSON.stringify({ tool: 'shell', params: { command: `node -e "console.log(${runCount})"` } });
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.steps[0]?.status).toBe('completed');
+    expect(result.steps[0]?.output).toContain('tool-call limit');
+    expect(result.steps[0]?.filesCreated).toEqual(['generated.test.js']);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+
+
+
+
+
+
+  it('expands implementation QA into a three-model panel and sends disagreements back to the developer', async () => {
+    const plan: DAGPlan = {
+      plan: [
+        { id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] },
+        { id: 'step-2', agent: 'code-qa-analyst', task: 'Review implementation', dependsOn: ['step-1'] },
+      ],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    const qaConsensus = makeAgent('code-qa-analyst', 'answer');
+    qaConsensus.model = 'code-qa-consensus';
+    const qaGemma = makeAgent('code-qa-gemma', 'answer');
+    qaGemma.model = 'gemma4:26b';
+    const qaQwen = makeAgent('code-qa-qwen', 'answer');
+    qaQwen.model = 'qwen3.6:latest';
+    const qaGlm = makeAgent('code-qa-glm', 'answer');
+    qaGlm.model = 'glm-4.7-flash:latest';
+    const agents = new Map([
+      ['implementation-coder', implementation],
+      ['code-qa-analyst', qaConsensus],
+      ['code-qa-gemma', qaGemma],
+      ['code-qa-qwen', qaQwen],
+      ['code-qa-glm', qaGlm],
+    ]);
+    const calls: Array<{ model?: string; prompt: string }> = [];
+    let implementationCalls = 0;
+    const createAdapter = vi.fn((config: AdapterConfig): AgentAdapter => ({
+      type: config.type,
+      model: config.model,
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        calls.push({ model: config.model, prompt });
+        if (config.model === undefined) {
+          implementationCalls += 1;
+          yield implementationCalls === 1 ? 'Implemented initial feature.' : 'Fixed QA findings.';
+          return;
+        }
+        if (config.model === 'qwen3.6:latest' && implementationCalls === 1) {
+          yield '{"verdict":"revise","blockingFindings":[{"severity":"high","file":"src/tool.ts","issue":"missing test","requiredFix":"add test"}],"verificationRequired":["npm test"]}';
+          return;
+        }
+        if (config.model === 'code-qa-consensus') {
+          const hasRevise = prompt.includes('"verdict":"revise"') && !prompt.includes('Fixed QA findings');
+          yield hasRevise
+            ? '{"verdict":"revise","blockingFindings":[{"severity":"high","file":"src/tool.ts","issue":"QA panel disagreement","requiredFix":"fix panel findings"}],"verificationRequired":["npm test"]}'
+            : '{"verdict":"accept","blockingFindings":[],"verificationRequired":["npm test"]}';
+          return;
+        }
+        yield '{"verdict":"accept","blockingFindings":[],"verificationRequired":["npm test"]}';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      qaRepairMaxRounds: 1,
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls.map((call) => call.model).filter(Boolean)).toEqual(expect.arrayContaining([
+      'gemma4:26b',
+      'qwen3.6:latest',
+      'glm-4.7-flash:latest',
+      'code-qa-consensus',
+    ]));
+    expect(result.steps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      'step-2-qa-gemma',
+      'step-2-qa-qwen',
+      'step-2-qa-glm',
+      'step-2-fix-1',
+      'step-2-retry-1-qa-gemma',
+      'step-2-retry-1-qa-qwen',
+      'step-2-retry-1-qa-glm',
+      'step-2-retry-1',
+    ]));
+    expect(implementationCalls).toBe(2);
+  });
+
+  it.each([
+    ['PubChem'],
+    ['HMDB'],
+    ['Metabolomics Workbench'],
+  ])('lets a generic implementation agent build %s downloader software from the prompt', async (domain) => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-generic-downloader-build-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: `Build software to download ${domain} records and convert 1000 records to Markdown`, dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    let calls = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        calls += 1;
+        if (calls === 1) {
+          const matchedDomain = /download ([A-Za-z ]+?) records/.exec(prompt)?.[1]?.trim() ?? 'external database';
+          const command = `python3 - <<'PYGEN'\nfrom pathlib import Path\ndomain = ${JSON.stringify(matchedDomain)}\nPath('src').mkdir(exist_ok=True)\nPath('tests').mkdir(exist_ok=True)\nPath('data/records').mkdir(parents=True, exist_ok=True)\nPath('src/downloader.py').write_text(f'def source_name():\\n    return {domain!r}\\n', encoding='utf8')\nPath('tests/test_downloader.py').write_text('from src.downloader import source_name\\n\\ndef test_source_name():\\n    assert source_name()\\n', encoding='utf8')\nPath('README.md').write_text(f'# {domain} downloader\\n\\nDownloads prompt-specific records and writes Markdown.\\n', encoding='utf8')\nPath('LICENSE').write_text('License choice pending.\\n', encoding='utf8')\nfor i in range(1000):\n    Path('data/records', f'{i}.md').write_text(f'# {domain} record {i}\\n\\nRecord ID: {i}\\nSource: {domain}\\nData: converted {domain} payload for record {i}\\n', encoding='utf8')\nPYGEN`;
+          yield JSON.stringify({ tool: 'shell', params: { command } });
+          return;
+        }
+        yield `Built downloader software for ${domain}; changed files include src/downloader.py, tests/test_downloader.py, README.md, LICENSE, and 1000 Markdown records.`;
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(await fs.readFile(path.join(workingDir, 'README.md'), 'utf8')).toContain(domain);
+    const recordsDir = path.join(workingDir, 'data', 'records');
+    expect(await countMarkdownFiles(recordsDir)).toBe(1000);
+    await expectMarkdownRecordsContainActualData(recordsDir, domain, 1000);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('executes malformed multiline shell tool JSON emitted by local models', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-malformed-tool-json-'));
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Create a file', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell' }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    let calls = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run() {
+        calls += 1;
+        if (calls === 1) {
+          yield `\`\`\`json\n{"tool":"shell","params":{"command":"cat <<'EOF' > hello.txt\nhello from malformed json\nEOF"}}\n\`\`\``;
+          return;
+        }
+        yield 'Created hello.txt and verified it exists.';
+      },
+    }));
+
+    const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+      workingDir,
+    });
+
+    expect(result.success).toBe(true);
+    expect(await fs.readFile(path.join(workingDir, 'hello.txt'), 'utf8')).toContain('hello from malformed json');
+    expect(result.steps[0]?.filesCreated).toContain('hello.txt');
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('retries once and then fails a file-output agent that repeats the same successful tool call without progress', async () => {
+    const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-duplicate-tool-loop-'));
     const plan: DAGPlan = {
       plan: [{ id: 'step-1', agent: 'build-fixer', task: 'Run git diff --check', dependsOn: [] }],
     };
@@ -2975,13 +3632,45 @@ describe('executeDAG', () => {
     const result = await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
       maxStepRetries: 0,
       retryDelayMs: 0,
+      workingDir,
     });
 
-    expect(result.success).toBe(true);
-    expect(result.steps[0]?.status).toBe('completed');
-    expect(result.steps[0]?.output).toContain('Tool shell already returned the same successful result');
-    expect(result.steps[0]?.output).toContain('clean');
-    expect(runCount).toBe(2);
+    expect(result.success).toBe(false);
+    expect(result.steps[0]?.status).toBe('failed');
+    expect(result.steps[0]?.error).toContain('identical successful tool call');
+    expect(runCount).toBeGreaterThanOrEqual(4);
+    await fs.rm(workingDir, { recursive: true, force: true });
+  });
+
+  it('injects a no-progress remediation context before retrying a repeated identical tool call', async () => {
+    const plan: DAGPlan = {
+      plan: [{ id: 'step-1', agent: 'implementation-coder', task: 'Implement feature', dependsOn: [] }],
+    };
+    const implementation = makeAgent('implementation-coder', 'files');
+    implementation.tools = [{ type: 'builtin', name: 'shell', config: { allowedCommands: ['printf'] } }];
+    const agents = new Map([['implementation-coder', implementation]]);
+    const prompts: string[] = [];
+    let runCount = 0;
+    const createAdapter = vi.fn((): AgentAdapter => ({
+      type: 'ollama',
+      model: 'test-model',
+      detect: vi.fn(),
+      cancel: vi.fn(),
+      async *run(prompt: string) {
+        prompts.push(prompt);
+        runCount += 1;
+        yield JSON.stringify({ tool: 'shell', params: { command: 'printf clean' } });
+      },
+    }));
+
+    await executeDAG(plan, agents, createAdapter, undefined, undefined, undefined, undefined, {
+      maxStepRetries: 0,
+      retryDelayMs: 0,
+    });
+
+    expect(runCount).toBeGreaterThanOrEqual(4);
+    expect(prompts.some((prompt) => prompt.includes('No-Progress Tool Loop Remediation Required'))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes('Do not repeat the same tool call again'))).toBe(true);
   });
 
   it('does not security-gate cross-review control outputs before judge decisions are parsed', async () => {
@@ -3227,3 +3916,37 @@ describe('executeDAG', () => {
     expect(participants.find((participant) => participant.role === 'judge')?.agent).toBe('adviser');
   });
 });
+async function countMarkdownFiles(dir: string): Promise<number> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  let count = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) count += await countMarkdownFiles(full);
+    if (entry.isFile() && entry.name.endsWith('.md')) count += 1;
+  }
+  return count;
+}
+
+async function expectMarkdownRecordsContainActualData(dir: string, domain: string, expectedCount: number): Promise<void> {
+  const files = await collectMarkdownFiles(dir);
+  expect(files).toHaveLength(expectedCount);
+  for (const file of files) {
+    const content = await fs.readFile(file, 'utf8');
+    expect(content.trim()).not.toBe('');
+    expect(content).toContain(domain);
+    expect(content).toMatch(/Record ID:\s*\d+/);
+    expect(content).toMatch(/Source:\s*[^\n]+/);
+    expect(content).toMatch(/Data:\s*[^\n]+/);
+  }
+}
+
+async function collectMarkdownFiles(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...await collectMarkdownFiles(full));
+    if (entry.isFile() && entry.name.endsWith('.md')) files.push(full);
+  }
+  return files.sort();
+}

@@ -169,7 +169,7 @@ function buildDomainFallbackDecision(
     plan.push({
       id: `step-${plan.length + 1}`,
       agent: 'usage-classification-tree',
-      task: `Generate concise evidence-backed usage, exposure, and commonness tables for the entity and context in this user request: ${requestContext}. Restrict the ranking to the requested medical and metabolomics context; do not rank broad illicit/recreational prevalence unless the user explicitly asks for it. Call web-search before the final answer using a query that covers current medical topical/local anesthetic use, toxicology/metabolomics biomarkers, and current prevalence evidence; include retrievedAt metadata for URL evidence, and do not assign commonnessScore >=65 unless retrieved current/recent prevalence or widespread-use evidence directly supports it. When in doubt, keep scores at 60 or below or mark unavailable.`,
+      task: `Generate concise evidence-backed usage, exposure, and commonness tables for the entity and context in this user request: ${requestContext}. Restrict the ranking to the requested medical and metabolomics context; do not rank broad illicit/recreational prevalence unless the user explicitly asks for it. Call web-search before the final answer using a query that covers DrugBank, PubChem, ChEBI, HMDB, KEGG, ChEMBL, MeSH/NCBI, PubMed/NCBI, FDA/DailyMed, current medical topical/local anesthetic use, toxicology/metabolomics biomarkers, and current prevalence/commonness evidence; include retrievedAt metadata for URL evidence. Do not stop after one broad search: run targeted searches for commonness/proxy evidence such as prevalence, utilization, adoption, prescribing, marketed/label status, testing frequency, biomonitoring, toxicology screening, metabolomics panel use, or wastewater epidemiology before marking positive scenarios unavailable. Populate every table cell, separate Evidence/Commonness evidence from Caveat columns, and cite concrete database/regulatory/publication records as proof whenever available. Treat usage evidence as insufficient for commonness when it does not quantify current prevalence, utilization, adoption, or testing frequency. Do not assign commonnessScore >=65 unless retrieved current/recent prevalence or widespread-use evidence directly supports it. When in doubt, keep scores at 60 or below or mark unavailable.`,
       dependsOn: taxonomyStepId ? [taxonomyStepId] : [],
     });
   }
@@ -669,6 +669,23 @@ function cleanRouterDecision(
   userTask = '',
 ): RouterDecision {
   if (decision.kind === 'no-match') {
+    if (decision.suggestedAgent) {
+      const suggestedAgent = normalizeRouterAgentName(decision.suggestedAgent.name, agents);
+      if (agents.has(suggestedAgent)) {
+        return {
+          kind: 'plan',
+          plan: {
+            plan: [{
+              id: 'step-1',
+              agent: suggestedAgent,
+              task: cleanRouterTaskText(`Execute with the existing suggested agent. Router reason: ${decision.reason}`),
+              dependsOn: [],
+            }],
+          },
+          ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set([suggestedAgent])) } : {}),
+        };
+      }
+    }
     return decision;
   }
 
@@ -679,6 +696,18 @@ function cleanRouterDecision(
     task: cleanRouterTaskText(step.task),
     dependsOn: step.dependsOn.map((dep) => dep.trim()).filter(Boolean),
   }));
+
+  if (isAlreadyRefinedPrompt(userTask)) {
+    const droppedIds = new Set(cleanedSteps
+      .filter((step) => step.agent === 'prompt-refiner')
+      .map((step) => step.id));
+    if (isSoftwareDevelopmentRequest(userTask.toLowerCase()) && hasImplementationLane(cleanedSteps)) {
+      for (const step of cleanedSteps) {
+        if (step.agent === 'tdd-engineer') droppedIds.add(step.id);
+      }
+    }
+    cleanedSteps = removeStepsAndRewireDependencies(cleanedSteps, droppedIds);
+  }
 
   if (shouldPreferChemicalSpecialistPlan(userTask, cleanedSteps)) {
     const droppedIds = new Set(cleanedSteps
@@ -717,6 +746,41 @@ function cleanRouterDecision(
     },
     ...(decision.rationale ? { rationale: cleanRouterRationale(decision.rationale, agents, new Set(cleanedSteps.map((step) => step.agent))) } : {}),
   };
+}
+
+
+function hasImplementationLane(steps: Array<{ agent: string }>): boolean {
+  return steps.some((step) => ['implementation-coder', 'software-delivery', 'coder'].includes(step.agent));
+}
+
+function removeStepsAndRewireDependencies<T extends { id: string; dependsOn: string[] }>(steps: T[], droppedIds: Set<string>): T[] {
+  if (droppedIds.size === 0) return steps;
+  const originalById = new Map(steps.map((step) => [step.id, step]));
+  const replacementDeps = (dep: string): string[] => {
+    if (!droppedIds.has(dep)) return [dep];
+    const dropped = originalById.get(dep);
+    if (!dropped) return [];
+    return dropped.dependsOn.flatMap(replacementDeps);
+  };
+  return steps
+    .filter((step) => !droppedIds.has(step.id))
+    .map((step) => ({
+      ...step,
+      dependsOn: [...new Set(step.dependsOn.flatMap(replacementDeps).filter((dep) => !droppedIds.has(dep)))],
+    }));
+}
+
+function isAlreadyRefinedPrompt(userTask: string): boolean {
+  const task = userTask.toLowerCase();
+  return task.includes('# refined map prompt') ||
+    task.includes('## answers provided') ||
+    task.includes('## definition of done') ||
+    task.includes('## follow-up success answers') ||
+    task.includes('use these user-provided answers') ||
+    task.includes('use this definition of done') ||
+    task.includes('questionsasked') ||
+    task.includes('"mode":"refine"') ||
+    task.includes('"mode": "refine"');
 }
 
 function shouldPreferChemicalSpecialistPlan(
@@ -995,6 +1059,7 @@ function normalizePlanSteps(plan: unknown[]): DAGPlan['plan'] {
       agent,
       task,
       dependsOn,
+      ...(obj['final'] === true ? { final: true } : {}),
     };
   });
 }

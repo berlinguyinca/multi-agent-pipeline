@@ -33,6 +33,20 @@ describe('buildRouterPrompt', () => {
         capabilities: ['Write tests first', 'Implement minimal code'],
       },
     }],
+    ['legal-license-advisor', {
+      name: 'legal-license-advisor',
+      description: 'Recommends compatible software licenses from language and dependency evidence',
+      adapter: 'ollama',
+      prompt: 'You recommend licenses.',
+      pipeline: [{ name: 'inspect-license-evidence' }, { name: 'recommend-options' }],
+      handles: 'license recommendations, dependency license compatibility, language and library license review',
+      output: { type: 'answer' },
+      tools: [],
+      contract: {
+        mission: 'Recommend license options from language and dependency evidence.',
+        capabilities: ['Analyze dependency licenses', 'Recommend compatible license options'],
+      },
+    }],
   ]);
 
   it('includes all agent names in prompt', () => {
@@ -115,6 +129,34 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('existing implementation agents');
   });
 
+  it('tells routers to include README usage docs and license coverage after software builds', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a CLI software tool');
+
+    expect(prompt).toContain('For completed software builds');
+    expect(prompt).toContain('README');
+    expect(prompt).toContain('how to use the tool');
+    expect(prompt).toContain('LICENSE');
+  });
+
+  it('tells routers to include legal license recommendations before post-build docs', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a Python CLI software tool');
+
+    expect(prompt).toContain('legal-license-advisor');
+    expect(prompt).toContain('recommend compatible license options');
+    expect(prompt).toContain('utilized languages and libraries');
+    expect(prompt).toContain('before docs-maintainer finalizes license coverage');
+  });
+
+
+  it('tells routers to require isolated test services for software workflows with databases', () => {
+    const prompt = buildRouterPrompt(agents, 'Build a web app with Postgres-backed tests');
+
+    expect(prompt).toContain('For software workflows that need databases or external services');
+    expect(prompt).toContain('Docker');
+    expect(prompt).toContain('Do not use host databases');
+    expect(prompt).toContain('run the relevant test command');
+  });
+
   it('includes contract mission and capabilities when available', () => {
     const prompt = buildRouterPrompt(agents, 'Build a REST API');
 
@@ -122,4 +164,21 @@ describe('buildRouterPrompt', () => {
     expect(prompt).toContain('Capabilities: Gather evidence; Synthesize findings');
     expect(prompt).toContain('Mission: Implement tested software changes.');
   });
+
+  it('tells the router not to schedule prompt-refiner for already refined prompts', () => {
+    const prompt = buildRouterPrompt(new Map(), '# Refined MAP Prompt\n\n## Definition of done\n- Tests pass', 5);
+    expect(prompt).toContain('do not route through prompt-refiner again');
+    expect(prompt).toContain('Definition of done');
+    expect(prompt).toContain('Treat refinement as complete');
+  });
+
+  it('tells the router to use goal and knowledge agents around software delivery when available', () => {
+    const prompt = buildRouterPrompt(new Map(), 'Build a tested CLI', 5);
+
+    expect(prompt).toContain('goal-synthesizer');
+    expect(prompt).toContain('project-knowledge-curator');
+    expect(prompt).toContain('outputDir/knowledge');
+    expect(prompt).toContain('final:true');
+  });
+
 });

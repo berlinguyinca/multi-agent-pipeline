@@ -1,0 +1,52 @@
+name: commonness-evidence-reviewer
+description: "Independently verifies commonness, prevalence, exposure, and proxy-quantification claims"
+adapter: ollama
+model: bespoke-minicheck:7b
+prompt: prompt.md
+pipeline:
+  - name: extract-commonness-claims
+  - name: verify-commonness-sources
+  - name: assess-proxy-quantification
+  - name: report-verdict
+handles: "commonness evidence review, prevalence verification, utilization evidence, exposure commonness, proxy quantification, usage commonness fact checking"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Verify current commonness, prevalence, exposure, and proxy-quantification claims before downstream usage reports rely on them."
+  capabilities:
+    - "Check whether commonness scores are supported by current/recent prevalence, utilization, exposure, or proxy evidence."
+    - "Flag unavailable commonness when targeted proxy searches were not attempted."
+    - "Reject overconfident commonness scores that rely only on usage existence evidence."
+    - "Return supported, rejected, or needs-review verdicts with evidence and caveats."
+  nonGoals:
+    - "Do not format the final report."
+    - "Do not rewrite the source usage classification."
+    - "Do not introduce unsupported new commonness claims."
+  inputs:
+    required:
+      - "Usage/commonness report to verify"
+  process:
+    - "Extract commonness and unavailable-commonness claims."
+    - "Check evidence or proxy evidence from independent sources."
+    - "Evaluate whether the source report attempted targeted commonness searches."
+    - "Return a concise verdict."
+  verification:
+    requiredEvidence:
+      - "Fact-check verdict is present."
+      - "Commonness/proxy evidence and caveats are separate."
+      - "Unsupported high scores are rejected or marked needs-review."
+    forbiddenClaims:
+      - "Do not accept usage existence evidence as sufficient for commonness without prevalence, utilization, exposure, or proxy support."
+  handoff:
+    deliverable: "Commonness evidence review verdict"
+    includes:
+      - "Fact-check verdict"
+      - "Commonness claim verification table"
+      - "Commonness source adequacy note"

@@ -294,7 +294,7 @@ function buildHtmlDocument(
     '<head>',
     '<meta charset="utf-8">',
     `<title>${escapeHtml(title)}</title>`,
-    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;align-items:start}.agent-stage{border:1px solid #cbd5e1;border-radius:16px;padding:.7rem;background:#f8fafc}.agent-stage.concurrent{background:#eff6ff;border-color:#93c5fd}.agent-stage.sequence{background:#faf5ff;border-color:#c4b5fd}.agent-stage-title{display:flex;justify-content:space-between;gap:.5rem;font-size:.78rem;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}.agent-stage-mode{border-radius:999px;padding:.05rem .45rem;background:rgba(255,255,255,.76);color:#1e40af}.agent-stage.sequence .agent-stage-mode{color:#6d28d9}.agent-stage-nodes{display:grid;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{position:relative;padding:.72rem .8rem .72rem .95rem;border:1px solid #c5d6ea;border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.1);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:14px 0 0 14px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node.running:before{background:#3b82f6}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta,.agent-node-inputs,.agent-node-consensus{font-size:.75rem;color:#475569}.agent-node-inputs{font-family:ui-monospace,monospace}.agent-node-consensus{margin-top:.25rem;font-weight:700;color:#334155}.agent-consensus-runs{margin:.2rem 0 0;padding-left:1rem;font-size:.72rem;color:#475569}.flow-arrow{display:inline-flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:24px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}.agent-edge.planned{border-color:#8db5ec}.agent-edge.handoff{border-color:#a78bfa}.agent-edge.recovery{border-color:#fca5a5}.agent-edge.spawned{border-color:#fbbf24}.agent-edge.feedback{border-color:#67e8f9}.agent-matrix-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(180deg,#fbfaff,#fff);box-shadow:0 14px 36px rgba(88,28,135,.08);overflow:auto}.agent-matrix-network table{min-width:760px;font-size:.78rem}.agent-matrix-network th{background:#f5f3ff;color:#4c1d95}.matrix-role{font-weight:800;color:#334155;white-space:nowrap}.matrix-cell{min-width:72px;vertical-align:top;background:#fff}.matrix-chip{display:block;margin:.12rem 0;padding:.18rem .28rem;border-radius:8px;background:#f5f3ff;border:1px solid #ddd6fe;font-family:ui-monospace,monospace;font-size:.68rem;color:#4c1d95}.matrix-chip.completed,.matrix-chip.recovered{border-color:#86efac;background:#f0fdf4;color:#166534}.matrix-chip.failed{border-color:#fecaca;background:#fef2f2;color:#991b1b}.matrix-chip.running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.matrix-chip.skipped{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.matrix-consensus{display:block;font-size:.62rem;color:#475569;margin-top:.1rem}.agent-metro-network,.agent-cluster-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:auto}.pipeline-summary{border:1px solid #cbd5e1;border-radius:12px;padding:.65rem .75rem;background:#f8fafc;margin:.75rem 0 1rem}.pipeline-summary-meta{font-size:.78rem;color:#475569;margin:.1rem 0 .45rem}.pipeline-summary-flow{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center}.pipeline-step-chip{display:inline-flex;gap:.25rem;align-items:center;border:1px solid #cbd5e1;border-radius:999px;background:#fff;padding:.16rem .42rem;font-size:.72rem;line-height:1.2}.pipeline-step-chip.completed,.pipeline-step-chip.recovered{border-color:#86efac;background:#f0fdf4}.pipeline-step-chip.failed{border-color:#fecaca;background:#fef2f2}.pipeline-step-chip.running{border-color:#93c5fd;background:#eff6ff}.pipeline-step-chip.skipped{border-color:#fed7aa;background:#fff7ed}.pipeline-arrow{color:#94a3b8;font-size:.7rem}.pipeline-legend{margin:.45rem 0 0;font-size:.7rem;color:#475569}.pipeline-legend strong{color:#334155}.pipeline-legend span{display:inline-block;margin-right:.65rem}.agent-metro-svg{min-width:760px;width:100%;height:auto;display:block}.metro-stop{filter:drop-shadow(0 2px 4px rgba(15,23,42,.12))}.cluster-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem}.cluster-card{border:1px solid #fed7aa;background:#fff7ed;border-radius:16px;padding:.75rem}.cluster-card h4{margin:.1rem 0 .35rem;color:#9a3412}.cluster-chip{display:inline-block;margin:.12rem;padding:.2rem .38rem;border-radius:999px;background:#fff;border:1px solid #fdba74;font-family:ui-monospace,monospace;font-size:.7rem;color:#7c2d12}</style>',
+    '<style>body{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:1100px}pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:6px}table{border-collapse:collapse;width:100%;margin:.75rem 0 1rem}td,th{border:1px solid #ddd;padding:.4rem;text-align:left}th{background:#f8fafc}code{background:#f6f8fa;padding:.1rem .2rem}.rendered-markdown{border:1px solid #dbe5f2;border-radius:14px;background:#fff;padding:1.1rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}.rendered-markdown h1,.rendered-markdown h2,.rendered-markdown h3{color:#1f3658}.rendered-markdown h1{font-size:1.45rem}.rendered-markdown h2{font-size:1.18rem;border-bottom:1px solid #e2e8f0;padding-bottom:.25rem}.agent-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:radial-gradient(circle at 20% 10%,#ffffff 0,#eef6ff 38%,#f8fbff 100%);box-shadow:0 14px 36px rgba(30,64,175,.09)}.agent-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;align-items:start}.agent-stage{border:1px solid #cbd5e1;border-radius:16px;padding:.7rem;background:#f8fafc}.agent-stage.concurrent{background:#eff6ff;border-color:#93c5fd}.agent-stage.sequence{background:#faf5ff;border-color:#c4b5fd}.agent-stage-title{display:flex;justify-content:space-between;gap:.5rem;font-size:.78rem;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}.agent-stage-mode{border-radius:999px;padding:.05rem .45rem;background:rgba(255,255,255,.76);color:#1e40af}.agent-stage.sequence .agent-stage-mode{color:#6d28d9}.agent-stage-nodes{display:grid;gap:.65rem}.agent-flow-step{display:flex;align-items:center;gap:.65rem}.agent-node{position:relative;padding:.72rem .8rem .72rem .95rem;border:1px solid #c5d6ea;border-radius:14px;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 8px 22px rgba(30,64,175,.1);break-inside:avoid}.agent-node:before{content:"";position:absolute;inset:0 auto 0 0;width:7px;border-radius:14px 0 0 14px;background:#64748b}.agent-node.completed:before,.agent-node.recovered:before{background:#22c55e}.agent-node.failed:before{background:#ef4444}.agent-node.skipped:before{background:#f59e0b}.agent-node.pending:before{background:#94a3b8}.agent-node.running:before{background:#3b82f6}.agent-node-id{font-size:.72rem;color:#64748b;font-family:ui-monospace,monospace}.agent-node-name{font-weight:800;color:#1e293b;margin:.1rem 0}.agent-node-meta,.agent-node-inputs,.agent-node-consensus{font-size:.75rem;color:#475569}.agent-node-inputs{font-family:ui-monospace,monospace}.agent-node-consensus{margin-top:.25rem;font-weight:700;color:#334155}.agent-consensus-runs{margin:.2rem 0 0;padding-left:1rem;font-size:.72rem;color:#475569}.flow-arrow{display:inline-flex;align-items:center;gap:.15rem;color:#4877bd;font-weight:900}.flow-arrow-line{width:24px;border-top:3px solid #8db5ec}.flow-arrow-head{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #8db5ec}.artifact-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0 1.5rem}.artifact-figure{border:1px solid #d8e2ee;border-radius:16px;background:#fff;padding:.8rem;box-shadow:0 8px 24px rgba(15,23,42,.06);break-inside:avoid}.artifact-figure img{max-width:100%;height:auto;display:block}.artifact-figure figcaption{font-size:.8rem;color:#475569;margin-top:.5rem}.agent-network-edges{margin-top:1rem;display:grid;gap:.35rem}.agent-edge{font-family:ui-monospace,monospace;font-size:.78rem;color:#334155;background:rgba(255,255,255,.72);border:1px dashed #bfd0e4;border-radius:999px;padding:.25rem .55rem}.agent-edge.planned{border-color:#8db5ec}.agent-edge.handoff{border-color:#a78bfa}.agent-edge.recovery{border-color:#fca5a5}.agent-edge.spawned{border-color:#fbbf24}.agent-edge.feedback{border-color:#67e8f9}.agent-matrix-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(180deg,#fbfaff,#fff);box-shadow:0 14px 36px rgba(88,28,135,.08);overflow:auto}.agent-matrix-network table{min-width:760px;font-size:.78rem}.agent-matrix-network th{background:#f5f3ff;color:#4c1d95}.matrix-role{font-weight:800;color:#334155;white-space:nowrap}.matrix-cell{min-width:72px;vertical-align:top;background:#fff}.matrix-chip{display:block;margin:.12rem 0;padding:.18rem .28rem;border-radius:8px;background:#f5f3ff;border:1px solid #ddd6fe;font-family:ui-monospace,monospace;font-size:.68rem;color:#4c1d95}.matrix-chip.completed,.matrix-chip.recovered{border-color:#86efac;background:#f0fdf4;color:#166534}.matrix-chip.failed{border-color:#fecaca;background:#fef2f2;color:#991b1b}.matrix-chip.running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.matrix-chip.skipped{border-color:#fed7aa;background:#fff7ed;color:#9a3412}.matrix-consensus{display:block;font-size:.62rem;color:#475569;margin-top:.1rem}.agent-metro-network,.agent-cluster-network,.agent-circular-network{margin:1rem 0 1.5rem;padding:1rem;border:1px solid #d8e2ee;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:auto}.pipeline-summary{border:1px solid #cbd5e1;border-radius:12px;padding:.65rem .75rem;background:#f8fafc;margin:.75rem 0 1rem}.pipeline-summary-meta{font-size:.78rem;color:#475569;margin:.1rem 0 .45rem}.pipeline-summary-flow{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center}.pipeline-step-chip{display:inline-flex;gap:.25rem;align-items:center;border:1px solid #cbd5e1;border-radius:999px;background:#fff;padding:.16rem .42rem;font-size:.72rem;line-height:1.2}.pipeline-step-chip.completed,.pipeline-step-chip.recovered{border-color:#86efac;background:#f0fdf4}.pipeline-step-chip.failed{border-color:#fecaca;background:#fef2f2}.pipeline-step-chip.running{border-color:#93c5fd;background:#eff6ff}.pipeline-step-chip.skipped{border-color:#fed7aa;background:#fff7ed}.pipeline-arrow{color:#94a3b8;font-size:.7rem}.pipeline-legend{margin:.45rem 0 0;font-size:.7rem;color:#475569}.pipeline-legend strong{color:#334155}.pipeline-legend span{display:inline-block;margin-right:.65rem}.agent-metro-svg,.agent-circular-svg{min-width:760px;width:100%;height:auto;display:block}.metro-stop{filter:drop-shadow(0 2px 4px rgba(15,23,42,.12))}.cluster-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem}.cluster-card{border:1px solid #fed7aa;background:#fff7ed;border-radius:16px;padding:.75rem}.cluster-card h4{margin:.1rem 0 .35rem;color:#9a3412}.cluster-chip{display:inline-block;margin:.12rem;padding:.2rem .38rem;border-radius:999px;background:#fff;border:1px solid #fdba74;font-family:ui-monospace,monospace;font-size:.7rem;color:#7c2d12}</style>',
     '</head>',
     '<body>',
     `<h1>${escapeHtml(title)}</h1>`,
@@ -462,6 +462,7 @@ function renderHtmlAgentNetwork(data: Record<string, unknown>, requestedLayout: 
   if (resolvedLayout === 'matrix') return renderHtmlAgentMatrixNetwork(dag);
   if (resolvedLayout === 'metro') return renderHtmlAgentMetroNetwork(dag);
   if (resolvedLayout === 'cluster') return renderHtmlAgentClusterNetwork(dag);
+  if (resolvedLayout === 'circular') return renderHtmlAgentCircularNetwork(dag);
 
   const layout = buildDAGLayout(dag);
   if (layout.layers.length === 0) return '';
@@ -522,6 +523,119 @@ function renderHtmlAgentNetwork(data: Record<string, unknown>, requestedLayout: 
     ...stages,
     '</div>',
     ...(edgeLines.length > 0 ? ['<div class="agent-network-edges">', ...edgeLines, '</div>'] : []),
+    '</section>',
+  ].join('');
+}
+
+function renderHtmlAgentCircularNetwork(dag: DAGResult): string {
+  const layout = buildDAGLayout(dag);
+  if (layout.layers.length === 0) return '';
+  const width = Math.max(1100, 620 + dag.nodes.length * 42);
+  const height = Math.max(860, 620 + dag.nodes.length * 26);
+  const centerX = width / 2;
+  const centerY = height / 2 + 28;
+  const radius = Math.max(260, Math.min(width, height) / 2 - 150);
+  const orderedNodes = layout.layers.flatMap((layer) => layer.nodes.map((entry) => entry.node));
+  const positions = new Map<string, { x: number; y: number; angle: number }>();
+  orderedNodes.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, orderedNodes.length)) * Math.PI * 2;
+    positions.set(node.id, {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      angle,
+    });
+  });
+  const edgeColor = (type: string) => ({
+    planned: '#60a5fa',
+    handoff: '#a78bfa',
+    recovery: '#ef4444',
+    spawned: '#f59e0b',
+    feedback: '#06b6d4',
+    review: '#14b8a6',
+    judge: '#7c3aed',
+  }[type] ?? '#60a5fa');
+  const statusColor = (status: string) => ({
+    completed: '#22c55e',
+    recovered: '#16a34a',
+    failed: '#ef4444',
+    skipped: '#f59e0b',
+    pending: '#94a3b8',
+    running: '#3b82f6',
+  }[status] ?? '#64748b');
+  const rings = layout.layers.map((layer, index) => {
+    const ringRadius = Math.max(72, radius - (layout.layers.length - 1 - index) * 38);
+    return `<circle cx="${centerX}" cy="${centerY}" r="${ringRadius}" fill="none" stroke="${layer.mode === 'concurrent' ? '#bfdbfe' : '#ddd6fe'}" stroke-width="1.4" stroke-dasharray="6 8" opacity=".75"/>`;
+  }).join('');
+  const edges = dag.edges.map((edge, index) => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return '';
+    const color = edgeColor(edge.type);
+    const markerId = `html-circular-arrow-${index}`;
+    const midX = (from.x + to.x) / 2;
+    const midY = (from.y + to.y) / 2;
+    const spread = ((index % 5) - 2) * 18;
+    const controlX = centerX + (midX - centerX) * 0.28 + spread;
+    const controlY = centerY + (midY - centerY) * 0.28 - spread;
+    return [
+      `<defs><marker id="${markerId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/></marker></defs>`,
+      `<path class="circular-edge" d="M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}" fill="none" stroke="${color}" stroke-width="2.7" stroke-linecap="round" opacity=".74" marker-end="url(#${markerId})"><title>${escapeHtml(`${edge.from} to ${edge.to} (${edge.type})`)}</title></path>`,
+    ].join('');
+  }).join('');
+  const nodes = orderedNodes.map((node, index) => {
+    const pos = positions.get(node.id);
+    if (!pos) return '';
+    const status = String(node.status ?? 'pending').toLowerCase();
+    const labelRight = Math.cos(pos.angle) >= 0;
+    const labelAnchor = labelRight ? 'start' : 'end';
+    const labelX = pos.x + Math.cos(pos.angle) * 62;
+    const labelY = pos.y + Math.sin(pos.angle) * 62;
+    const labelWidth = 190;
+    const labelBoxX = labelRight ? labelX - 8 : labelX - labelWidth + 8;
+    const labelBoxY = labelY - 16;
+    const agent = String(node.agent || 'unknown');
+    const shortAgent = agent.length > 24 ? `${agent.slice(0, 23)}…` : agent;
+    const shortId = node.id.length > 10 ? `${node.id.slice(0, 9)}…` : node.id;
+    const consensus = formatConsensusHeadline(node.consensus);
+    return [
+      `<g class="circular-node" transform="translate(${pos.x} ${pos.y})">`,
+      '<circle r="37" fill="#ffffff" opacity=".84"/>',
+      `<circle r="30" fill="#ffffff" stroke="${statusColor(status)}" stroke-width="5"/>`,
+      `<text y="-3" font-size="10" text-anchor="middle" font-weight="800" fill="#1e293b">${index + 1}</text>`,
+      `<text y="11" font-size="8.5" text-anchor="middle" fill="#64748b">${escapeHtml(shortId)}</text>`,
+      '</g>',
+      `<rect class="circular-label-bg" x="${labelBoxX}" y="${labelBoxY}" width="${labelWidth}" height="${consensus ? 48 : 34}" rx="9" fill="#ffffff" stroke="#dbeafe" opacity=".92"/>`,
+      `<text x="${labelX}" y="${labelY}" font-size="11" text-anchor="${labelAnchor}" font-weight="800" fill="#1e293b">${escapeHtml(shortAgent)}</text>`,
+      `<text x="${labelX}" y="${labelY + 13}" font-size="9" text-anchor="${labelAnchor}" fill="#64748b">${escapeHtml(`${node.id} | ${status}`)}</text>`,
+      consensus ? `<text x="${labelX}" y="${labelY + 25}" font-size="9" text-anchor="${labelAnchor}" fill="#475569">${escapeHtml(consensus)}</text>` : '',
+    ].join('');
+  }).join('');
+  const legend = [
+    ['planned', '#60a5fa'],
+    ['feedback', '#06b6d4'],
+    ['review', '#14b8a6'],
+    ['judge', '#7c3aed'],
+    ['recovery', '#ef4444'],
+  ].map(([label, color], index) =>
+    `<g transform="translate(${24 + index * 116} ${height - 42})"><line x1="0" y1="0" x2="26" y2="0" stroke="${color}" stroke-width="4" stroke-linecap="round"/><text x="34" y="4" font-size="10" fill="#475569">${label}</text></g>`,
+  ).join('');
+
+  return [
+    '<section class="agent-circular-network" aria-label="Agent circular route visualization">',
+    '<h3>Agent Circular Route</h3>',
+    '<p class="agent-node-meta">Circular mode: dependency routes wrap around the agent ring; colors distinguish review, feedback, and recovery paths.</p>',
+    `<svg class="agent-circular-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Agent Circular Route">`,
+    '<defs><radialGradient id="html-circular-bg" cx="50%" cy="50%" r="55%"><stop offset="0%" stop-color="#ffffff"/><stop offset="58%" stop-color="#eff6ff"/><stop offset="100%" stop-color="#f5f3ff"/></radialGradient></defs>',
+    '<rect width="100%" height="100%" rx="24" fill="#f8fbff"/>',
+    `<circle cx="${centerX}" cy="${centerY}" r="${radius + 62}" fill="url(#html-circular-bg)" opacity=".82"/>`,
+    rings,
+    `<circle cx="${centerX}" cy="${centerY}" r="56" fill="#ffffff" stroke="#bfdbfe" stroke-width="2"/>`,
+    `<text x="${centerX}" y="${centerY - 4}" text-anchor="middle" font-size="12" font-weight="800" fill="#1f3658">MAP</text>`,
+    `<text x="${centerX}" y="${centerY + 14}" text-anchor="middle" font-size="10" fill="#64748b">${dag.nodes.length} agents</text>`,
+    edges,
+    nodes,
+    legend,
+    '</svg>',
     '</section>',
   ].join('');
 }
@@ -1765,13 +1879,44 @@ function appendFactCheckVerification(data: Record<string, unknown>, final: strin
 }
 
 function normalizeUsageReportTables(markdown: string): string {
-  return normalizeUsageTreeRowIdentifiers(addMissingLcbRowsToCommonnessRanking(markdown));
+  return normalizeUsageTreeRowIdentifiers(addMissingLcbRowsToCommonnessRanking(fillEmptyUsageReportTableCells(markdown)));
 }
 
 interface LcbExposureRow {
   category: string;
   examples: string;
+  evidence: string;
   caveat: string;
+}
+
+function fillEmptyUsageReportTableCells(markdown: string): string {
+  const lines = markdown.split('\n');
+  const targetHeadings = [
+    /^##\s+LCB Exposure Summary\s*$/i,
+    /^##\s+Usage Commonness Ranking\s*$/i,
+    /^##\s+Usage Tree\s*$/i,
+  ];
+
+  for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
+    if (!targetHeadings.some((pattern) => pattern.test(lines[headingIndex]!.trim()))) continue;
+    const tableStart = findNextTableLine(lines, headingIndex + 1);
+    if (tableStart < 0 || tableStart + 1 >= lines.length || !isMarkdownSeparatorRow(lines[tableStart + 1]!)) continue;
+
+    const header = parseMarkdownTableCells(lines[tableStart]!);
+    if (header.length === 0) continue;
+    for (let index = tableStart + 2; index < lines.length; index += 1) {
+      const cells = parseMarkdownTableCells(lines[index]!);
+      if (cells.length === 0) break;
+      const normalized = [...cells];
+      while (normalized.length < header.length) normalized.push('unavailable');
+      for (let cellIndex = 0; cellIndex < normalized.length; cellIndex += 1) {
+        if (!normalized[cellIndex]?.trim()) normalized[cellIndex] = 'unavailable';
+      }
+      lines[index] = formatMarkdownTableRow(normalized);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function addMissingLcbRowsToCommonnessRanking(markdown: string): string {
@@ -1836,7 +1981,8 @@ function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
   const categoryIndex = header.findIndex((cell) => /category/i.test(cell));
   const applicableIndex = header.findIndex((cell) => /applicable|classification|yes/i.test(cell));
   const examplesIndex = header.findIndex((cell) => /example/i.test(cell));
-  const caveatIndex = header.findIndex((cell) => /evidence|caveat/i.test(cell));
+  const evidenceIndex = header.findIndex((cell) => /^evidence$/i.test(cell) || /^evidence\s*\/?\s*caveat$/i.test(cell));
+  const caveatIndex = header.findIndex((cell) => /^caveat$/i.test(cell) || /^evidence\s*\/?\s*caveat$/i.test(cell));
   if (categoryIndex < 0 || applicableIndex < 0) return [];
 
   const rows: LcbExposureRow[] = [];
@@ -1853,6 +1999,7 @@ function extractPositiveLcbExposureRows(markdown: string): LcbExposureRow[] {
       rows.push({
         category,
         examples: scenario,
+        evidence: evidenceIndex >= 0 ? (cells[evidenceIndex] ?? '').trim() : '',
         caveat: caveatIndex >= 0 ? (cells[caveatIndex] ?? '').trim() : '',
       });
     }
@@ -1884,6 +2031,7 @@ function extractUsageTreeScenarioRows(markdown: string): LcbExposureRow[] {
     rows.push({
       category: inferUsageScenarioCategory(scenario),
       examples: scenario,
+      evidence: 'reported in Usage Tree',
       caveat: 'reported in Usage Tree',
     });
   }
@@ -1939,10 +2087,13 @@ function buildMissingCommonnessCells(options: {
     if (index >= 0) cells[index] = value;
   };
   const origin = meaningfulLcbValue(options.lcb.examples) ? options.lcb.examples : options.lcb.category;
-  const caveat = [
-    meaningfulLcbValue(options.lcb.caveat) ? options.lcb.caveat : '',
-    'reported usage scenario; commonness scoring evidence unavailable',
-  ].filter(Boolean).join('; ');
+  const evidence = meaningfulLcbValue(options.lcb.evidence)
+    ? options.lcb.evidence
+    : 'reported usage scenario';
+  const commonnessEvidence = `${evidence}; reported usage scenario; commonness scoring evidence unavailable`;
+  const caveat = meaningfulLcbValue(options.lcb.caveat)
+    ? `${options.lcb.caveat}; PubMed/DrugBank/source evidence may support usage without quantifying commonness`
+    : 'PubMed/DrugBank/source evidence may support usage without quantifying commonness';
 
   set(/^rank$/i, String(options.rank));
   set(/usage|application|exposure origin/i, origin);
@@ -1950,8 +2101,10 @@ function buildMissingCommonnessCells(options: {
   set(/commonness score/i, 'unavailable');
   set(/commonness label/i, 'unavailable');
   set(/timeframe/i, 'unavailable');
-  set(/recency|currentness/i, 'reported usage scenario; commonness scoring evidence unavailable');
-  set(/^evidence\s*\/?\s*caveat$/i, caveat);
+  set(/commonness evidence|recency|currentness/i, commonnessEvidence);
+  set(/^evidence$/i, evidence);
+  set(/^caveat$/i, caveat);
+  set(/^evidence\s*\/?\s*caveat$/i, `${commonnessEvidence}; ${caveat}`);
   return cells;
 }
 

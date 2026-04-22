@@ -169,6 +169,48 @@ describe('result formatting', () => {
     expect(output).toContain('reported usage scenario; commonness scoring evidence unavailable');
   });
 
+  it('keeps generated usage evidence and caveat cells separate when commonness is unavailable', () => {
+    const output = formatMapOutput({
+      version: 2,
+      success: true,
+      dag: {
+        nodes: [{ id: 'step-1', agent: 'usage-classification-tree', status: 'completed', duration: 1 }],
+        edges: [],
+      },
+      steps: [{
+        id: 'step-1',
+        agent: 'usage-classification-tree',
+        task: 'Classify usage',
+        status: 'completed',
+        output: [
+          '# Usage Classification Tree',
+          '',
+          '## LCB Exposure Summary',
+          '',
+          '| Category | Is this category applicable? | Typical examples when applicable | Evidence | Caveat |',
+          '| --- | --- | --- | --- | --- |',
+          '| drug / drug metabolite | yes | local anesthesia | PubMed PMID or DrugBank-record-backed medical use | controlled specialty context |',
+          '| other exposure origins | yes | metabolomics biomarker | PubMed/DrugBank supports metabolomics detection |  |',
+          '',
+          '## Usage Commonness Ranking',
+          '',
+          '| Rank | Usage/application/exposure origin | Category | Commonness score | Commonness label | Commonness timeframe | Commonness evidence | Caveat |',
+          '| --- | --- | --- | --- | --- | --- | --- | --- |',
+          '| 1 | local anesthesia | drug / drug metabolite | unavailable | unavailable | unavailable | PubMed/DrugBank supports usage but not prevalence | no utilization evidence |',
+          '',
+          '## Usage Tree',
+          '',
+          '| Level | Usage Classification |',
+          '| --- | --- |',
+          '| Level 1 | Medical and metabolomics uses |',
+        ].join('\n'),
+      }],
+    }, 'pdf');
+
+    expect(output).toMatch(/<td>2<\/td>\s*<td>metabolomics biomarker<\/td>\s*<td>other exposure origins<\/td>\s*<td>unavailable<\/td>\s*<td>unavailable<\/td>\s*<td>unavailable<\/td>\s*<td>PubMed\/DrugBank supports metabolomics detection; reported usage scenario; commonness scoring evidence unavailable<\/td>\s*<td>PubMed\/DrugBank\/source evidence may support usage without quantifying commonness<\/td>/);
+    expect(output).not.toContain('<td></td>');
+  });
+
   it('deduplicates repeated Usage Tree row identifiers in customer-facing output', () => {
     const output = formatMapOutput({
       version: 2,
@@ -377,9 +419,10 @@ describe('result formatting', () => {
 
 
 
-  it('can force metro and cluster HTML DAG layouts', () => {
+  it('can force metro, cluster, and circular HTML DAG layouts', () => {
     const metro = formatMapOutput(result, 'html', { dagLayout: 'metro' });
     const cluster = formatMapOutput(result, 'html', { dagLayout: 'cluster' });
+    const circular = formatMapOutput(result, 'html', { dagLayout: 'circular' });
 
     expect(metro).toContain('class="agent-metro-network"');
     expect(metro).toContain('Agent Metro');
@@ -387,6 +430,10 @@ describe('result formatting', () => {
     expect(cluster).toContain('class="agent-cluster-network"');
     expect(cluster).toContain('Agent Clusters');
     expect(cluster).toContain('cluster-chip');
+    expect(circular).toContain('class="agent-circular-network"');
+    expect(circular).toContain('Agent Circular Route');
+    expect(circular).toContain('circular-node');
+    expect(circular).toContain('circular-edge');
   });
 
 

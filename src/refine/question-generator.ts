@@ -10,6 +10,7 @@ export function buildRefineQuestionPrompt(options: {
     'You generate concise Socratic refinement questions for MAP before execution.',
     'Ask only questions whose answers are not already present in the request.',
     'Make questions specific to the user task, not generic project-management questions.',
+    'Include at least one question that helps define the task-specific definition of done or observable success conditions.',
     'Prefer 3 to 6 questions. Each question should explain why it matters and include a safe default assumption if unanswered.',
     '',
     'Return ONLY JSON with this shape:',

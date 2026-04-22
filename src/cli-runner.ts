@@ -47,7 +47,7 @@ Options:
   --open-output          Open generated html/pdf output automatically when finished
   --compact              Reduce the selected output format to graph plus Final Result
   --graph                Write PNG agent-network graphs for all DAG layouts
-  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, or cluster
+  --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster, or circular
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>
                          Stall timeout since last stage activity, e.g. 10m
@@ -292,9 +292,15 @@ Commands:
       const questionDetails = generatedQuestions.length > 0 ? generatedQuestions : initial.questionDetails;
       const questioned = refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails });
       const answers = !silent && process.stdin.isTTY ? await askRefineAnswers(questioned.questionDetails) : [];
-      const refined = answers.length > 0
+      const answered = answers.length > 0
         ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers })
         : questioned;
+      const successAnswers = !silent && process.stdin.isTTY && answers.length > 0
+        ? await askRefineAnswers(answered.successQuestionDetails, 'MAP refine needs a definition of done before execution.')
+        : [];
+      const refined = successAnswers.length > 0
+        ? refinePromptHeadless({ prompt: basePrompt, headless: true, questionDetails, answers, successAnswers })
+        : answered;
       const handoff = await saveRefineHandoff(path.resolve(outputDir ?? process.cwd()), refined);
       if (silent || !process.stdin.isTTY) {
         const output = silent
@@ -318,22 +324,25 @@ Commands:
       process.exit(0);
     };
 
-    if (!silent && process.stdin.isTTY) {
-      const handoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
-      if (handoff) {
-        const choice = await askSavedRefineHandoffChoice(handoff.refinedPromptPath);
-        if (choice === 'execute') {
-          await runWithPrompt(handoff.result.refinedPrompt, { rerunPrompt: prompt });
-          return;
-        }
-        if (choice === 'refine') {
-          await runRefineGate(handoff.result.refinedPrompt);
-          return;
-        }
+    const savedRefineHandoff = await loadRefineHandoff(path.resolve(outputDir ?? process.cwd()));
+    if (!silent && process.stdin.isTTY && savedRefineHandoff) {
+      const choice = await askSavedRefineHandoffChoice(savedRefineHandoff.refinedPromptPath);
+      if (choice === 'execute') {
+        await runWithPrompt(savedRefineHandoff.result.refinedPrompt, { rerunPrompt: prompt });
+        return;
+      }
+      if (choice === 'refine') {
+        await runRefineGate(savedRefineHandoff.result.refinedPrompt);
+        return;
       }
     }
 
     if (refineOnly) {
+      if (!silent && !process.stdin.isTTY && savedRefineHandoff) {
+        process.stderr.write(`${paint('Saved refined spec found; executing it in non-interactive refine mode:', 'cyan', 'bold')} ${savedRefineHandoff.refinedPromptPath}\n`);
+        await runWithPrompt(savedRefineHandoff.result.refinedPrompt, { rerunPrompt: prompt });
+        return;
+      }
       await runRefineGate(prompt);
       return;
     }
@@ -454,12 +463,12 @@ async function generateRefineQuestionDetails(options: {
   }
 }
 
-async function askRefineAnswers(questions: RefineQuestion[]): Promise<string[]> {
+async function askRefineAnswers(questions: RefineQuestion[], intro = 'MAP refine needs a few answers before execution.'): Promise<string[]> {
   if (questions.length === 0) return [];
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answers: string[] = [];
-    process.stdout.write(`${paint('MAP refine needs a few answers before execution.', 'cyan', 'bold')}\n`);
+    process.stdout.write(`${paint(intro, 'cyan', 'bold')}\n`);
     for (const [index, entry] of questions.entries()) {
       answers.push(await rl.question(formatInteractiveQuestion(entry, index)));
     }
@@ -508,13 +517,17 @@ async function askSavedRefineHandoffChoice(refinedPromptPath: string): Promise<'
   }
 }
 
-function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; questionDetails?: RefineQuestion[]; assumptions: string[]; answers?: string[]; refinedPrompt: string }): string {
+function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: string[]; questionDetails?: RefineQuestion[]; successQuestionsAsked?: string[]; successQuestionDetails?: RefineQuestion[]; assumptions: string[]; successCriteria?: string[]; answers?: string[]; successAnswers?: string[]; refinedPrompt: string }): string {
   const questionDetails = result.questionDetails && result.questionDetails.length > 0
     ? result.questionDetails
     : result.questionsAsked.map((question) => ({ question }));
   const questions = questionDetails.length > 0
     ? questionDetails.flatMap(formatQuestionLines)
     : ['1. No clarification questions were generated; review the optimized prompt below before execution.'];
+  const successQuestionDetails = result.successQuestionDetails && result.successQuestionDetails.length > 0
+    ? result.successQuestionDetails
+    : (result.successQuestionsAsked ?? []).map((question) => ({ question }));
+  const successQuestions = successQuestionDetails.flatMap(formatQuestionLines);
   return [
     paint('# MAP Refine Questions', 'cyan', 'bold'),
     '',
@@ -532,6 +545,27 @@ function formatRefineQuestions(result: { inputPrompt: string; questionsAsked: st
       ? [
           paint('## Answers collected', 'bold'),
           ...result.answers.map((answer, index) => `${index + 1}. ${result.questionsAsked[index] ?? `Question ${index + 1}`}\n   Answer: ${answer}`),
+          '',
+        ]
+      : []),
+    ...(successQuestions.length > 0
+      ? [
+          paint('## Follow-up success questions', 'bold'),
+          ...successQuestions,
+          '',
+        ]
+      : []),
+    ...(result.successAnswers && result.successAnswers.length > 0
+      ? [
+          paint('## Success answers collected', 'bold'),
+          ...result.successAnswers.map((answer, index) => `${index + 1}. ${result.successQuestionsAsked?.[index] ?? `Success question ${index + 1}`}\n   Answer: ${answer}`),
+          '',
+        ]
+      : []),
+    ...(result.successCriteria && result.successCriteria.length > 0
+      ? [
+          paint('## Definition of done', 'bold'),
+          ...result.successCriteria.map((criterion) => `- ${criterion}`),
           '',
         ]
       : []),

@@ -1,0 +1,48 @@
+name: goal-synthesizer
+description: "Builds a task-specific understanding of goals, non-goals, success criteria, assumptions, and verification evidence"
+adapter: ollama
+model: gemma4:26b
+prompt: prompt.md
+pipeline:
+  - name: inspect-goal-context
+  - name: synthesize-definition-of-done
+  - name: handoff-goal-memory
+handles: "goal synthesis, definition of done, success criteria, project goals, task assumptions, completion criteria, requirement clarification"
+output:
+  type: answer
+tools:
+  - type: builtin
+    name: web-search
+    config:
+      maxResults: 5
+  - type: builtin
+    name: knowledge-search
+contract:
+  mission: "Give MAP a durable, evidence-aware understanding of what done means for the current task."
+  capabilities:
+    - "Synthesize explicit user intent, existing refine answers, and local knowledge into concrete goals."
+    - "Use web search when external APIs, libraries, datasets, standards, or current facts materially affect success criteria."
+    - "Separate goals, non-goals, assumptions, risks, verification evidence, and open questions."
+  nonGoals:
+    - "Do not silently change explicit user requirements."
+    - "Do not turn assumptions into user-confirmed facts."
+    - "Do not implement code or produce final user deliverables."
+  process:
+    - "Read the prompt, refined answers, definition of done, and prior context."
+    - "Search local knowledge first, then use web search only when freshness or external behavior matters."
+    - "Produce a concise goal memory artifact for downstream specification, implementation, QA, and readiness agents."
+  escalationTriggers:
+    - "Explicit requirements conflict with each other."
+    - "External evidence materially changes the feasible definition of done."
+  verification:
+    requiredEvidence:
+      - "Definition of done contains observable success criteria."
+      - "Assumptions are labeled separately from confirmed requirements."
+  handoff:
+    deliverable: "Goal understanding and definition-of-done memory"
+    includes:
+      - "Primary goal"
+      - "Non-goals"
+      - "Definition of done"
+      - "Verification evidence"
+      - "Assumptions and risks"

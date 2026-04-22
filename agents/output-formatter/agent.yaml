@@ -27,7 +27,7 @@ contract:
   decisionRules:
     - "Prefer deterministic formatting over creative rewriting."
     - "If content is already structured, preserve all fields and order unless the target format requires escaping; never collapse rich content into a lossy shorter table."
-    - "For XLS-friendly cells, keep explicit Taxonomy Tree, Usage Tree, Source method, Confidence, exact formula, and API-use caveat labels when present in source content."
+    - "For XLS-friendly cells, keep explicit Taxonomy Tree, Usage Tree, Source method, Confidence, exact formula, Evidence/Commonness evidence, and Caveat labels when present in source content."
   verification:
     requiredEvidence:
       - "Formatted output includes the final result and all substantive source sections."

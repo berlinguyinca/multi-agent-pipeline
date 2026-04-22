@@ -27,7 +27,7 @@ export interface CrossReviewModelOverride {
   model?: string;
 }
 
-const PLANNING_AGENTS = new Set(['adviser', 'spec-writer', 'spec-qa-reviewer']);
+const PLANNING_AGENTS = new Set(['adviser']);
 const CROSS_REVIEW_HELPER_ID_PATTERN = /-(peer-review|judge)-\d+$/;
 const REVIEWER_AGENT_PREFERENCES = ['code-qa-analyst', 'release-readiness-reviewer', 'spec-qa-reviewer'];
 const JUDGE_AGENT_PREFERENCES = ['release-readiness-reviewer', 'adviser', 'code-qa-analyst', 'spec-qa-reviewer'];
@@ -58,6 +58,9 @@ export function shouldCrossReviewStep(options: {
   }
 
   if (agent.output.type === 'files') {
+    if (isPartialFileOutputPreservation(result)) {
+      return { shouldReview: false, reason: 'partial file-output artifacts continue to downstream repair instead of cross-review revision' };
+    }
     return config.gates.fileOutputs
       ? { shouldReview: true, gate: 'fileOutputs', reason: 'file-output agent requires cross-review' }
       : { shouldReview: false, reason: 'fileOutputs cross-review gate is disabled' };
@@ -78,6 +81,12 @@ export function shouldCrossReviewStep(options: {
   }
 
   return { shouldReview: false, reason: 'no enabled cross-review gate matched this step' };
+}
+
+
+function isPartialFileOutputPreservation(result: StepResult): boolean {
+  return (result.filesCreated?.length ?? 0) > 0 &&
+    Boolean(result.output?.includes('File-output agent reached its tool-call limit after modifying the workspace.'));
 }
 
 export function isCrossReviewHelperStep(step: Pick<DAGStep, 'id'>): boolean {

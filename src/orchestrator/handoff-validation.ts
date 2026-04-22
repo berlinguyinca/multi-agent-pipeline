@@ -22,6 +22,12 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
   if (isOutputRequired(options.result) && output.length === 0) {
     findings.push(finding('high', 'Step completed without usable output.', options.step.id));
   }
+  if (output.length > 0 && isProtocolAcknowledgment(output)) {
+    findings.push(finding('high', 'Step returned protocol acknowledgment without substantive task output.', options.step.id));
+  }
+  if (output.length > 0 && isDuplicateToolLoopPlaceholder(output)) {
+    findings.push(finding('high', 'Step repeated an identical successful tool call without producing substantive output.', options.step.id));
+  }
   if (options.result.outputType === 'files' && output.length === 0 && (options.result.filesCreated?.length ?? 0) === 0) {
     findings.push(finding('high', 'file-output step completed without usable output or file evidence.', options.step.id));
   }
@@ -44,7 +50,7 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     findings.push(...validateFormatterPreservation(options));
   }
 
-  if (options.step.agent === 'usage-classification-fact-checker' || options.step.agent === 'research-fact-checker') {
+  if (isFactCheckVerdictAgent(options.step.agent)) {
     findings.push(...validateFactCheckVerdict(options));
   }
 
@@ -58,6 +64,34 @@ export function validateStepHandoff(options: HandoffValidationOptions): HandoffV
     handoffFindings: findings,
     specConformance,
   };
+}
+
+function isFactCheckVerdictAgent(agent: string): boolean {
+  return agent === 'usage-classification-fact-checker' ||
+    agent === 'research-fact-checker' ||
+    agent === 'evidence-source-reviewer' ||
+    agent === 'commonness-evidence-reviewer';
+}
+
+function isProtocolAcknowledgment(output: string): boolean {
+  const normalized = output.toLowerCase().replace(/\s+/g, ' ').trim();
+  const protocolSignals = [
+    /\bi am ready to act as\b/,
+    /\bi will (?:now )?(?:evaluate|follow|adhere to|execute) (?:incoming )?(?:specifications|the protocol|my role)/,
+    /\bmy role is to\b/,
+    /\bas the [a-z0-9 -]+ agent\b/,
+    /\brole and protocol\b/,
+    /\bawait(?:ing)? (?:the )?(?:task|specification|input)\b/,
+  ];
+  if (!protocolSignals.some((pattern) => pattern.test(normalized))) return false;
+  const substantiveSignals = [
+    /\b(changed files?|files changed|created|modified|implemented|tests? run|verification|adviser-workflow|plan":|diff|patch)\b/,
+  ];
+  return !substantiveSignals.some((pattern) => pattern.test(normalized));
+}
+
+function isDuplicateToolLoopPlaceholder(output: string): boolean {
+  return output.includes('already returned the same successful result for identical parameters');
 }
 
 
