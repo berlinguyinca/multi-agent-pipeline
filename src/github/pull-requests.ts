@@ -5,6 +5,7 @@ import type {
   GitHubPRRef,
   PRReviewResult,
 } from '../types/github.js';
+import { truncate } from '../utils/truncate.js';
 
 type FetchLike = typeof fetch;
 
@@ -263,12 +264,4 @@ function prApiUrl(ref: GitHubPRRef): string {
 
 function issueCommentsUrl(ref: GitHubPRRef): string {
   return `https://api.github.com/repos/${ref.owner}/${ref.repo}/issues/${ref.pullNumber}/comments`;
-}
-
-function truncate(value: string, maxChars: number, marker: string): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-
-  return `${value.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
 }

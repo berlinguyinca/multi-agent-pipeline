@@ -96,6 +96,9 @@ export const DEFAULT_CONFIG: PipelineConfig = {
     docs: { adapter: 'claude' },
   },
   github: {},
+  youtrack: {
+    baseUrl: 'https://wcmc.myjetbrains.com/youtrack',
+  },
   ollama: {
     host: 'http://localhost:11434',
     contextLength: DEFAULT_OLLAMA_CONTEXT_LENGTH,

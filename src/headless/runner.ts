@@ -60,6 +60,13 @@ import {
   postGitHubIssueComment,
 } from '../github/issues.js';
 import { resolveGitHubToken } from '../github/token.js';
+import {
+  buildYouTrackIssuePrompt,
+  fetchYouTrackIssueContext,
+  getYouTrackBaseUrl,
+  getYouTrackToken,
+  resolveYouTrackIssueRef,
+} from '../youtrack/issues.js';
 import { buildAdapterChain, runWithFailover } from '../adapters/failover-runner.js';
 import { createReporter, type VerboseReporter } from '../utils/verbose-reporter.js';
 import { DEFAULT_SECURITY_CONFIG } from '../security/types.js';
@@ -77,6 +84,7 @@ import {
   saveStepMarkdown,
 } from '../output/markdown-artifacts.js';
 import { saveTaskKnowledgeArtifacts } from '../output/knowledge-artifacts.js';
+import { issueOutputDirName } from '../issues/output-dir.js';
 
 export type ActorFactory = (context: PipelineContext) => PipelineActor;
 export type AdapterFactory = (context: PipelineContext['agents'][keyof PipelineContext['agents']]) => AgentAdapter;
@@ -195,6 +203,8 @@ function buildRerunHints(options: HeadlessOptions): HeadlessResultV2['rerun'] {
   const args = ['map', '--headless'];
   if (options.configPath) args.push('--config', quoteShellArg(options.configPath));
   if (options.specFilePath) args.push('--spec-file', quoteShellArg(options.specFilePath));
+  if (options.githubIssueUrl) args.push('--github-issue', quoteShellArg(options.githubIssueUrl));
+  if (options.youtrackIssueUrl) args.push('--youtrack-issue', quoteShellArg(options.youtrackIssueUrl));
   if (options.workspaceDir) args.push('--workspace-dir', quoteShellArg(options.workspaceDir));
   if (options.outputDir) args.push('--output-dir', quoteShellArg(options.outputDir));
   if (options.routerModel) args.push('--router-model', quoteShellArg(options.routerModel));
@@ -388,7 +398,7 @@ async function runHeadlessWithActor(
   try {
     const config = await loadConfigFn(options.configPath);
     applyHeadlessOllamaOverrides(config, options);
-    const outputDir = path.resolve(options.outputDir ?? process.cwd());
+    const outputDir = resolveHeadlessOutputDir(options);
     await fs.mkdir(outputDir, { recursive: true });
 
     const context = createPipelineContext({
@@ -434,7 +444,7 @@ async function runHeadlessLive(
   const reporter = createReporter(options.verbose ?? false);
   let issueContext: GitHubIssueContext | undefined;
   let githubToken: string | undefined;
-  const outputDir = path.resolve(options.outputDir ?? process.cwd());
+  const outputDir = resolveHeadlessOutputDir(options);
   const markdownFiles: string[] = [];
 
   async function finish(result: HeadlessResult): Promise<HeadlessResult> {
@@ -685,6 +695,18 @@ async function resolveHeadlessPrompt(
   dependencies: HeadlessDependencies,
   onContext: (context: GitHubIssueContext, token: string) => void,
 ): Promise<string> {
+  if (options.githubIssueUrl && options.youtrackIssueUrl) {
+    throw new Error('Choose exactly one issue source. Do not combine --github-issue with --youtrack-issue.');
+  }
+
+  if (options.youtrackIssueUrl) {
+    const baseUrl = getYouTrackBaseUrl(dependencies.env) ?? config.youtrack.baseUrl;
+    const token = getYouTrackToken(dependencies.env) ?? config.youtrack.token;
+    const ref = resolveYouTrackIssueRef(options.youtrackIssueUrl, baseUrl);
+    const context = await fetchYouTrackIssueContext(ref, token, dependencies.fetchFn);
+    return buildYouTrackIssuePrompt(context, options.prompt);
+  }
+
   if (!options.githubIssueUrl) {
     return options.prompt;
   }
@@ -1196,7 +1218,7 @@ export async function runHeadlessV2(
   dependencies: HeadlessDependencies = defaultDependencies,
 ): Promise<HeadlessResultV2> {
   const startTime = Date.now();
-  const outputDir = path.resolve(options.outputDir ?? process.cwd());
+  const outputDir = resolveHeadlessOutputDir(options);
   if (options.compareAgents !== undefined) {
     return runHeadlessV2Comparison(options, dependencies, outputDir, startTime);
   }
@@ -1455,6 +1477,10 @@ export async function runHeadlessV2(
     await recordAgentPerformance(finalResult, workspaceDir ?? outputDir);
     return await finish(finalResult);
   }
+}
+
+function resolveHeadlessOutputDir(options: Pick<HeadlessOptions, 'outputDir' | 'githubIssueUrl' | 'youtrackIssueUrl'>): string {
+  return path.resolve(options.outputDir ?? issueOutputDirName(options) ?? process.cwd());
 }
 
 function resolveDefaultWorkspaceDir(

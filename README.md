@@ -277,6 +277,10 @@ map --spec-file docs/spec.md
 # Start from a GitHub issue — the issue title, body, and comments become the prompt
 map --github-issue https://github.com/owner/repo/issues/123
 
+# Start from a YouTrack issue URL, or from an issue id using the configured default server
+map --headless --youtrack-issue https://wcmc.myjetbrains.com/youtrack/issue/MAP-123
+map --headless --youtrack-issue MAP-123
+
 # Resume a previously checkpointed pipeline
 map --resume
 ```
@@ -399,6 +403,9 @@ map --headless \
 
 # Use a GitHub issue as the prompt and post the result back as a comment
 map --headless --github-issue https://github.com/owner/repo/issues/123
+
+# Use a YouTrack issue as the prompt. Bare ids use youtrack.baseUrl / YOUTRACK_BASE_URL.
+map --headless --youtrack-issue MAP-123
 
 # Review a pull request and post findings as a PR comment
 map --review-pr https://github.com/owner/repo/pull/456
@@ -1182,6 +1189,17 @@ GITHUB_TOKEN=ghp_... map --headless --github-issue https://github.com/owner/repo
 
 The issue title, body, and non-bot comments become the task prompt. If you also pass prompt text, MAP appends it as additional instructions. The final comment includes the generated spec, QA assessments, execution summary, files created, Markdown docs updated, test counts, and failure details when applicable.
 
+## YouTrack Issue Mode
+
+Headless mode can also use a YouTrack issue as the source prompt:
+
+```bash
+map --headless --youtrack-issue https://wcmc.myjetbrains.com/youtrack/issue/MAP-123
+map --headless --youtrack-issue MAP-123
+```
+
+Bare issue ids use `youtrack.baseUrl` from `pipeline.yaml`, falling back to `YOUTRACK_BASE_URL`. This repository defaults to `https://wcmc.myjetbrains.com/youtrack`. Private YouTrack instances can use `youtrack.token` or `YOUTRACK_TOKEN`. MAP reads the issue summary, description, and comments into the prompt; unlike GitHub issue mode, it does not post results back to YouTrack.
+
 ## Checkpoints And Resume
 
 MAP uses git checkpoints at stage boundaries. Cancelling with `Ctrl+C` saves progress so a pipeline can be resumed later.
@@ -1271,6 +1289,8 @@ Usage:
   map --spec-file <path> Start from a local spec file
   map --github-issue <url>
                          Use a GitHub issue as prompt and post final report
+  map --youtrack-issue <url|id>
+                         Use a YouTrack issue URL or issue id as prompt
   map agent list         List registered agents
   map agent create       Generate a new agent definition
   map agent test <name>  Run one agent with a smoke-test prompt
@@ -1314,6 +1334,8 @@ Options:
   --judge-panel-max-rounds <n>
                          Max judge-panel steering reruns
   --github-issue <url>   GitHub issue URL for prompt/reporting
+  --youtrack-issue <url|id>
+                         YouTrack issue URL, or issue id using youtrack.baseUrl / YOUTRACK_BASE_URL
   --personality <text>   Personality or tone injected into AI prompts
 ```
 

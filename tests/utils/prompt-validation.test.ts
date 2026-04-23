@@ -51,6 +51,13 @@ describe('validatePrompt', () => {
     expect(result.valid).toBe(true);
   });
 
+  it('bypasses validation when YouTrack issue URL is provided', () => {
+    const result = validatePrompt('', undefined, undefined, {
+      youtrackIssueUrl: 'https://wcmc.myjetbrains.com/youtrack/issue/MAP-123',
+    });
+    expect(result.valid).toBe(true);
+  });
+
   it('bypasses validation when a spec file path is provided', () => {
     const result = validatePrompt('', undefined, 'docs/spec.md');
     expect(result.valid).toBe(true);
@@ -78,6 +85,14 @@ describe('validatePrompt', () => {
     const result = validatePrompt('', 'https://github.com/org/repo/issues/1', 'docs/spec.md');
     expect(result.valid).toBe(false);
     expect(result.error).toContain('--github-issue');
+  });
+
+  it('rejects mixing a YouTrack issue with a spec file', () => {
+    const result = validatePrompt('', undefined, 'docs/spec.md', {
+      youtrackIssueUrl: 'MAP-123',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('--youtrack-issue');
   });
 
   it('does not bypass validation for empty GitHub URL', () => {

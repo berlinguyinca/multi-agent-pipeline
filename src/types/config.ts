@@ -1,6 +1,8 @@
 import type { AdapterType } from './adapter.js';
 import type { AgentDefinition } from './agent-definition.js';
 import type { SecurityConfig } from '../security/types.js';
+import type { YouTrackConfig } from './youtrack.js';
+export type { YouTrackConfig } from './youtrack.js';
 
 export interface AdapterFallback {
   adapter: AdapterType;
@@ -143,6 +145,7 @@ export interface PipelineConfig {
     docs: AgentAssignment;
   };
   github: GitHubConfig;
+  youtrack: YouTrackConfig;
   ollama: OllamaConfig;
   quality: QualityConfig;
   evidence: EvidenceConfig;

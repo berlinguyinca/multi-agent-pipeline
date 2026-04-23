@@ -5,6 +5,7 @@ import type {
   GitHubReportResult,
 } from '../types/github.js';
 import type { HeadlessResult, HeadlessResultV2 } from '../types/headless.js';
+import { truncate } from '../utils/truncate.js';
 
 type FetchLike = typeof fetch;
 
@@ -306,12 +307,4 @@ ${assessment.rawOutput || '(empty)'}
 \`\`\``,
     )
     .join('\n\n');
-}
-
-function truncate(value: string, maxChars: number, marker: string): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-
-  return `${value.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
 }

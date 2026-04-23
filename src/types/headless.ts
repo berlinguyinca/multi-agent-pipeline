@@ -14,6 +14,7 @@ import type { AgentDiscoveryDiagnostics } from '../agents/autonomous-discovery.j
 export interface HeadlessOptions {
   prompt: string;
   githubIssueUrl?: string;
+  youtrackIssueUrl?: string;
   initialSpec?: string;
   specFilePath?: string;
   outputDir?: string;
