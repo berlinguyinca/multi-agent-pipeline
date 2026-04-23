@@ -31,6 +31,8 @@ Usage:
   map --spec-file <path> Start from a local spec file
   map --github-issue <url>
                          Use a GitHub issue as the task prompt and post final report
+  map --youtrack-issue <url|id>
+                         Use a YouTrack issue URL or id as the task prompt
   map --review-pr <url>  Review a GitHub PR and post findings as a comment
 
 Options:
@@ -83,6 +85,8 @@ Options:
   --ollama-max-loaded-models <n>
                          Max models loaded concurrently when MAP starts ollama serve (default: 2)
   --github-issue <url>   GitHub issue URL for prompt/reporting (auto-detects from gh CLI)
+  --youtrack-issue <url|id>
+                         YouTrack issue URL, or issue id using youtrack.baseUrl / YOUTRACK_BASE_URL
   --review-pr <url>      Review a GitHub PR and post review comment (auto-detects from gh CLI)
   --personality <text>   Personality/tone injected into all AI prompts
   --verbose, -V          Show detailed progress and stage output on stderr
@@ -210,6 +214,7 @@ Commands:
     const crossReviewJudgeModels = parseCsvFlag(args, '--cross-review-judge-models');
     const ollama = parseOllamaOverrides(args);
     const githubIssueUrl = extractFlag(args, '--github-issue');
+    const youtrackIssueUrl = extractFlag(args, '--youtrack-issue');
     const personality = extractFlag(args, '--personality');
 
     const runWithPrompt = async (resolvedPrompt: string, options: { initialSpec?: string; specFilePath?: string; rerunPrompt?: string } = {}) => {
@@ -218,6 +223,7 @@ Commands:
         const result = await runHeadlessV2({
           prompt: resolvedPrompt,
           githubIssueUrl,
+          youtrackIssueUrl,
           ...(options.initialSpec !== undefined ? { initialSpec: options.initialSpec } : {}),
           ...(options.specFilePath ? { specFilePath: options.specFilePath } : {}),
           outputDir,
@@ -249,6 +255,7 @@ Commands:
       const result = await runHeadless({
         prompt: resolvedPrompt,
         githubIssueUrl,
+        youtrackIssueUrl,
         ...(options.initialSpec !== undefined ? { initialSpec: options.initialSpec } : {}),
         ...(options.specFilePath ? { specFilePath: options.specFilePath } : {}),
         outputDir,
@@ -349,6 +356,7 @@ Commands:
 
     const validation = validatePrompt(prompt, githubIssueUrl, specFileArg, {
       allowPromptWithSpecFile: useV2,
+      youtrackIssueUrl,
     });
     if (!validation.valid) {
       console.error(`Error: ${validation.error}`);
@@ -372,14 +380,17 @@ Commands:
   const useV2 = !args.includes('--classic');
   const initialPrompt = extractPrompt(args);
   const initialGithubIssueUrl = extractFlag(args, '--github-issue');
+  const initialYouTrackIssueUrl = extractFlag(args, '--youtrack-issue');
   const specFileArg = extractFlag(args, '--spec-file');
   const hasInitialInput =
     initialPrompt.trim().length > 0 ||
     Boolean(initialGithubIssueUrl?.trim()) ||
+    Boolean(initialYouTrackIssueUrl?.trim()) ||
     Boolean(specFileArg?.trim());
   if (hasInitialInput) {
     const validation = validatePrompt(initialPrompt, initialGithubIssueUrl, specFileArg, {
       allowPromptWithSpecFile: useV2,
+      youtrackIssueUrl: initialYouTrackIssueUrl,
     });
     if (!validation.valid) {
       console.error(`Error: ${validation.error}`);
@@ -387,7 +398,7 @@ Commands:
     }
   }
   const loadedSpec = specFileArg ? await loadSpecFile(specFileArg) : undefined;
-  const resolvedInitialPrompt =
+  let resolvedInitialPrompt =
     loadedSpec !== undefined
       ? (useV2 ? buildV2SpecFilePrompt(specFileArg!, loadedSpec, initialPrompt) : buildSpecFilePrompt(specFileArg!))
       : initialPrompt;
@@ -396,6 +407,20 @@ Commands:
   const config = await loadConfig(configPath);
   config.outputDir = path.resolve(outputDir ?? process.cwd());
   if (workspaceDir) config.workspaceDir = path.resolve(workspaceDir);
+  if (initialYouTrackIssueUrl?.trim()) {
+    const {
+      buildYouTrackIssuePrompt,
+      fetchYouTrackIssueContext,
+      getYouTrackBaseUrl,
+      getYouTrackToken,
+      resolveYouTrackIssueRef,
+    } = await import('./youtrack/issues.js');
+    const baseUrl = getYouTrackBaseUrl(process.env) ?? config.youtrack.baseUrl;
+    const token = getYouTrackToken(process.env) ?? config.youtrack.token;
+    const ref = resolveYouTrackIssueRef(initialYouTrackIssueUrl, baseUrl);
+    const context = await fetchYouTrackIssueContext(ref, token);
+    resolvedInitialPrompt = buildYouTrackIssuePrompt(context, initialPrompt);
+  }
   await fs.mkdir(config.outputDir, { recursive: true });
   const routerTimeout = extractFlag(args, '--router-timeout');
   const routerModel = extractFlag(args, '--router-model');

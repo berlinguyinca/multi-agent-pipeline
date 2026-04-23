@@ -7,6 +7,7 @@ export interface PromptValidationResult {
 
 export interface PromptValidationOptions {
   allowPromptWithSpecFile?: boolean;
+  youtrackIssueUrl?: string;
 }
 
 function countWords(text: string): number {
@@ -15,7 +16,7 @@ function countWords(text: string): number {
 
 /**
  * Validates that a prompt has enough context for the pipeline to work with.
- * A GitHub issue URL bypasses validation since the issue body provides context.
+ * External issue URLs bypass validation since the issue body provides context.
  */
 export function validatePrompt(
   prompt: string,
@@ -23,14 +24,22 @@ export function validatePrompt(
   specFilePath?: string,
   options: PromptValidationOptions = {},
 ): PromptValidationResult {
-  const hasGitHubIssue = Boolean(githubIssueUrl && githubIssueUrl.trim().length > 0);
-  const hasSpecFile = Boolean(specFilePath && specFilePath.trim().length > 0);
+  const hasValue = (value: string | undefined) => Boolean(value && value.trim().length > 0);
+  const hasGitHubIssue = hasValue(githubIssueUrl);
+  const hasYouTrackIssue = hasValue(options.youtrackIssueUrl);
+  const hasSpecFile = hasValue(specFilePath);
   const hasPrompt = prompt.trim().length > 0;
 
-  if (hasGitHubIssue && hasSpecFile) {
+  const presentSources = [
+    { flag: '--github-issue', present: hasGitHubIssue },
+    { flag: '--youtrack-issue', present: hasYouTrackIssue },
+    { flag: '--spec-file', present: hasSpecFile },
+  ].filter((source) => source.present);
+
+  if (presentSources.length > 1) {
     return {
       valid: false,
-      error: 'Choose exactly one primary input source. Do not combine --github-issue with --spec-file.',
+      error: `Choose exactly one primary input source. Do not combine ${presentSources.map((source) => source.flag).join(', ')}.`,
     };
   }
 
@@ -41,8 +50,8 @@ export function validatePrompt(
     };
   }
 
-  // GitHub issue URL provides its own context — skip word count check
-  if (hasGitHubIssue || hasSpecFile) {
+  // External issues and spec files provide their own context — skip word count check
+  if (hasGitHubIssue || hasYouTrackIssue || hasSpecFile) {
     return { valid: true };
   }
 

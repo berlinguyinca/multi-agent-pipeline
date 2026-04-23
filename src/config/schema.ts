@@ -13,6 +13,7 @@ import type {
   AdapterDefaultsMap,
   EvidenceConfig,
   CrossReviewConfig,
+  YouTrackConfig,
 } from '../types/config.js';
 import type { AdapterType } from '../types/adapter.js';
 import { parseDuration, validateDurationRelationship } from '../utils/duration.js';
@@ -176,6 +177,31 @@ function validateGitHubConfig(value: unknown): Partial<GitHubConfig> {
   }
 
   return github;
+}
+
+function validateYouTrackConfig(value: unknown): Partial<YouTrackConfig> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('youtrack must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+  const youtrack: Partial<YouTrackConfig> = {};
+
+  if (obj['baseUrl'] !== undefined) {
+    if (typeof obj['baseUrl'] !== 'string' || obj['baseUrl'].trim() === '') {
+      throw new Error('youtrack.baseUrl must be a non-empty string');
+    }
+    youtrack.baseUrl = obj['baseUrl'].trim().replace(/\/+$/, '');
+  }
+
+  if (obj['token'] !== undefined) {
+    if (typeof obj['token'] !== 'string' || obj['token'].trim() === '') {
+      throw new Error('youtrack.token must be a non-empty string');
+    }
+    youtrack.token = obj['token'].trim();
+  }
+
+  return youtrack;
 }
 
 function validateOllamaConfig(value: unknown): Partial<OllamaConfig> {
@@ -905,6 +931,11 @@ export function validateConfig(config: unknown): PipelineConfig {
     github = validateGitHubConfig(obj['github']);
   }
 
+  let youtrack: Partial<YouTrackConfig> | undefined;
+  if (obj['youtrack'] !== undefined) {
+    youtrack = validateYouTrackConfig(obj['youtrack']);
+  }
+
   let ollama: Partial<OllamaConfig> | undefined;
   if (obj['ollama'] !== undefined) {
     ollama = validateOllamaConfig(obj['ollama']);
@@ -953,6 +984,7 @@ export function validateConfig(config: unknown): PipelineConfig {
   return {
     ...(agents !== undefined ? { agents } : {}),
     ...(github !== undefined ? { github } : {}),
+    ...(youtrack !== undefined ? { youtrack } : {}),
     ...(ollama !== undefined ? { ollama } : {}),
     ...(quality !== undefined ? { quality } : {}),
     ...(evidence !== undefined ? { evidence } : {}),

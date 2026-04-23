@@ -29,6 +29,7 @@ describe('loadConfig', () => {
     expect(config.headless.totalTimeoutMs).toBe(60 * 60 * 1000);
     expect(config.headless.inactivityTimeoutMs).toBe(10 * 60 * 1000);
     expect(config.headless.pollIntervalMs).toBe(10 * 1000);
+    expect(config.youtrack.baseUrl).toBe('https://wcmc.myjetbrains.com/youtrack');
   });
 
   it('parses valid YAML config', async () => {
@@ -59,6 +60,9 @@ ollama:
 quality:
   maxSpecQaIterations: 2
   maxCodeQaIterations: 4
+youtrack:
+  baseUrl: https://youtrack.example.test/youtrack/
+  token: yt-token
 `;
     const configPath = path.join(tmpDir, 'pipeline.yaml');
     await fs.writeFile(configPath, yamlContent, 'utf-8');
@@ -80,6 +84,8 @@ quality:
     expect(config.ollama.maxLoadedModels).toBe(3);
     expect(config.quality.maxSpecQaIterations).toBe(2);
     expect(config.quality.maxCodeQaIterations).toBe(4);
+    expect(config.youtrack.baseUrl).toBe('https://youtrack.example.test/youtrack');
+    expect(config.youtrack.token).toBe('yt-token');
   });
 
   it('rejects invalid Ollama server resource settings', async () => {

@@ -78,6 +78,10 @@ agentOverrides:
   release-readiness-reviewer:
     enabled: true
 
+youtrack:
+  baseUrl: https://wcmc.myjetbrains.com/youtrack
+  # token: ${YOUTRACK_TOKEN}
+
 ollama:
   host: http://localhost:11434
   contextLength: 100000

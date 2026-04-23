@@ -864,6 +864,103 @@ SCORES: completeness=0.9 testability=0.8 specificity=0.9
     await fs.rm(baseDir, { recursive: true, force: true });
   });
 
+  it('uses YouTrack issue content as prompt with configured default server', async () => {
+    const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'map-headless-youtrack-'));
+    let firstSpecPrompt = '';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          idReadable: 'MAP-123',
+          summary: 'Build YouTrack app',
+          description: 'YouTrack body requirements',
+          comments: [
+            {
+              text: 'YouTrack comment',
+              created: 1776787200000,
+              author: { login: 'alice', fullName: 'Alice Example' },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    class FakeAdapter implements AgentAdapter {
+      readonly model = undefined;
+
+      constructor(readonly type: AdapterConfig['type']) {}
+
+      async detect() {
+        return { installed: true };
+      }
+
+      async *run(prompt: string, options?: RunOptions): AsyncGenerator<string, void, void> {
+        if (prompt.includes('senior QA architect') || prompt.includes('senior QA engineer')) {
+          yield 'QA_RESULT: pass\nSUMMARY: Looks good\n';
+          return;
+        }
+
+        if (prompt.includes('reviewing a specification')) {
+          yield '# Reviewed Spec\n\n## Goal\nBuild it\n\nSCORES: completeness=0.8 testability=0.8 specificity=0.8';
+          return;
+        }
+
+        if (prompt.includes('strict Test-Driven Development') && options?.cwd) {
+          await fs.writeFile(path.join(options.cwd, 'package.json'), '{"name":"demo"}\n', 'utf8');
+          yield '// [TEST:PASS] works\n';
+          return;
+        }
+
+        if (prompt.includes('senior technical writer') && options?.cwd) {
+          await fs.writeFile(path.join(options.cwd, 'README.md'), '# Demo\n', 'utf8');
+          yield 'Updated README.md';
+          return;
+        }
+
+        firstSpecPrompt = prompt;
+        yield '# Spec\n\n## Goal\nBuild it\n';
+      }
+
+      cancel() {}
+    }
+
+    const result = await runHeadless(
+      {
+        prompt: 'Additional prompt',
+        youtrackIssueUrl: 'MAP-123',
+      },
+      createPipelineActor,
+      {
+        loadConfigFn: async () => ({
+          ...defaultConfigMock,
+          outputDir: baseDir,
+          youtrack: { baseUrl: 'https://wcmc.myjetbrains.com/youtrack' },
+          quality: {
+            maxSpecQaIterations: 1,
+            maxCodeQaIterations: 1,
+          },
+        }),
+        detectAllAdaptersFn: async () => ({
+          claude: { installed: true },
+          codex: { installed: true },
+          ollama: { installed: true, models: [] },
+        }),
+        createAdapterFn: (config) => new FakeAdapter(config.type),
+        fetchFn: fetchMock as typeof fetch,
+        env: {},
+      },
+    );
+
+    expect(firstSpecPrompt).toContain('Build YouTrack app');
+    expect(firstSpecPrompt).toContain('YouTrack body requirements');
+    expect(firstSpecPrompt).toContain('YouTrack comment');
+    expect(firstSpecPrompt).toContain('Additional prompt');
+    expect(result.githubReport).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await fs.rm(baseDir, { recursive: true, force: true });
+  });
+
   it('fails before agent execution when GitHub token is missing', async () => {
     let adapterCreated = false;
 

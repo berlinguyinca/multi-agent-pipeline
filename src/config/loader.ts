@@ -59,6 +59,10 @@ function deepMerge(base: PipelineConfig, override: Partial<PipelineConfig>): Pip
     github: {
       token: override.github?.token ?? base.github.token,
     },
+    youtrack: {
+      baseUrl: override.youtrack?.baseUrl ?? base.youtrack.baseUrl,
+      token: override.youtrack?.token ?? base.youtrack.token,
+    },
     ollama: {
       host: override.ollama?.host ?? base.ollama.host,
       contextLength: override.ollama?.contextLength ?? base.ollama.contextLength,
@@ -173,6 +177,7 @@ export async function loadConfig(configPath?: string): Promise<PipelineConfig> {
       ...DEFAULT_CONFIG,
       agents: { ...DEFAULT_CONFIG.agents },
       github: { ...DEFAULT_CONFIG.github },
+      youtrack: { ...DEFAULT_CONFIG.youtrack },
       ollama: { ...DEFAULT_CONFIG.ollama },
       quality: { ...DEFAULT_CONFIG.quality },
       evidence: {

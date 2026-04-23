@@ -34,6 +34,7 @@ export type {
   StageName,
   OllamaConfig,
   QualityConfig,
+  YouTrackConfig,
 } from './types/config.js';
 
 export type {
@@ -45,6 +46,12 @@ export type {
   CheckpointData,
   CheckpointMeta,
 } from './types/checkpoint.js';
+
+export type {
+  YouTrackIssueRef,
+  YouTrackIssueComment,
+  YouTrackIssueContext,
+} from './types/youtrack.js';
 
 export type {
   GitHubIssueRef,
@@ -72,3 +79,9 @@ export {
   buildGitHubIssuePrompt,
   buildGitHubReport,
 } from './github/issues.js';
+
+export {
+  parseYouTrackIssueRef,
+  resolveYouTrackIssueRef,
+  buildYouTrackIssuePrompt,
+} from './youtrack/issues.js';

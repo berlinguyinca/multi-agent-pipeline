@@ -182,6 +182,19 @@ describe('runCli', () => {
     expect(runHeadlessMock).not.toHaveBeenCalled();
   });
 
+  it('passes YouTrack issue URL through headless smart routing', async () => {
+    const { runCli } = await import('../src/cli-runner.js');
+
+    await expect(
+      runCli(['--headless', '--youtrack-issue', 'MAP-123', 'Use the default YouTrack server']),
+    ).rejects.toThrow('process.exit:0');
+
+    expect(runHeadlessV2Mock).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: 'Use the default YouTrack server',
+      youtrackIssueUrl: 'MAP-123',
+    }));
+  });
+
   it('runs evidence audit subcommand', async () => {
     const { runCli } = await import('../src/cli-runner.js');
 

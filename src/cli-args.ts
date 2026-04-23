@@ -33,6 +33,7 @@ const flagsWithValues = new Set([
   '--ollama-num-parallel',
   '--ollama-max-loaded-models',
   '--github-issue',
+  '--youtrack-issue',
   '--spec-file',
   '--refined-prompt',
   '--personality',
