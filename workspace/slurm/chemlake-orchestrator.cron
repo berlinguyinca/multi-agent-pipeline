@@ -1,5 +1,0 @@
-# Example Hive crontab entry for keeping exactly one Chemlake orchestrator alive.
-# Prefer scripts/install_chemlake_orchestrator_cron.sh so the absolute paths are
-# generated from the deployed checkout.
-#
-# */5 * * * * cd /path/to/workspace && CHEMLAKE_REPO_ROOT=/path/to/workspace CHEMLAKE_ENV_FILE=/path/to/workspace/slurm/env.sh /path/to/workspace/scripts/ensure_chemlake_orchestrator.sh >> /path/to/workspace/logs/chemlake-orchestrator-cron.log 2>&1
