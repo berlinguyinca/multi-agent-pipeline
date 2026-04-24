@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1366" viewBox="0 0 1800 1366">
+<rect x="0" y="0" width="1800" height="1366" fill="#f8fafc"/>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#475569"/></marker></defs>
+<style>text{font-family:Inter,Arial,sans-serif}.title{font-size:34px;font-weight:700;fill:#0f172a}.subtitle{font-size:16px;fill:#475569}.head{font-size:20px;font-weight:700;fill:#0f172a}.label{font-size:15px;fill:#0f172a}.small{font-size:12px;fill:#475569}.box{stroke:#334155;stroke-width:1.4;rx:14;ry:14}.db{fill:#dbeafe}.route{fill:#dcfce7}.merge{fill:#fef3c7}.out{fill:#fce7f3}.artifact{fill:#ede9fe}</style>
+<text x="70" y="58" class="title">Chemlake resolver database routing</text>
+<text x="70" y="90" class="subtitle">Local/offline query classification → resolver indexes → ranked matches → requested outputs</text>
+<text x="70" y="128" class="head">Supported inputs</text>
+<text x="600" y="128" class="head">Resolver route</text>
+<text x="990" y="128" class="head">Ranking</text>
+<text x="1290" y="128" class="head">Outputs</text>
+<g><rect class="box db" x="70" y="150" width="380" height="52"/><text x="86" y="172" class="label">PubChem Compound CID</text><text x="86" y="192" class="small">pubchem_cid</text></g>
+<path d="M450,176 C525,176 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="224" width="380" height="52"/><text x="86" y="246" class="label">PubChem Substance SID</text><text x="86" y="266" class="small">pubchem_sid</text></g>
+<path d="M450,250 C525,250 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="298" width="380" height="52"/><text x="86" y="320" class="label">CAS-like registry number</text><text x="86" y="340" class="small">cas</text></g>
+<path d="M450,324 C525,324 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="372" width="380" height="52"/><text x="86" y="394" class="label">HMDB</text><text x="86" y="414" class="small">hmdb</text></g>
+<path d="M450,398 C525,398 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="446" width="380" height="52"/><text x="86" y="468" class="label">ChEBI</text><text x="86" y="488" class="small">chebi</text></g>
+<path d="M450,472 C525,472 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="520" width="380" height="52"/><text x="86" y="542" class="label">KEGG Compound</text><text x="86" y="562" class="small">kegg</text></g>
+<path d="M450,546 C525,546 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="594" width="380" height="52"/><text x="86" y="616" class="label">LipidMaps</text><text x="86" y="636" class="small">lipidmaps</text></g>
+<path d="M450,620 C525,620 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="668" width="380" height="52"/><text x="86" y="690" class="label">DrugBank</text><text x="86" y="710" class="small">drugbank</text></g>
+<path d="M450,694 C525,694 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="742" width="380" height="52"/><text x="86" y="764" class="label">EPA CompTox / DSSTox</text><text x="86" y="784" class="small">comptox</text></g>
+<path d="M450,768 C525,768 525,176 600,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="816" width="380" height="52"/><text x="86" y="838" class="label">SPLASH / spectra sources</text><text x="86" y="858" class="small">splash</text></g>
+<path d="M450,842 C525,842 525,250 600,250" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="890" width="380" height="52"/><text x="86" y="912" class="label">Preferred names and synonyms</text><text x="86" y="932" class="small">name</text></g>
+<path d="M450,916 C525,916 525,324 600,324" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="964" width="380" height="52"/><text x="86" y="986" class="label">Structure identifiers</text><text x="86" y="1006" class="small">structure</text></g>
+<path d="M450,990 C525,990 525,398 600,398" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="1038" width="380" height="52"/><text x="86" y="1060" class="label">Molecular formula</text><text x="86" y="1080" class="small">formula</text></g>
+<path d="M450,1064 C525,1064 525,472 600,472" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box db" x="70" y="1112" width="380" height="52"/><text x="86" y="1134" class="label">InChIKey first block</text><text x="86" y="1154" class="small">inchikey_block1</text></g>
+<path d="M450,1138 C525,1138 525,546 600,546" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="150" width="290" height="52"/><text x="616" y="172" class="label">Xref index</text><text x="616" y="192" class="small">Source/database identifiers normalized by namespace and…</text></g>
+<path d="M890,176 C940,176 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="224" width="290" height="52"/><text x="616" y="246" class="label">Spectra index</text><text x="616" y="266" class="small">SPLASH/spectral identifiers joined from spectra artifac…</text></g>
+<path d="M890,250 C940,250 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="298" width="290" height="52"/><text x="616" y="320" class="label">Name dictionary index</text><text x="616" y="340" class="small">Preferred names and synonyms normalized for exact dicti…</text></g>
+<path d="M890,324 C940,324 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="372" width="290" height="52"/><text x="616" y="394" class="label">Structure index</text><text x="616" y="414" class="small">Exact InChI, InChIKey, and SMILES fields from local ide…</text></g>
+<path d="M890,398 C940,398 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="446" width="290" height="52"/><text x="616" y="468" class="label">Formula fallback index</text><text x="616" y="488" class="small">Formula-only candidate set with ambiguity-aware lower c…</text></g>
+<path d="M890,472 C940,472 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box route" x="600" y="520" width="290" height="52"/><text x="616" y="542" class="label">Structure fallback index</text><text x="616" y="562" class="small">First-block InChIKey candidate set with lower confidenc…</text></g>
+<path d="M890,546 C940,546 940,320 990,320" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box merge" x="990" y="265" width="390" height="52"/><text x="1006" y="287" class="label">Candidate merge</text><text x="1006" y="307" class="small">dedupe across routes</text></g>
+<g><rect class="box merge" x="990" y="345" width="390" height="52"/><text x="1006" y="367" class="label">Ambiguity-aware ranking</text><text x="1006" y="387" class="small">match level + source/evidence boosts</text></g>
+<g><rect class="box merge" x="990" y="425" width="390" height="52"/><text x="1006" y="447" class="label">Optional confidence</text><text x="1006" y="467" class="small">score and components</text></g>
+<path d="M1185,317 C1185,317 1185,345 1185,345" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<path d="M1185,397 C1185,397 1185,425 1185,425" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="150" width="390" height="52"/><text x="1306" y="172" class="label">Identifiers + xrefs</text><text x="1306" y="192" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,176 1290,176" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="224" width="390" height="52"/><text x="1306" y="246" class="label">Structures + formula/mass</text><text x="1306" y="266" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,250 1290,250" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="298" width="390" height="52"/><text x="1306" y="320" class="label">Names + synonyms</text><text x="1306" y="340" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,324 1290,324" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="372" width="390" height="52"/><text x="1306" y="394" class="label">Spectra</text><text x="1306" y="414" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,398 1290,398" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="446" width="390" height="52"/><text x="1306" y="468" class="label">Evidence + usage/commonness</text><text x="1306" y="488" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,472 1290,472" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="520" width="390" height="52"/><text x="1306" y="542" class="label">Provenance + freshness</text><text x="1306" y="562" class="small">returned when requested/available</text></g>
+<path d="M1380,451 C1335,451 1335,546 1290,546" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<g><rect class="box out" x="1290" y="594" width="390" height="58"/><text x="1306" y="616" class="label">Local-unavailable warnings</text><text x="1306" y="636" class="small">unsupported NCI/CADD hashes</text></g>
+<path d="M1380,451 C1335,451 1335,623 1290,623" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.78"/>
+<text x="70" y="1201" class="head">Local lake artifacts feeding the indexes</text>
+<g><rect class="box artifact" x="70" y="1221" width="310" height="56"/><text x="86" y="1243" class="label">compound_identity JSONL/Parquet</text><text x="86" y="1263" class="small">offline data product</text></g>
+<g><rect class="box artifact" x="410" y="1221" width="310" height="56"/><text x="426" y="1243" class="label">xrefs JSONL/Parquet</text><text x="426" y="1263" class="small">offline data product</text></g>
+<g><rect class="box artifact" x="750" y="1221" width="310" height="56"/><text x="766" y="1243" class="label">synonyms JSONL/Parquet</text><text x="766" y="1263" class="small">offline data product</text></g>
+<g><rect class="box artifact" x="1090" y="1221" width="310" height="56"/><text x="1106" y="1243" class="label">spectra JSONL/Parquet</text><text x="1106" y="1263" class="small">offline data product</text></g>
+<g><rect class="box artifact" x="1430" y="1221" width="310" height="56"/><text x="1446" y="1243" class="label">evidence + manifest/freshness</text><text x="1446" y="1263" class="small">offline data product</text></g>
+</svg>
