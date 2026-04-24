@@ -1,0 +1,89 @@
+graph LR
+  Query[Mixed query or free text] --> Classifier[Query classifier]
+  Discover[Text discovery] --> Classifier
+  subgraph Supported input databases and identifier families
+    db_pubchem_cid[PubChem Compound CID]
+    db_pubchem_sid[PubChem Substance SID]
+    db_cas[CAS-like registry number]
+    db_hmdb[HMDB]
+    db_chebi[ChEBI]
+    db_kegg[KEGG Compound]
+    db_lipidmaps[LipidMaps]
+    db_drugbank[DrugBank]
+    db_comptox[EPA CompTox / DSSTox]
+    db_splash[SPLASH / spectra sources]
+    db_name[Preferred names and synonyms]
+    db_structure[Structure identifiers]
+    db_formula[Molecular formula]
+    db_inchikey_block1[InChIKey first block]
+  end
+  subgraph Resolver indexes
+    route_Xref_index[Xref index]
+    route_Spectra_index[Spectra index]
+    route_Name_dictionary_index[Name dictionary index]
+    route_Structure_index[Structure index]
+    route_Formula_fallback_index[Formula fallback index]
+    route_Structure_fallback_index[Structure fallback index]
+  end
+  subgraph Local lake artifacts
+    Identity[(compound_identity JSONL/Parquet)]
+    Xrefs[(xrefs JSONL/Parquet)]
+    Synonyms[(synonyms JSONL/Parquet)]
+    Spectra[(spectra JSONL/Parquet)]
+    Evidence[(evidence JSONL/Parquet)]
+    Manifest[(manifest/freshness JSON)]
+  end
+  Classifier --> db_pubchem_cid
+  db_pubchem_cid --> route_Xref_index
+  Classifier --> db_pubchem_sid
+  db_pubchem_sid --> route_Xref_index
+  Classifier --> db_cas
+  db_cas --> route_Xref_index
+  Classifier --> db_hmdb
+  db_hmdb --> route_Xref_index
+  Classifier --> db_chebi
+  db_chebi --> route_Xref_index
+  Classifier --> db_kegg
+  db_kegg --> route_Xref_index
+  Classifier --> db_lipidmaps
+  db_lipidmaps --> route_Xref_index
+  Classifier --> db_drugbank
+  db_drugbank --> route_Xref_index
+  Classifier --> db_comptox
+  db_comptox --> route_Xref_index
+  Classifier --> db_splash
+  db_splash --> route_Spectra_index
+  Classifier --> db_name
+  db_name --> route_Name_dictionary_index
+  Classifier --> db_structure
+  db_structure --> route_Structure_index
+  Classifier --> db_formula
+  db_formula --> route_Formula_fallback_index
+  Classifier --> db_inchikey_block1
+  db_inchikey_block1 --> route_Structure_fallback_index
+  Identity --> route_Structure_index
+  Identity --> route_Formula_fallback_index
+  Identity --> route_Structure_fallback_index
+  Xrefs --> route_Xref_index
+  Synonyms --> route_Name_dictionary_index
+  Spectra --> route_Spectra_index
+  Evidence --> Knowledge[Knowledge enrichment]
+  Manifest --> Knowledge
+  route_Xref_index --> Merge[Candidate merge]
+  route_Spectra_index --> Merge[Candidate merge]
+  route_Name_dictionary_index --> Merge[Candidate merge]
+  route_Structure_index --> Merge[Candidate merge]
+  route_Formula_fallback_index --> Merge[Candidate merge]
+  route_Structure_fallback_index --> Merge[Candidate merge]
+  Merge --> Rank[Ambiguity-aware ranking]
+  Rank --> Confidence[Optional confidence score/components]
+  Confidence --> Matches[Ranked Chemlake matches]
+  Knowledge --> Matches
+  Matches --> AllOutputs{Requested outputs}
+  AllOutputs --> out_Identifiers_xrefs[Identifiers + xrefs]
+  AllOutputs --> out_Structures_formula_mass[Structures + formula/mass]
+  AllOutputs --> out_Names_synonyms[Names + synonyms]
+  AllOutputs --> out_Spectra[Spectra]
+  AllOutputs --> out_Evidence_usage_commonness[Evidence + usage/commonness]
+  AllOutputs --> out_Provenance_freshness[Provenance + freshness]
+  Matches --> NotAvailable[Explicit not-available-locally warnings for unsupported NCI/CADD hashes]

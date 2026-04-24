@@ -1,0 +1,25 @@
+[project]
+name = "pubchem-sync"
+version = "0.1.0"
+description = "PubChem FTP synchronization and Markdown conversion for RAG pipelines"
+requires-python = ">=3.9"
+dependencies = ["duckdb>=1.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+postgres = ["psycopg[binary]>=3.1"]
+
+[project.scripts]
+pubchem-sync = "pubchem_sync.cli:main"
+chemlake = "chem_evidence.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

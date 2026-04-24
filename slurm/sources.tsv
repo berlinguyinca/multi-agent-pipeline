@@ -1,0 +1,31 @@
+source	mode	enabled	job	memory	notes
+pubchem	mirror_transform	yes	pubchem	${PUBCHEM_FETCH_MEM}	FTP extras mirror plus normalized transform
+pubmed	api_literature_cache	yes	pubmed_fetch	${PUBMED_FETCH_MEM}	E-utilities query and PMID summary cache
+hmdb	local_import	yes	local_import	${LOCAL_IMPORT_MEM}	Requires HMDB_XML local path or public download staged by operator
+drugbank	local_import	yes	local_import	${LOCAL_IMPORT_MEM}	Requires approved academic/non-commercial local snapshot path
+chebi	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Public download/API source scaffold
+kegg	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Terms-sensitive API/cache scaffold
+chembl	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Public ChEMBL dump/API scaffold
+mesh	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	NCBI MeSH download/API scaffold
+dailymed	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	DailyMed/SPL public API or bulk scaffold
+comptox	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	EPA CompTox API/download scaffold
+dsstox	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	DSSTox public file scaffold
+unii	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	FDA SRS/UNII scaffold
+clinicaltrials	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	ClinicalTrials.gov API cache scaffold
+wikidata	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Weak fallback identity cache scaffold
+lipidmaps	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	LIPID MAPS public source scaffold
+massbank	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	MassBank release/download scaffold
+gnps	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	GNPS public library scaffold
+mona	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	MoNA public download scaffold
+blood-exposome	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Exposure dataset scaffold
+foodb	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Public-file/API-only scaffold; verify terms
+t3db	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Public-file/API-only scaffold; verify terms
+smpdb	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Pathway source scaffold
+metacyc	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Public export/API-only scaffold; verify terms
+reactome	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Reactome public pathway scaffold
+metabolomics-workbench	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Study/metabolite annotation scaffold
+metabolights	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	MetaboLights public API scaffold
+cas-common-chemistry	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Terms-limited identity cache scaffold
+echa	raw_fetch	yes	raw_fetch_scaffold	${RAW_FETCH_MEM}	Regulatory source scaffold; verify terms
+nist	excluded	no	none	0	Paid/restricted spectral library excluded
+mzcloud	excluded	no	none	0	Paid/restricted spectral library excluded

@@ -17,3 +17,39 @@ AGENTS_SUMMARY.md
 .superpowers/
 
 .worktrees/
+
+# Local OS/editor/runtime byproducts
+.DS_Store
+**/.DS_Store
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/__pycache__/
+**/.map/
+**/.omc/
+**/.codesight/
+**/src/*.egg-info/
+
+# Generated local MAP/visual report artifacts
+agent-network*.html
+agent-network*.png
+agent-network*.svg
+agent-graph-manifest.json
+map-result-*.html
+map-result-*.pdf
+manifest.json
+taxonomy-tree.svg
+usage-commonness-ranking.svg
+.tmp-live-gui/
+
+# Local Chemlake source snapshots (large/restricted; keep manifests/docs only)
+hmdb/
+pubchem/
+workspace/config/source-paths.env
+workspace/config/*-source-manifest.json
+workspace/work/.DS_Store
+workspace/work/sources/*
+!workspace/work/sources/README.md
+!workspace/work/sources/hmdb/
+workspace/work/sources/hmdb/*
+!workspace/work/sources/hmdb/.gitkeep
