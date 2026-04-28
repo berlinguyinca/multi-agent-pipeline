@@ -3,18 +3,21 @@
 
 agents:
   spec:
-    adapter: claude          # claude | codex | ollama
+    adapter: ollama
+    model: qwen3.6:latest          # claude | codex | ollama
     # model: deepseek-coder  # required for ollama, ignored for others
   review:
-    adapter: codex
+    adapter: ollama
+    model: qwen3.6:latest
   qa:
     adapter: ollama
-    model: qwen              # used for spec QA and code QA
+    model: qwen3.6:latest
   execute:
     adapter: ollama
-    model: gemma4:26b        # implementation and QA-driven fixes
+    model: qwen3.6:latest
   docs:
-    adapter: claude          # final Markdown documentation update
+    adapter: ollama
+    model: qwen3.6:latest          # final Markdown documentation update
 
 router:
   adapter: ollama

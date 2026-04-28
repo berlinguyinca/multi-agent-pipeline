@@ -383,6 +383,13 @@ map --headless --compact "Investigate a specific question"
 # Write PNG agent-network graphs for every supported DAG layout
 map --headless --graph "Investigate a specific question"
 
+# Inspect all available agents and their inferred handoff/capability connections
+map --agent-graph
+map --agent-graph-json
+
+# Force MAP to load agents from a specific directory (useful when wrapper cwd is different)
+map --agents-dir /Users/wohlgemuth/IdeaProjects/multi-agent-pipeline/agents --agent-graph-json
+
 # Rerun while removing one or more smart-routing agents from consideration
 map --headless --disable-agent output-formatter,researcher "Investigate a specific question"
 
@@ -764,15 +771,20 @@ The stage assignments come from `pipeline.yaml`:
 ```yaml
 agents:
   spec:
-    adapter: claude
+    adapter: ollama
+    model: qwen3.6:latest
   review:
-    adapter: codex
+    adapter: ollama
+    model: qwen3.6:latest
   qa:
-    adapter: codex
+    adapter: ollama
+    model: qwen3.6:latest
   execute:
-    adapter: claude
+    adapter: ollama
+    model: qwen3.6:latest
   docs:
-    adapter: claude
+    adapter: ollama
+    model: qwen3.6:latest
 
 ollama:
   host: http://localhost:11434
@@ -1224,17 +1236,20 @@ Full example:
 ```yaml
 agents:
   spec:
-    adapter: claude
+    adapter: ollama
+    model: qwen3.6:latest
   review:
-    adapter: codex
+    adapter: ollama
+    model: qwen3.6:latest
   qa:
     adapter: ollama
-    model: qwen:latest
+    model: qwen3.6:latest
   execute:
-    adapter: claude
+    adapter: ollama
+    model: qwen3.6:latest
   docs:
     adapter: ollama
-    model: gemma4:26b
+    model: qwen3.6:latest
 
 router:
   adapter: ollama
@@ -1313,6 +1328,10 @@ Options:
   --open-output          Open generated html/pdf output automatically
   --compact              Reduce output to agent graph and Final Result
   --graph                Write PNG agent-network graphs for all DAG layouts
+  --agent-graph          Show all available agents and inferred connections
+  --agent-graph-json     Output agent graph metadata as JSON
+  --agents-dir <path>    Load agents from this directory before fallback directories
+                         Alias: --agent-dir
   --dag-layout <layout>  Force DAG visualization: auto, stage, metro, matrix, cluster, circular
   --total-timeout <dur>  Total headless runtime budget, e.g. 60m
   --inactivity-timeout <dur>

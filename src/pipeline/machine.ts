@@ -27,11 +27,11 @@ export const pipelineMachine = setup({
     createPipelineContext({
       prompt: '',
       agents: {
-        spec: { type: 'claude' },
-        review: { type: 'codex' },
-        qa: { type: 'codex' },
-        execute: { type: 'claude' },
-        docs: { type: 'claude' },
+        spec: { type: 'ollama' },
+        review: { type: 'ollama' },
+        qa: { type: 'ollama' },
+        execute: { type: 'ollama' },
+        docs: { type: 'ollama' },
       },
     }),
   states: {
