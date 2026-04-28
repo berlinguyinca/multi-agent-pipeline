@@ -1,6 +1,7 @@
 name: coder
 description: "Full spec-to-code lifecycle with TDD and documentation"
-adapter: claude
+adapter: ollama
+model: qwen3.6:latest
 prompt: prompt.md
 pipeline:
   - name: spec
